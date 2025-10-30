@@ -109,7 +109,7 @@ router.put('/profile', adminController.updateProfile);
  *           type: integer
  *           default: 10
  *       - in: query
- *         name: is_vetted
+ *         name: is_onboarded
  *         schema:
  *           type: boolean
  *       - in: query
@@ -129,16 +129,16 @@ router.get('/engineers', adminController.getEngineers);
 
 /**
  * @swagger
- * /admin/engineers/{id}:
+ * /admin/engineers/{engineer_id}:
  *   get:
  *     summary: Get specific engineer details
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: engineer_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Engineer details retrieved successfully
@@ -147,20 +147,20 @@ router.get('/engineers', adminController.getEngineers);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.get('/engineers/:id', adminController.getEngineerDetails);
+router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
 
 /**
  * @swagger
- * /admin/engineers/{id}/vet:
+ * /admin/engineers/{engineer_id}/vet:
  *   put:
  *     summary: Vet an engineer
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: engineer_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Engineer vetted successfully
@@ -169,20 +169,20 @@ router.get('/engineers/:id', adminController.getEngineerDetails);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.put('/engineers/:id/vet', adminController.vetEngineer);
+router.put('/engineers/:engineer_id/vet', adminController.vetEngineer);
 
 /**
  * @swagger
- * /admin/engineers/{id}/vet:
+ * /admin/engineers/{engineer_id}/vet:
  *   delete:
  *     summary: Remove engineer vetting
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: engineer_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Vetting removed successfully
@@ -191,20 +191,20 @@ router.put('/engineers/:id/vet', adminController.vetEngineer);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.delete('/engineers/:id/vet', adminController.removeVetting);
+router.delete('/engineers/:engineer_id/vet', adminController.removeVetting);
 
 /**
  * @swagger
- * /admin/engineers/{id}:
+ * /admin/engineers/{engineer_id}:
  *   delete:
  *     summary: Delete engineer account
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: engineer_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Engineer deleted successfully
@@ -213,7 +213,7 @@ router.delete('/engineers/:id/vet', adminController.removeVetting);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.delete('/engineers/:id', adminController.deleteEngineer);
+router.delete('/engineers/:engineer_id', adminController.deleteEngineer);
 
 /**
  * @swagger
@@ -266,12 +266,13 @@ router.get('/project-managers', adminController.getProjectManagers);
  *               email:
  *                 type: string
  *                 format: email
+ *                 example: mishakmanuel@gmail.com
  *               first_name:
  *                 type: string
+ *                 example: Mishak
  *               last_name:
  *                 type: string
- *               company_name:
- *                 type: string
+ *                 example: Mosi
  *     responses:
  *       201:
  *         description: Invitation sent successfully
@@ -284,16 +285,18 @@ router.post('/project-managers/invite', adminController.inviteProjectManager);
 
 /**
  * @swagger
- * /admin/project-managers/{id}:
+ * /admin/project-managers/{project_managers_id}:
  *   get:
  *     summary: Get specific project manager details
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: project_managers_id
  *         required: true
+ *         description: The UUID of the project manager
  *         schema:
- *           type: integer
+ *           type: string
+ *           format: uuid
  *     responses:
  *       200:
  *         description: Project manager details retrieved successfully
@@ -301,21 +304,28 @@ router.post('/project-managers/invite', adminController.inviteProjectManager);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
+ *       400:
+ *         description: Invalid project manager ID format. It must be a valid UUID.
+ *       404:
+ *         description: Project manager not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/project-managers/:id', adminController.getProjectManagerDetails);
+
+router.get('/project-managers/:project_managers_id', adminController.getProjectManagerDetails);
 
 /**
  * @swagger
- * /admin/project-managers/{id}:
+ * /admin/project-managers/{project_managers_id}:
  *   delete:
  *     summary: Delete project manager account
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: project_managers_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Project manager deleted successfully
@@ -324,7 +334,7 @@ router.get('/project-managers/:id', adminController.getProjectManagerDetails);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.delete('/project-managers/:id', adminController.deleteProjectManager);
+router.delete('/project-managers/:project_managers_id', adminController.deleteProjectManager);
 
 /**
  * @swagger
@@ -347,7 +357,7 @@ router.delete('/project-managers/:id', adminController.deleteProjectManager);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [draft, open, closed, in_progress, completed]
+ *           enum: [draft, active, closed]
  *     responses:
  *       200:
  *         description: Jobs retrieved successfully
@@ -360,16 +370,16 @@ router.get('/jobs', adminController.getJobs);
 
 /**
  * @swagger
- * /admin/jobs/{id}:
+ * /admin/jobs/{jobs_id}:
  *   get:
  *     summary: Get specific job details
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Job details retrieved successfully
@@ -378,20 +388,20 @@ router.get('/jobs', adminController.getJobs);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.get('/jobs/:id', adminController.getJobDetails);
+router.get('/jobs/:jobs_id', adminController.getJobDetails);
 
 /**
  * @swagger
- * /admin/jobs/{id}:
+ * /admin/jobs/{jobs_id}:
  *   delete:
  *     summary: Delete job posting
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Job deleted successfully
@@ -400,7 +410,7 @@ router.get('/jobs/:id', adminController.getJobDetails);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.delete('/jobs/:id', adminController.deleteJob);
+router.delete('/jobs/:jobs_id', adminController.deleteJob);
 
 /**
  * @swagger
@@ -436,16 +446,16 @@ router.get('/applications', adminController.getApplications);
 
 /**
  * @swagger
- * /admin/applications/{id}:
+ * /admin/applications/{applications_id}:
  *   get:
  *     summary: Get specific application details
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: applications_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *     responses:
  *       200:
  *         description: Application details retrieved successfully
@@ -454,7 +464,7 @@ router.get('/applications', adminController.getApplications);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.get('/applications/:id', adminController.getApplicationDetails);
+router.get('/applications/:applications_id', adminController.getApplicationDetails);
 
 /**
  * @swagger

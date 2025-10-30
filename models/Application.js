@@ -1,66 +1,86 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
-const User = require('./User');
-const Job = require('./Job');
+const { Model, DataTypes } = require("sequelize");
+const sequelize = require("../config/database");
+const Job = require("./Job");
+const Engineer = require("./Engineer");
+const User = require("./User");
 
-const Application = sequelize.define('Application', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+class Application extends Model {}
+
+Application.init(
+  {
+    applications_id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      defaultValue: DataTypes.UUIDV4,
+    },
+    job_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: Job,
+        key: 'jobs_id',
+      },
+    },
+    engineer_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: User,
+        key: 'user_id',
+      },
+    },
+    job_title: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    engineer_name: {
+      type: DataTypes.TEXT,
+    },
+    status: {
+      type: DataTypes.ENUM('pending', 'reviewed', 'shortlisted', 'accepted', 'rejected'),
+      defaultValue: 'pending',
+    },
+    experience: {
+      type: DataTypes.TEXT,
+    },
+    skills: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      defaultValue: [],
+    },
+    reviewed_at: {
+      type: DataTypes.DATE,
+    },
+    reviewed_by: {
+      type: DataTypes.UUID,
+      references: {
+        model: User,
+        key: 'user_id',
+      },
+    },
+    feedback: {
+      type: DataTypes.TEXT,
+    },
+    applied_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  job_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: Job,
-      key: 'id'
-    }
-  },
-  engineer_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: User,
-      key: 'id'
-    }
-  },
-  cover_letter: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  proposed_rate: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: true
-  },
-  availability: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  status: {
-    type: DataTypes.ENUM('pending', 'reviewed', 'shortlisted', 'rejected', 'hired'),
-    defaultValue: 'pending'
-  },
-  reviewed_at: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  reviewed_by: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  feedback: {
-    type: DataTypes.TEXT,
-    allowNull: true
+  {
+    sequelize,
+    modelName: "Application",
+    tableName: "applications",
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
   }
-});
-
-// Associations
-Application.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
-Application.belongsTo(User, { foreignKey: 'engineer_id', as: 'engineer' });
-Application.belongsTo(User, { foreignKey: 'reviewed_by', as: 'reviewer' });
-
-Job.hasMany(Application, { foreignKey: 'job_id', as: 'applications' });
-User.hasMany(Application, { foreignKey: 'engineer_id', as: 'applications' });
+);
 
 module.exports = Application;

@@ -1,40 +1,50 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
-const User = require('./User');
+const { Model, DataTypes } = require("sequelize");
+const sequelize = require("../config/database");
+const User = require("./User"); // Import User model for relationship
 
-const Admin = sequelize.define('Admin', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  user_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: User,
-      key: 'id'
-    }
-  },
-  permissions: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const value = this.getDataValue('permissions');
-      return value ? JSON.parse(value) : [];
+class Admin extends Model {}
+
+Admin.init(
+  {
+    admin_id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      defaultValue: DataTypes.UUIDV4,
     },
-    set(value) {
-      this.setDataValue('permissions', JSON.stringify(value));
-    }
+    user_id: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      unique: true,
+      references: {
+        model: User,
+        key: 'user_id',
+      },
+    },
+    permissions: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      defaultValue: [],
+    },
+    is_super_admin: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  is_super_admin: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
+  {
+    sequelize,
+    modelName: "Admin",
+    tableName: "admins",
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
   }
-});
-
-// Associations
-Admin.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
-User.hasOne(Admin, { foreignKey: 'user_id', as: 'admin' });
+);
 
 module.exports = Admin;

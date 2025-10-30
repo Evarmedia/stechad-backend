@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -6,9 +7,8 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
-require('dotenv').config();
 
-const { sequelize } = require('./config/database');
+const sequelize = require('./config/database');
 const authRoutes = require('./routes/authRoutes');
 const engineerRoutes = require('./routes/engineerRoutes');
 const pmRoutes = require('./routes/pmRoutes');
@@ -50,17 +50,8 @@ app.use('/uploads', express.static('uploads'));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Engineering Platform API Documentation',
-  swaggerOptions: {
-    url: '/api-docs/swagger.json'
-  }
+  customSiteTitle: 'Stechad Platform API Documentation'
 }));
-
-// Serve swagger.json separately for better compatibility
-app.get('/api-docs/swagger.json', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpecs);
-});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -90,12 +81,8 @@ app.use((err, req, res, next) => {
 
 // 404 handler
 app.use('*', (req, res) => {
+  console.log("Route not found")
   res.status(404).json({ success: false, message: 'Route not found' });
-});
-
-// 🧪 Test Endpoint
-app.get("/", (req, res) => {
-  res.json({ message: "Welcome to Stechad Backend" });
 });
 
 const PORT = process.env.PORT || 5000;
@@ -106,11 +93,12 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connected successfully');
     
-    await sequelize.sync({ force: false });
+    // await sequelize.sync({ alter: true, force: false });
     console.log('Database synchronized');
     
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+      console.log(`👀Server running on port ${PORT}`);
+      console.log(`🖥️ API docs at http://localhost:${PORT}/api-docs`);
     });
   } catch (error) {
     console.error('Unable to start server:', error);

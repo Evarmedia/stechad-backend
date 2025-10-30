@@ -9,13 +9,11 @@ const express = require('express');
 const {
   completeOnboarding,
   getDashboard,
-  getProfile,
   updateProfile,
   getJobs,
   getJobDetails,
   applyForJob,
   getApplications,
-  updateApplication,
   getProjects,
   getProjectDetails
 } = require('../controllers/engineerController');
@@ -31,8 +29,10 @@ router.use(authenticate, authorize('engineer'));
  * @swagger
  * /engineers/onboarding:
  *   post:
- *     summary: Complete engineer onboarding process
+ *     summary: Complete engineer onboarding
  *     tags: [Engineers]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -40,36 +40,71 @@ router.use(authenticate, authorize('engineer'));
  *           schema:
  *             type: object
  *             properties:
- *               skills:
+ *               date_of_birth:
+ *                 type: string
+ *                 format: date
+ *               open_to_nearby_cities:
+ *                 type: boolean
+ *               languages:
  *                 type: array
  *                 items:
  *                   type: string
- *                 example: ["JavaScript", "React", "Node.js"]
- *               experience_years:
- *                 type: integer
- *                 example: 5
- *               bio:
+ *                   example: ["English", "Spanish"]
+ *               language_proficiency:
  *                 type: string
- *                 example: "Experienced full-stack developer with expertise in modern web technologies"
- *               portfolio_url:
+ *                 enum: [basic, conversational, fluent, native]
+ *               has_drivers_license:
+ *                 type: boolean
+ *                 example: true
+ *               has_car:
+ *                 type: boolean
+ *                 example: true
+ *               is_native:
+ *                 type: boolean
+ *                 example: true
+ *               work_authorized:
+ *                 type: boolean
+ *                 example: true
+ *               specialization:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   example: ["Frontend Development", "Backend Development"]
+ *               skill_level:
  *                 type: string
- *                 example: "https://johndoe.dev"
- *               github_url:
- *                 type: string
- *                 example: "https://github.com/johndoe"
- *               linkedin_url:
- *                 type: string
- *                 example: "https://linkedin.com/in/johndoe"
- *               hourly_rate:
+ *                 enum: [beginner, intermediate, advanced, expert]
+ *                 example: expert
+ *               years_of_experience:
  *                 type: number
- *                 format: decimal
- *                 example: 75.00
- *               location:
+ *                 example: 5
+ *               certifications:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   example: ["AWS Certified Developer", "Scrum Master"]
+ *               project_types:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   example: ["Web Applications", "Mobile Apps"]
+ *               open_to_training:
+ *                 type: boolean
+ *                 example: true
+ *               follows_linkedin:
+ *                 type: boolean
+ *                 example: true
+ *               referee_info:
  *                 type: string
- *                 example: "New York, NY"
- *               timezone:
+ *                 example: "John Doe, johndoe@email.com"
+ *               newsletter:
+ *                 type: boolean
+ *                 example: true
+ *               special_preferences:
  *                 type: string
- *                 example: "America/New_York"
+ *                 example: "No weekend work"
+ *               cv_url:
+ *                 type: string
+ *                 example: "htp://mycv.com/johndoe"
  *     responses:
  *       200:
  *         description: Onboarding completed successfully
@@ -155,43 +190,11 @@ router.get('/dashboard', getDashboard);
 /**
  * @swagger
  * /engineers/profile:
- *   get:
- *     summary: Get engineer profile details
- *     tags: [Engineers]
- *     responses:
- *       200:
- *         description: Profile retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   $ref: '#/components/schemas/Engineer'
- *       404:
- *         description: Engineer profile not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: Failed to get profile
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.get('/profile', getProfile);
-
-/**
- * @swagger
- * /engineers/profile:
  *   put:
  *     summary: Update engineer profile
  *     tags: [Engineers]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -199,40 +202,50 @@ router.get('/profile', getProfile);
  *           schema:
  *             type: object
  *             properties:
- *               skills:
+ *               date_of_birth:
+ *                 type: string
+ *                 format: date
+ *                 example: "1990-01-01"
+ *               years_of_experience:
+ *                 type: integer
+ *                 example: 5
+ *               project_types:
  *                 type: array
  *                 items:
  *                   type: string
- *                 example: ["JavaScript", "React", "Node.js", "Python"]
- *               experience_years:
- *                 type: integer
- *                 example: 6
- *               bio:
+ *                 example: ["Web Development", "Mobile App Development"]
+ *               cv_url:
  *                 type: string
- *                 example: "Updated bio with new skills and experience"
- *               portfolio_url:
- *                 type: string
- *                 example: "https://updated-portfolio.com"
- *               github_url:
- *                 type: string
- *                 example: "https://github.com/johndoe"
- *               linkedin_url:
- *                 type: string
- *                 example: "https://linkedin.com/in/johndoe"
+ *                 example: "https://example.com/cv.pdf"
  *               availability:
  *                 type: string
- *                 enum: [available, busy, unavailable]
- *                 example: available
- *               hourly_rate:
- *                 type: number
- *                 format: decimal
- *                 example: 85.00
- *               location:
+ *                 example: "available"
+ *               specialization:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["Backend Development", "Frontend Development"]
+ *               skill_level:
  *                 type: string
- *                 example: "San Francisco, CA"
- *               timezone:
+ *                 example: "advanced"
+ *               first_name:
  *                 type: string
- *                 example: "America/Los_Angeles"
+ *                 example: "John"
+ *               last_name:
+ *                 type: string
+ *                 example: "Doe"
+ *               phone_number:
+ *                 type: string
+ *                 example: "+1234567890"
+ *               city:
+ *                 type: string
+ *                 example: "New York"
+ *               country:
+ *                 type: string
+ *                 example: "USA"
+ *               avatar_url:
+ *                 type: string
+ *                 example: "https://example.com/avatar.jpg"
  *     responses:
  *       200:
  *         description: Profile updated successfully
@@ -301,16 +314,6 @@ router.put('/profile', updateProfile);
  *           type: string
  *           enum: [full_time, part_time, contract, freelance]
  *         description: Filter by job type
- *       - in: query
- *         name: budget_min
- *         schema:
- *           type: number
- *         description: Minimum budget filter
- *       - in: query
- *         name: budget_max
- *         schema:
- *           type: number
- *         description: Maximum budget filter
  *     responses:
  *       200:
  *         description: Jobs retrieved successfully
@@ -355,16 +358,16 @@ router.get('/jobs', getJobs);
 
 /**
  * @swagger
- * /engineers/jobs/{id}:
+ * /engineers/jobs/{jobs_id}:
  *   get:
  *     summary: Get specific job details
  *     tags: [Engineers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Job ID
  *     responses:
  *       200:
@@ -392,20 +395,20 @@ router.get('/jobs', getJobs);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/jobs/:id', getJobDetails);
+router.get('/jobs/:jobs_id', getJobDetails);
 
 /**
  * @swagger
- * /engineers/jobs/{id}/apply:
+ * /engineers/jobs/{jobs_id}/apply:
  *   post:
  *     summary: Apply for a specific job
  *     tags: [Engineers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Job ID
  *     requestBody:
  *       required: true
@@ -459,7 +462,7 @@ router.get('/jobs/:id', getJobDetails);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/jobs/:id/apply', validateApplication, applyForJob);
+router.post('/jobs/:jobs_id/apply', applyForJob);
 
 /**
  * @swagger
@@ -530,70 +533,6 @@ router.get('/applications', getApplications);
 
 /**
  * @swagger
- * /engineers/applications/{id}:
- *   put:
- *     summary: Update application status (withdraw only)
- *     tags: [Engineers]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: Application ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - status
- *             properties:
- *               status:
- *                 type: string
- *                 enum: [pending]
- *                 example: pending
- *                 description: Engineers can only withdraw (set to pending)
- *     responses:
- *       200:
- *         description: Application updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Application updated successfully
- *                 data:
- *                   $ref: '#/components/schemas/Application'
- *       400:
- *         description: Invalid status update
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Application not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: Failed to update application
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.put('/applications/:id', updateApplication);
-
-/**
- * @swagger
  * /engineers/projects:
  *   get:
  *     summary: Get engineer's current and past projects
@@ -661,16 +600,16 @@ router.get('/projects', getProjects);
 
 /**
  * @swagger
- * /engineers/projects/{id}:
+ * /engineers/projects/{projects_id}:
  *   get:
  *     summary: Get specific project details
  *     tags: [Engineers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: projects_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Project ID
  *     responses:
  *       200:

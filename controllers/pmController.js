@@ -1,11 +1,11 @@
-const { User, ProjectManager, Job, Application, Project } = require('../models');
+const { User, Engineer, ProjectManager, Job, Application, Project } = require('../models');
 const { Op } = require('sequelize');
 
 // Get project manager dashboard
 const getDashboard = async (req, res) => {
   try {
     const projectManager = await ProjectManager.findOne({
-      where: { user_id: req.user.id },
+      where: { user_id: req.user.user_id },
       include: [{ model: User, as: 'user' }]
     });
 
@@ -18,13 +18,13 @@ const getDashboard = async (req, res) => {
 
     // Get statistics
     const totalJobs = await Job.count({
-      where: { posted_by: req.user.id }
+      where: { posted_by: req.user.user_id }
     });
 
     const activeJobs = await Job.count({
       where: {
-        posted_by: req.user.id,
-        status: 'open'
+        posted_by: req.user.user_id,
+        status: 'active'
       }
     });
 
@@ -32,20 +32,20 @@ const getDashboard = async (req, res) => {
       include: [{
         model: Job,
         as: 'job',
-        where: { posted_by: req.user.id }
+        where: { posted_by: req.user.user_id }
       }]
     });
 
     const activeProjects = await Project.count({
       where: {
-        client_id: req.user.id,
-        status: ['planning', 'in_progress', 'review']
+        project_managers_user_id: req.user.user_id,
+        status: ['planning', 'in_progress']
       }
     });
 
     const completedProjects = await Project.count({
       where: {
-        client_id: req.user.id,
+        project_managers_user_id: req.user.user_id,
         status: 'completed'
       }
     });
@@ -55,12 +55,12 @@ const getDashboard = async (req, res) => {
       include: [{
         model: Job,
         as: 'job',
-        where: { posted_by: req.user.id },
+        where: { posted_by: req.user.user_id },
         include: [{ model: User, as: 'poster', attributes: ['first_name', 'last_name'] }]
       }, {
         model: User,
-        as: 'engineer',
-        attributes: ['first_name', 'last_name', 'email']
+        as: 'applicant',
+        attributes: ['first_name', 'last_name', 'email'] // Might need more later
       }],
       limit: 5,
       order: [['created_at', 'DESC']]
@@ -95,8 +95,8 @@ const getDashboard = async (req, res) => {
 const getProfile = async (req, res) => {
   try {
     const projectManager = await ProjectManager.findOne({
-      where: { user_id: req.user.id },
-      include: [{ model: User, as: 'user' }]
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: 'user', attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } }]
     });
 
     if (!projectManager) {
@@ -122,7 +122,10 @@ const getProfile = async (req, res) => {
 // Update project manager profile
 const updateProfile = async (req, res) => {
   try {
-    const projectManager = await ProjectManager.findOne({ where: { user_id: req.user.id } });
+    const projectManager = await ProjectManager.findOne({ 
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: 'user', attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } }]
+    });
     
     if (!projectManager) {
       return res.status(404).json({
@@ -131,19 +134,31 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const allowedUpdates = [
+    const allowedProjectManagerUpdates = [
       'company_name', 'company_size', 'industry', 'bio', 'website_url',
       'linkedin_url', 'location', 'timezone'
     ];
 
-    const updates = {};
-    allowedUpdates.forEach(field => {
+    const allowedUserUpdates = [
+      'first_name', 'last_name', 'phone_number', 'city', 'country', 'avatar_url'
+    ];
+
+    const projectManagerUpdates = {};
+    allowedProjectManagerUpdates.forEach(field => {
       if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
+        projectManagerUpdates[field] = req.body[field];
       }
     });
 
-    await projectManager.update(updates);
+    const userUpdates = {};
+    allowedUserUpdates.forEach(field => {
+      if (req.body[field] !== undefined) {
+        userUpdates[field] = req.body[field];
+      }
+    });
+
+    await projectManager.update(projectManagerUpdates);
+    await projectManager.user.update(userUpdates);
 
     res.json({
       success: true,
@@ -164,36 +179,36 @@ const createJob = async (req, res) => {
   try {
     const {
       title,
-      description,
-      requirements,
-      skills_required,
-      budget_min,
-      budget_max,
-      budget_type,
-      duration,
+      company,
       location,
-      remote_allowed,
+      description,
+      salary,
+      duration,
+      openings,
+      employment_type,
       experience_level,
-      job_type,
-      deadline
+      skills_required,
+      requirements,
+      responsibilities,
+      deadline,
     } = req.body;
 
     const job = await Job.create({
+      posted_by: req.user.user_id,
       title,
-      description,
-      requirements,
-      skills_required,
-      budget_min,
-      budget_max,
-      budget_type,
-      duration,
+      company,
       location,
-      remote_allowed,
+      description,
+      employment_type,
+      salary,
+      duration,
+      openings,
       experience_level,
-      job_type,
+      skills_required,
+      requirements,
+      responsibilities,
       deadline,
-      posted_by: req.user.id,
-      status: 'open'
+      status: 'active'
     });
 
     res.status(201).json({
@@ -216,7 +231,7 @@ const getJobs = async (req, res) => {
     const { page = 1, limit = 10, status } = req.query;
     const offset = (page - 1) * limit;
 
-    const where = { posted_by: req.user.id };
+    const where = { posted_by: req.user.user_id };
     if (status) {
       where.status = status;
     }
@@ -252,10 +267,10 @@ const getJobs = async (req, res) => {
 // Update job posting
 const updateJob = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { jobs_id } = req.params;
 
     const job = await Job.findOne({
-      where: { id, posted_by: req.user.id }
+      where: { jobs_id, posted_by: req.user.user_id }
     });
 
     if (!job) {
@@ -266,10 +281,7 @@ const updateJob = async (req, res) => {
     }
 
     const allowedUpdates = [
-      'title', 'description', 'requirements', 'skills_required',
-      'budget_min', 'budget_max', 'budget_type', 'duration',
-      'location', 'remote_allowed', 'experience_level', 'job_type',
-      'status', 'deadline'
+      "title","company","location","description","salary","duration","openings","employment_type","experience_level","skills_required","requirements","responsibilities","deadline", "status"
     ];
 
     const updates = {};
@@ -298,10 +310,10 @@ const updateJob = async (req, res) => {
 // Delete job posting
 const deleteJob = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { jobs_id } = req.params;
 
     const job = await Job.findOne({
-      where: { id, posted_by: req.user.id }
+      where: { jobs_id, posted_by: req.user.user_id }
     });
 
     if (!job) {
@@ -313,7 +325,7 @@ const deleteJob = async (req, res) => {
 
     // Check if job has applications
     const applicationCount = await Application.count({
-      where: { job_id: id }
+      where: { job_id: jobs_id }
     });
 
     if (applicationCount > 0) {
@@ -341,13 +353,13 @@ const deleteJob = async (req, res) => {
 // Get applicants for specific job
 const getJobApplicants = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { jobs_id } = req.params;
     const { page = 1, limit = 10, status } = req.query;
     const offset = (page - 1) * limit;
 
     // Verify job belongs to current PM
     const job = await Job.findOne({
-      where: { id, posted_by: req.user.id }
+      where: { jobs_id, posted_by: req.user.user_id }
     });
 
     if (!job) {
@@ -357,7 +369,7 @@ const getJobApplicants = async (req, res) => {
       });
     }
 
-    const where = { job_id: id };
+    const where = { job_id: jobs_id };
     if (status) {
       where.status = status;
     }
@@ -367,9 +379,9 @@ const getJobApplicants = async (req, res) => {
       include: [
         { 
           model: User, 
-          as: 'engineer', 
+          as: 'applicant', 
           attributes: ['first_name', 'last_name', 'email'],
-          include: [{ model: require('../models').Engineer, as: 'engineer' }]
+          include: [{ model: Engineer, as: 'engineer' }]
         }
       ],
       limit: parseInt(limit),
@@ -401,15 +413,15 @@ const getJobApplicants = async (req, res) => {
 // Update application status
 const updateApplicationStatus = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { applications_id } = req.params;
     const { status, feedback } = req.body;
 
     const application = await Application.findOne({
-      where: { id },
+      where: { applications_id },
       include: [{
         model: Job,
         as: 'job',
-        where: { posted_by: req.user.id }
+        where: { posted_by: req.user.user_id }
       }]
     });
 
@@ -424,7 +436,7 @@ const updateApplicationStatus = async (req, res) => {
       status,
       feedback,
       reviewed_at: new Date(),
-      reviewed_by: req.user.id
+      reviewed_by: req.user.user_id
     });
 
     res.json({
@@ -447,7 +459,7 @@ const getProjects = async (req, res) => {
     const { page = 1, limit = 10, status } = req.query;
     const offset = (page - 1) * limit;
 
-    const where = { client_id: req.user.id };
+    const where = { project_managers_user_id: req.user.user_id };
     if (status) {
       where.status = status;
     }
@@ -491,23 +503,23 @@ const createProject = async (req, res) => {
       title,
       description,
       job_id,
-      engineer_id,
-      budget,
       start_date,
-      end_date,
-      milestones
+      deadline,
+      progress,
+      priority,
+      team,
     } = req.body;
 
     const project = await Project.create({
+      project_managers_user_id: req.user.user_id,
       title,
       description,
       job_id,
-      client_id: req.user.id,
-      engineer_id,
-      budget,
       start_date,
-      end_date,
-      milestones,
+      deadline,
+      progress,
+      priority,
+      team,
       status: 'planning'
     });
 
@@ -528,10 +540,10 @@ const createProject = async (req, res) => {
 // Update project details
 const updateProject = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { projects_id } = req.params;
 
     const project = await Project.findOne({
-      where: { id, client_id: req.user.id }
+      where: { projects_id, project_managers_user_id: req.user.user_id }
     });
 
     if (!project) {
@@ -541,10 +553,7 @@ const updateProject = async (req, res) => {
       });
     }
 
-    const allowedUpdates = [
-      'title', 'description', 'status', 'budget', 'start_date',
-      'end_date', 'actual_end_date', 'progress', 'milestones',
-      'deliverables', 'rating', 'feedback'
+    const allowedUpdates = ['title','description','job_id','start_date','deadline','progress','priority','team','status', 'progress', 'feedback'
     ];
 
     const updates = {};
@@ -573,10 +582,10 @@ const updateProject = async (req, res) => {
 // Delete project
 const deleteProject = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { projects_id } = req.params;
 
     const project = await Project.findOne({
-      where: { id, client_id: req.user.id }
+      where: { projects_id, project_managers_user_id: req.user.user_id }
     });
 
     if (!project) {

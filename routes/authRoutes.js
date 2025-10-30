@@ -10,9 +10,11 @@ const {
   signup,
   login,
   logout,
-  forgotPassword,
-  verifyOTP,
+  sendOtp,
+  verifyEmail,
   resetPassword,
+  editPassword,
+  acceptInvites,
   getMe
 } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
@@ -36,24 +38,29 @@ const router = express.Router();
  *             required:
  *               - email
  *               - password
- *               - first_name
+ *               - confirm_password
+ *               - firsst_name
  *               - last_name
  *               - role
  *             properties:
  *               email:
  *                 type: string
  *                 format: email
- *                 example: john@example.com
+ *                 example: mosimishak@gmail.com
  *               password:
+ *                 type: string
+ *                 minLength: 6
+ *                 example: password123
+ *               confirm_password:
  *                 type: string
  *                 minLength: 6
  *                 example: password123
  *               first_name:
  *                 type: string
- *                 example: John
+ *                 example: Mishak
  *               last_name:
  *                 type: string
- *                 example: Doe
+ *                 example: Mosimabale
  *               role:
  *                 type: string
  *                 enum: [engineer, project_manager, admin]
@@ -116,7 +123,7 @@ router.post('/signup', validateRegistration, signup);
  *               email:
  *                 type: string
  *                 format: email
- *                 example: john@example.com
+ *                 example: mosimishak@gmail.com
  *               password:
  *                 type: string
  *                 example: password123
@@ -159,9 +166,9 @@ router.post('/login', validateLogin, login);
 
 /**
  * @swagger
- * /auth/forgot-password:
+ * /auth/send-otp:
  *   post:
- *     summary: Send password reset OTP to user's email
+ *     summary: Send OTP to user's email for password reset or email verification
  *     tags: [Authentication]
  *     security: []
  *     requestBody:
@@ -172,11 +179,16 @@ router.post('/login', validateLogin, login);
  *             type: object
  *             required:
  *               - email
+ *               - purpose
  *             properties:
  *               email:
  *                 type: string
  *                 format: email
- *                 example: john@example.com
+ *                 example: mosimishak@gmail.com
+ *               purpose:
+ *                 type: string
+ *                 enum: [password_reset, email_verification]
+ *                 example: "password_reset"
  *     responses:
  *       200:
  *         description: OTP sent successfully
@@ -204,13 +216,13 @@ router.post('/login', validateLogin, login);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/forgot-password', forgotPassword);
+router.post('/send-otp', sendOtp);
 
 /**
  * @swagger
- * /auth/verify-otp:
+ * /auth/verifyEmail:
  *   post:
- *     summary: Verify OTP code for password reset
+ *     summary: Verify OTP code for password reset or email verification
  *     tags: [Authentication]
  *     security: []
  *     requestBody:
@@ -226,7 +238,7 @@ router.post('/forgot-password', forgotPassword);
  *               email:
  *                 type: string
  *                 format: email
- *                 example: john@example.com
+ *                 example: mosimishak@gmail.com
  *               otp:
  *                 type: string
  *                 example: "123456"
@@ -257,7 +269,7 @@ router.post('/forgot-password', forgotPassword);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/verify-otp', verifyOTP);
+router.post('/verify-email', verifyEmail);
 
 /**
  * @swagger
@@ -275,16 +287,21 @@ router.post('/verify-otp', verifyOTP);
  *             required:
  *               - email
  *               - otp
- *               - newPassword
+ *               - new_password
+ *               - confirm_password
  *             properties:
  *               email:
  *                 type: string
  *                 format: email
- *                 example: john@example.com
+ *                 example: mosimishak@gmail.com
  *               otp:
  *                 type: string
  *                 example: "123456"
- *               newPassword:
+ *               new_password:
+ *                 type: string
+ *                 minLength: 6
+ *                 example: newpassword123
+ *               confirm_password:
  *                 type: string
  *                 minLength: 6
  *                 example: newpassword123
@@ -316,6 +333,174 @@ router.post('/verify-otp', verifyOTP);
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/reset-password', resetPassword);
+
+/**
+ * @swagger
+ * /auth/edit-password:
+ *   post:
+ *     summary: Edit password for authenticated users
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - old_password
+ *               - new_password
+ *               - confirm_password
+ *             properties:
+ *               old_password:
+ *                 type: string
+ *                 example: oldpassword123
+ *               new_password:
+ *                 type: string
+ *                 minLength: 8
+ *                 example: newpassword123
+ *               confirm_password:
+ *                 type: string
+ *                 minLength: 8
+ *                 example: newpassword123
+ *     responses:
+ *       200:
+ *         description: Password updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password updated successfully
+ *       400:
+ *         description: Current password is incorrect or validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Password update failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/edit-password', authenticate, editPassword);
+
+/**
+ * @swagger
+ * /auth/accept-invite/{token}:
+ *   post:
+ *     summary: Accept an invite and register a new user
+ *     tags: [Authentication]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: Invite token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               temp_password:
+ *                 type: string
+ *                 description: Temporary password
+ *               new_password:
+ *                 type: string
+ *                 description: New password
+ *                 example: "password123"
+ *               confirm_password:
+ *                 type: string
+ *                 description: Confirm new password
+ *                 example: "password123"
+ *               first_name:
+ *                 type: string
+ *                 description: User's first name (optional)
+ *                 example: "King Mosi"
+ *               last_name:
+ *                 type: string
+ *                 description: User's last name (optional)
+ *                 example: "The third"
+ *     responses:
+ *       201:
+ *         description: Invite accepted and user registered successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Invite accepted and user registered successfully, Please Login
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         user_id:
+ *                           type: integer
+ *                         email:
+ *                           type: string
+ *                         first_name:
+ *                           type: string
+ *                         last_name:
+ *                           type: string
+ *                         role:
+ *                           type: string
+ *       400:
+ *         description: Invalid or expired invite, or passwords do not match
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Invalid or expired invite
+ *       401:
+ *         description: Temporary password is incorrect
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Temporary password is incorrect
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Failed to accept invite
+ */
+router.post('/accept-invite/:token', acceptInvites);
 
 // Protected routes
 /**

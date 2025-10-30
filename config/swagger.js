@@ -31,7 +31,7 @@ const options = {
           type: 'object',
           properties: {
             id: { type: 'integer', example: 1 },
-            email: { type: 'string', format: 'email', example: 'john@example.com' },
+            email: { type: 'string', format: 'email', example: 'mosimishak@gmail.com' },
             role: { type: 'string', enum: ['engineer', 'project_manager', 'admin'], example: 'engineer' },
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },

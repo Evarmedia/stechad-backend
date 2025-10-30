@@ -2,46 +2,32 @@ const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const User = require("./User"); // Import User model for relationship
 
-class Notification extends Model {}
+class Chat extends Model {}
 
-Notification.init(
+Chat.init(
   {
-    notifications_id: {
+    chats_id: {
       type: DataTypes.UUID,
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
     },
-    user_id: {
+    participants: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      allowNull: false, // Array of user IDs
+    },
+    last_message_id: {
       type: DataTypes.UUID,
-      allowNull: false,
-      references: {
-        model: User,
-        key: 'user_id',
-      },
     },
-    title: {
+    last_message_content: {
       type: DataTypes.TEXT,
-      allowNull: false,
     },
-    message: {
-      type: DataTypes.TEXT,
-      allowNull: false,
+    last_message_sender_id: {
+      type: DataTypes.UUID,
     },
-    type: {
-      type: DataTypes.ENUM('info', 'success', 'warning'),
-      defaultValue: 'info',
-    },
-    is_read: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-    },
-    read_at: {
+    last_message_timestamp: {
       type: DataTypes.DATE,
     },
-    action_url: {
-      type: DataTypes.TEXT,
-    },
-    metadata: {
+    unread_counts: {
       type: DataTypes.JSONB,
       defaultValue: {},
     },
@@ -56,12 +42,12 @@ Notification.init(
   },
   {
     sequelize,
-    modelName: "Notification",
-    tableName: "notifications",
+    modelName: "Chat",
+    tableName: "chats",
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   }
 );
 
-module.exports = Notification;
+module.exports = Chat;

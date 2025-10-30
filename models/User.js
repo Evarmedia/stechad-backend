@@ -1,67 +1,85 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
+const { Model, DataTypes } = require("sequelize");
+const sequelize = require("../config/database");
 const bcrypt = require('bcryptjs');
 
-const User = sequelize.define('User', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+class User extends Model {}
+
+User.init(
+  {
+    user_id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      defaultValue: DataTypes.UUIDV4,
+    },
+    email: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      unique: true,
+    },
+    password: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    role: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      validate: {
+        isIn: [['admin', 'project_manager', 'engineer']],
+      }
+    },
+    first_name: {
+      type: DataTypes.TEXT,
+    },
+    last_name: {
+      type: DataTypes.TEXT,
+    },
+    phone_number: {
+      type: DataTypes.TEXT,
+    },
+    is_verified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+    avatar_url: {
+      type: DataTypes.TEXT,
+    },
+    country: {
+      type: DataTypes.TEXT,
+    },
+    city: {
+      type: DataTypes.TEXT,
+    },
+    last_login: {
+      type: DataTypes.DATE,
+    },
+    reset_password_token: {
+      type: DataTypes.TEXT,
+    },
+    reset_password_expires: {
+      type: DataTypes.DATE,
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  email: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true,
-    validate: {
-      isEmail: true
-    }
-  },
-  password: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  role: {
-    type: DataTypes.ENUM('engineer', 'project_manager', 'admin'),
-    allowNull: false,
-    defaultValue: 'engineer'
-  },
-  first_name: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  last_name: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  phone: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  avatar: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  is_active: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
-  },
-  is_verified: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  last_login: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  reset_password_token: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  reset_password_expires: {
-    type: DataTypes.DATE,
-    allowNull: true
+  {
+    sequelize,
+    modelName: "User",
+    tableName: "users",
+    timestamps: true, // Sequelize will now handle the timestamps automatically
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
   }
-});
+);
 
 // Hash password before saving
 User.beforeCreate(async (user) => {

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Notification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .content {
+            font-size: 16px;
+            color: #555;
+            line-height: 1.6;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #888;
+        }
+        .login-details {
+            background-color: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">Login Notification</div>
+        <div class="content">
+            <p>Hi {{fullname}},</p>
+            <p>We detected a new login to your account. Here are the details:</p>
+            <div class="login-details">
+                <p>Please be Informed that your stechad account was accessed on</p>
+                <p><strong>{{datetime}}</strong></p>
+                <p>Using device: <strong>{{device}}</strong></p>
+            </div>
+            <p>If this was you, you can safely ignore this email. If you did not authorize this login, please reset your password immediately.</p>
+            <p>Best regards,</p>
+            <p>Team Stechad</p>
+        </div>
+        <div class="footer">
+            You're receiving this email because we detected a login to your account.
+        </div>
+    </div>
+</body>
+</html>

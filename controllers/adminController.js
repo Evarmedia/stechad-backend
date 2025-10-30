@@ -1,7 +1,19 @@
-const { User, Engineer, ProjectManager, Admin, Job, Application, Project, Setting } = require('../models');
-const { Op } = require('sequelize');
-const sendEmail = require('../utils/sendEmail');
-const generateToken = require('../utils/generateToken');
+const {
+  User,
+  Engineer,
+  ProjectManager,
+  Admin,
+  Job,
+  Application,
+  Project,
+  Setting,
+  Invite,
+} = require("../models");
+const { Op } = require("sequelize");
+const sendEmail = require("../utils/sendEmail");
+const { generateTokens } = require("../utils/generateTokens");
+const path = require("path");
+const { v4: uuidv4, validate: uuidValidate } = require("uuid"); // Import UUID validation
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -17,25 +29,38 @@ const getDashboard = async (req, res) => {
     // Get recent activity
     const recentUsers = await User.findAll({
       limit: 5,
-      order: [['created_at', 'DESC']],
-      attributes: ['id', 'first_name', 'last_name', 'email', 'role', 'created_at']
+      order: [["created_at", "DESC"]],
+      attributes: [
+        "user_id",
+        "first_name",
+        "last_name",
+        "email",
+        "role",
+        "created_at",
+      ],
     });
 
     const recentJobs = await Job.findAll({
       limit: 5,
-      order: [['created_at', 'DESC']],
-      include: [{ model: User, as: 'poster', attributes: ['first_name', 'last_name'] }]
+      order: [["created_at", "DESC"]],
+      include: [
+        {
+          model: User,
+          as: "poster",
+          attributes: ["first_name", "last_name", "role"],
+        },
+      ],
     });
 
     // Get growth metrics (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    
+
     const newUsersThisMonth = await User.count({
-      where: { created_at: { [Op.gte]: thirtyDaysAgo } }
+      where: { created_at: { [Op.gte]: thirtyDaysAgo } },
     });
 
     const newJobsThisMonth = await Job.count({
-      where: { created_at: { [Op.gte]: thirtyDaysAgo } }
+      where: { created_at: { [Op.gte]: thirtyDaysAgo } },
     });
 
     const dashboardData = {
@@ -47,23 +72,23 @@ const getDashboard = async (req, res) => {
         totalApplications,
         totalProjects,
         newUsersThisMonth,
-        newJobsThisMonth
+        newJobsThisMonth,
       },
       recentActivity: {
         recentUsers,
-        recentJobs
-      }
+        recentJobs,
+      },
     };
 
     res.json({
       success: true,
-      data: dashboardData
+      data: dashboardData,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get dashboard data',
-      error: error.message
+      message: "Failed to get dashboard data",
+      error: error.message,
     });
   }
 };
@@ -71,22 +96,22 @@ const getDashboard = async (req, res) => {
 // Get platform statistics
 const getStats = async (req, res) => {
   try {
-    const { period = 'month' } = req.query;
-    
+    const { period = "month" } = req.query;
+
     let dateFilter;
     const now = new Date();
-    
+
     switch (period) {
-      case 'week':
+      case "week":
         dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         break;
-      case 'month':
+      case "month":
         dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         break;
-      case 'quarter':
+      case "quarter":
         dateFilter = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
         break;
-      case 'year':
+      case "year":
         dateFilter = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
         break;
       default:
@@ -96,36 +121,42 @@ const getStats = async (req, res) => {
     // User statistics
     const userStats = {
       total: await User.count(),
-      new: await User.count({ where: { created_at: { [Op.gte]: dateFilter } } }),
+      new: await User.count({
+        where: { created_at: { [Op.gte]: dateFilter } },
+      }),
       engineers: await Engineer.count(),
       projectManagers: await ProjectManager.count(),
-      admins: await Admin.count()
+      admins: await Admin.count(),
     };
 
     // Job statistics
     const jobStats = {
       total: await Job.count(),
-      open: await Job.count({ where: { status: 'open' } }),
-      closed: await Job.count({ where: { status: 'closed' } }),
-      completed: await Job.count({ where: { status: 'completed' } }),
-      new: await Job.count({ where: { created_at: { [Op.gte]: dateFilter } } })
+      open: await Job.count({ where: { status: "active" } }),
+      closed: await Job.count({ where: { status: "closed" } }),
+      // completed: await Job.count({ where: { status: 'completed' } }),
+      new: await Job.count({ where: { created_at: { [Op.gte]: dateFilter } } }),
     };
 
     // Application statistics
     const applicationStats = {
       total: await Application.count(),
-      pending: await Application.count({ where: { status: 'pending' } }),
-      hired: await Application.count({ where: { status: 'hired' } }),
-      rejected: await Application.count({ where: { status: 'rejected' } }),
-      new: await Application.count({ where: { created_at: { [Op.gte]: dateFilter } } })
+      pending: await Application.count({ where: { status: "pending" } }),
+      hired: await Application.count({ where: { status: "accepted" } }),
+      rejected: await Application.count({ where: { status: "rejected" } }),
+      new: await Application.count({
+        where: { created_at: { [Op.gte]: dateFilter } },
+      }),
     };
 
     // Project statistics
     const projectStats = {
       total: await Project.count(),
-      active: await Project.count({ where: { status: ['planning', 'in_progress', 'review'] } }),
-      completed: await Project.count({ where: { status: 'completed' } }),
-      cancelled: await Project.count({ where: { status: 'cancelled' } })
+      active: await Project.count({
+        where: { status: ["planning", "in_progress"] },
+      }),
+      completed: await Project.count({ where: { status: "completed" } }),
+      // cancelled: await Project.count({ where: { status: 'cancelled' } })
     };
 
     res.json({
@@ -135,14 +166,14 @@ const getStats = async (req, res) => {
         users: userStats,
         jobs: jobStats,
         applications: applicationStats,
-        projects: projectStats
-      }
+        projects: projectStats,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get statistics',
-      error: error.message
+      message: "Failed to get statistics",
+      error: error.message,
     });
   }
 };
@@ -150,27 +181,27 @@ const getStats = async (req, res) => {
 // Get admin profile
 const getProfile = async (req, res) => {
   try {
-    const admin = await Admin.findOne({
-      where: { user_id: req.user.id },
-      include: [{ model: User, as: 'user' }]
+    const admin = await User.findOne({
+      where: { user_id: req.user.user_id },
+      include: [{ model: Admin, as: "admin" }],
     });
 
     if (!admin) {
       return res.status(404).json({
         success: false,
-        message: 'Admin profile not found'
+        message: "Admin profile not found",
       });
     }
 
     res.json({
       success: true,
-      data: admin
+      data: admin,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get profile',
-      error: error.message
+      message: "Failed to get profile",
+      error: error.message,
     });
   }
 };
@@ -178,12 +209,12 @@ const getProfile = async (req, res) => {
 // Update admin profile
 const updateProfile = async (req, res) => {
   try {
-    const admin = await Admin.findOne({ where: { user_id: req.user.id } });
-    
+    const admin = await Admin.findOne({ where: { user_id: req.user.user_id } });
+
     if (!admin) {
       return res.status(404).json({
         success: false,
-        message: 'Admin profile not found'
+        message: "Admin profile not found",
       });
     }
 
@@ -201,14 +232,14 @@ const updateProfile = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
-      data: admin
+      message: "Profile updated successfully",
+      data: admin,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Profile update failed',
-      error: error.message
+      message: "Profile update failed",
+      error: error.message,
     });
   }
 };
@@ -216,12 +247,17 @@ const updateProfile = async (req, res) => {
 // Get all engineers with pagination
 const getEngineers = async (req, res) => {
   try {
-    const { page = 1, limit = 10, is_vetted, availability } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      is_onboarded,
+      availability = "available",
+    } = req.query;
     const offset = (page - 1) * limit;
 
     const where = {};
-    if (is_vetted !== undefined) {
-      where.is_vetted = is_vetted === 'true';
+    if (is_onboarded !== undefined) {
+      where.is_onboarded = is_onboarded === "true";
     }
     if (availability) {
       where.availability = availability;
@@ -229,10 +265,10 @@ const getEngineers = async (req, res) => {
 
     const engineers = await Engineer.findAndCountAll({
       where,
-      include: [{ model: User, as: 'user' }],
+      include: [{ model: User, as: "user" }],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     res.json({
@@ -243,15 +279,15 @@ const getEngineers = async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(engineers.count / limit),
           totalItems: engineers.count,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get engineers',
-      error: error.message
+      message: "Failed to get engineers",
+      error: error.message,
     });
   }
 };
@@ -259,33 +295,37 @@ const getEngineers = async (req, res) => {
 // Get specific engineer details
 const getEngineerDetails = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { engineer_id } = req.params;
 
     const engineer = await Engineer.findOne({
-      where: { id },
+      where: { engineer_id },
       include: [
-        { model: User, as: 'user' },
-        { model: Application, as: 'applications', include: [{ model: Job, as: 'job' }] },
-        { model: Project, as: 'engineer_projects', include: [{ model: User, as: 'client' }] }
-      ]
+        { model: User, as: "user" },
+        {
+          model: Application,
+          as: "applications",
+          include: [{ model: Job, as: "job" }],
+        },
+        { model: Project, as: "engineer_projects", include: [{ model: User }] },
+      ],
     });
 
     if (!engineer) {
       return res.status(404).json({
         success: false,
-        message: 'Engineer not found'
+        message: "Engineer not found",
       });
     }
 
     res.json({
       success: true,
-      data: engineer
+      data: engineer,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get engineer details',
-      error: error.message
+      message: "Failed to get engineer details",
+      error: error.message,
     });
   }
 };
@@ -293,32 +333,36 @@ const getEngineerDetails = async (req, res) => {
 // Vet an engineer
 const vetEngineer = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { engineer_id } = req.params;
 
-    const engineer = await Engineer.findByPk(id);
+    const engineer = await Engineer.findByPk(engineer_id);
     if (!engineer) {
       return res.status(404).json({
         success: false,
-        message: 'Engineer not found'
+        message: "Engineer not found",
       });
     }
 
     await engineer.update({
       is_vetted: true,
       vetted_at: new Date(),
-      vetted_by: req.user.id
+      vetted_by: req.user.user_id,
+    });
+
+    const updatedEngineer = await Engineer.findByPk(engineer_id, {
+      include: [{ model: User, as: "vettedBy" }],
     });
 
     res.json({
       success: true,
-      message: 'Engineer vetted successfully',
-      data: engineer
+      message: "Engineer vetted successfully",
+      data: updatedEngineer,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to vet engineer',
-      error: error.message
+      message: "Failed to vet engineer",
+      error: error.message,
     });
   }
 };
@@ -326,32 +370,32 @@ const vetEngineer = async (req, res) => {
 // Remove engineer vetting
 const removeVetting = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { engineer_id } = req.params;
 
-    const engineer = await Engineer.findByPk(id);
+    const engineer = await Engineer.findByPk(engineer_id);
     if (!engineer) {
       return res.status(404).json({
         success: false,
-        message: 'Engineer not found'
+        message: "Engineer not found",
       });
     }
 
     await engineer.update({
       is_vetted: false,
       vetted_at: null,
-      vetted_by: null
+      vetted_by: null,
     });
 
     res.json({
       success: true,
-      message: 'Engineer vetting removed successfully',
-      data: engineer
+      message: "Engineer vetting removed successfully",
+      data: engineer,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to remove vetting',
-      error: error.message
+      message: "Failed to remove vetting",
+      error: error.message,
     });
   }
 };
@@ -359,16 +403,16 @@ const removeVetting = async (req, res) => {
 // Delete engineer account
 const deleteEngineer = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { engineer_id } = req.params;
 
-    const engineer = await Engineer.findByPk(id, {
-      include: [{ model: User, as: 'user' }]
+    const engineer = await Engineer.findByPk(engineer_id, {
+      include: [{ model: User, as: "user" }],
     });
 
     if (!engineer) {
       return res.status(404).json({
         success: false,
-        message: 'Engineer not found'
+        message: "Engineer not found",
       });
     }
 
@@ -376,14 +420,14 @@ const deleteEngineer = async (req, res) => {
     const activeProjects = await Project.count({
       where: {
         engineer_id: engineer.user_id,
-        status: ['planning', 'in_progress', 'review']
-      }
+        status: ["planning", "in_progress"],
+      },
     });
 
     if (activeProjects > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete engineer with active projects'
+        message: "Cannot delete engineer with active projects",
       });
     }
 
@@ -393,13 +437,13 @@ const deleteEngineer = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Engineer deleted successfully'
+      message: "Engineer deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to delete engineer',
-      error: error.message
+      message: "Failed to delete engineer",
+      error: error.message,
     });
   }
 };
@@ -412,15 +456,15 @@ const getProjectManagers = async (req, res) => {
 
     const where = {};
     if (is_verified !== undefined) {
-      where.is_verified = is_verified === 'true';
+      where.is_verified = is_verified === "true";
     }
 
     const projectManagers = await ProjectManager.findAndCountAll({
       where,
-      include: [{ model: User, as: 'user' }],
+      include: [{ model: User, as: "user" }],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     res.json({
@@ -431,15 +475,15 @@ const getProjectManagers = async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(projectManagers.count / limit),
           totalItems: projectManagers.count,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get project managers',
-      error: error.message
+      message: "Failed to get project managers",
+      error: error.message,
     });
   }
 };
@@ -447,55 +491,63 @@ const getProjectManagers = async (req, res) => {
 // Invite new project manager
 const inviteProjectManager = async (req, res) => {
   try {
-    const { email, first_name, last_name, company_name } = req.body;
+    const { email, first_name, role = "project_manager" } = req.body;
+
+    // Generate temporary password
+    const tempPassword = Math.random().toString(36).slice(-8);
+
+    // Generate token
+    const token = uuidv4();
 
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email'
+        message: "User already exists with this email, Please Login",
       });
     }
 
-    // Generate temporary password
-    const tempPassword = Math.random().toString(36).slice(-8);
-
-    // Create user
-    const user = await User.create({
+    // Create invited user
+    const invitedUser = await Invite.create({
       email,
-      password: tempPassword,
+      temp_password: tempPassword, // set to temp_password Later
+      role: role,
       first_name,
-      last_name,
-      role: 'project_manager'
+      token,
+      invited_by_user_id: req.user.user_id,
+      sent_at: new Date(),
     });
 
-    // Create project manager profile
-    await ProjectManager.create({
-      user_id: user.id,
-      company_name
-    });
+    const htmlFilePath = path.join(
+      __dirname,
+      "../templates/projectManagerInvitation.html"
+    );
+
+    const replacements = {
+      firstname: first_name,
+      tempPassword, // remember to embed token in link
+      year: new Date().getFullYear(),
+      token,
+    };
 
     // Send invitation email
-    const message = `You have been invited to join our engineering platform as a Project Manager. Your temporary password is: ${tempPassword}. Please login and change your password.`;
-    
     await sendEmail({
-      email: user.email,
-      subject: 'Invitation to Engineering Platform',
-      message,
-      html: `<p>You have been invited to join our engineering platform as a Project Manager.</p><p>Your temporary password is: <strong>${tempPassword}</strong></p><p>Please login and change your password.</p>`
+      to: invitedUser.email,
+      subject: "Invitation to Stechad Engineer Management Platform",
+      htmlFilePath,
+      replacements,
     });
 
     res.status(201).json({
       success: true,
-      message: 'Project manager invited successfully',
-      data: { user_id: user.id, email: user.email }
+      message: "Project manager invited successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to invite project manager',
-      error: error.message
+      message: "Failed to invite project manager",
+      error: error.message,
     });
   }
 };
@@ -503,33 +555,57 @@ const inviteProjectManager = async (req, res) => {
 // Get specific project manager details
 const getProjectManagerDetails = async (req, res) => {
   try {
-    const { id } = req.params;
+    let { project_managers_id } = req.params;
 
+    // Log the project_manager_id to check the value passed
+    console.log(`Received project_manager_id: '${project_managers_id}'`);
+
+    // Trim any leading or trailing whitespace
+    project_managers_id = project_managers_id.trim();
+
+    // Validate that the project_managers_id is a valid UUID
+    if (!uuidValidate(project_managers_id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid project manager ID format. It must be a valid UUID.",
+      });
+    }
+
+    // Use the correct aliases in the include section
     const projectManager = await ProjectManager.findOne({
-      where: { id },
+      where: { project_managers_id: project_managers_id },
       include: [
-        { model: User, as: 'user' },
-        { model: Job, as: 'posted_jobs' },
-        { model: Project, as: 'client_projects', include: [{ model: User, as: 'engineer' }] }
-      ]
+        { model: User, as: "user" }, // ProjectManager's associated user
+        { model: Job, as: "posted_jobs" },
+        {
+          model: Project,
+          as: "pm_projects", // Projects associated with the ProjectManager
+          include: [
+            {
+              model: User,
+              as: "engineer", // Engineer associated with the Project
+            },
+          ],
+        },
+      ],
     });
 
     if (!projectManager) {
       return res.status(404).json({
         success: false,
-        message: 'Project manager not found'
+        message: "Project manager not found",
       });
     }
 
     res.json({
       success: true,
-      data: projectManager
+      data: projectManager,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get project manager details',
-      error: error.message
+      message: "Failed to get project manager details",
+      error: error.message,
     });
   }
 };
@@ -537,31 +613,31 @@ const getProjectManagerDetails = async (req, res) => {
 // Delete project manager account
 const deleteProjectManager = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { project_managers_id } = req.params;
 
-    const projectManager = await ProjectManager.findByPk(id, {
-      include: [{ model: User, as: 'user' }]
+    const projectManager = await ProjectManager.findByPk(project_managers_id, {
+      include: [{ model: User, as: "user" }],
     });
 
     if (!projectManager) {
       return res.status(404).json({
         success: false,
-        message: 'Project manager not found'
+        message: "Project manager not found",
       });
     }
 
     // Check for active projects
     const activeProjects = await Project.count({
       where: {
-        client_id: projectManager.user_id,
-        status: ['planning', 'in_progress', 'review']
-      }
+        project_managers_user_id: projectManager.user_id,
+        status: ["in_progress",],
+      },
     });
 
     if (activeProjects > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete project manager with active projects'
+        message: "Cannot delete project manager with active projects",
       });
     }
 
@@ -571,13 +647,13 @@ const deleteProjectManager = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Project manager deleted successfully'
+      message: "Project manager deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to delete project manager',
-      error: error.message
+      message: "Failed to delete project manager",
+      error: error.message,
     });
   }
 };
@@ -595,10 +671,12 @@ const getJobs = async (req, res) => {
 
     const jobs = await Job.findAndCountAll({
       where,
-      include: [{ model: User, as: 'poster', attributes: ['first_name', 'last_name'] }],
+      include: [
+        { model: User, as: "poster", attributes: ["first_name", "last_name"] },
+      ],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     res.json({
@@ -609,15 +687,15 @@ const getJobs = async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(jobs.count / limit),
           totalItems: jobs.count,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get jobs',
-      error: error.message
+      message: "Failed to get jobs",
+      error: error.message,
     });
   }
 };
@@ -625,32 +703,36 @@ const getJobs = async (req, res) => {
 // Get specific job details
 const getJobDetails = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { jobs_id } = req.params;
 
     const job = await Job.findOne({
-      where: { id },
+      where: { jobs_id },
       include: [
-        { model: User, as: 'poster', attributes: ['first_name', 'last_name'] },
-        { model: Application, as: 'applications', include: [{ model: User, as: 'engineer' }] }
-      ]
+        { model: User, as: "poster", attributes: ["first_name", "last_name"] },
+        {
+          model: Application,
+          as: "applications",
+          include: [{ model: User, as: "engineer" }],
+        },
+      ],
     });
 
     if (!job) {
       return res.status(404).json({
         success: false,
-        message: 'Job not found'
+        message: "Job not found",
       });
     }
 
     res.json({
       success: true,
-      data: job
+      data: job,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get job details',
-      error: error.message
+      message: "Failed to get job details",
+      error: error.message,
     });
   }
 };
@@ -658,25 +740,25 @@ const getJobDetails = async (req, res) => {
 // Delete job posting
 const deleteJob = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { jobs_id } = req.params;
 
-    const job = await Job.findByPk(id);
+    const job = await Job.findByPk(jobs_id);
     if (!job) {
       return res.status(404).json({
         success: false,
-        message: 'Job not found'
+        message: "Job not found",
       });
     }
 
     // Check for applications
     const applicationCount = await Application.count({
-      where: { job_id: id }
+      where: { job_id: jobs_id },
     });
 
     if (applicationCount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete job with existing applications'
+        message: "Cannot delete job with existing applications",
       });
     }
 
@@ -684,13 +766,13 @@ const deleteJob = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Job deleted successfully'
+      message: "Job deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to delete job',
-      error: error.message
+      message: "Failed to delete job",
+      error: error.message,
     });
   }
 };
@@ -709,12 +791,16 @@ const getApplications = async (req, res) => {
     const applications = await Application.findAndCountAll({
       where,
       include: [
-        { model: Job, as: 'job', attributes: ['title'] },
-        { model: User, as: 'engineer', attributes: ['first_name', 'last_name'] }
+        { model: Job, as: "job", attributes: ["title"] },
+        {
+          model: User,
+          as: "applicant",
+          attributes: ["first_name", "last_name"],
+        },
       ],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['created_at', 'DESC']]
+      order: [["created_at", "DESC"]],
     });
 
     res.json({
@@ -725,15 +811,15 @@ const getApplications = async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(applications.count / limit),
           totalItems: applications.count,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get applications',
-      error: error.message
+      message: "Failed to get applications",
+      error: error.message,
     });
   }
 };
@@ -741,33 +827,36 @@ const getApplications = async (req, res) => {
 // Get specific application details
 const getApplicationDetails = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { applications_id } = req.params;
 
     const application = await Application.findOne({
-      where: { id },
+      where: { applications_id },
       include: [
-        { model: Job, as: 'job' },
-        { model: User, as: 'engineer' },
-        { model: User, as: 'reviewer', attributes: ['first_name', 'last_name'] }
-      ]
+        { model: Job, as: "job", include: [{ model: User, as: "poster", attributes: ["first_name", "last_name"] }] },
+        {
+          model: User,
+          as: "applicant",
+          attributes: ["first_name", "last_name"],
+        },
+      ],
     });
 
     if (!application) {
       return res.status(404).json({
         success: false,
-        message: 'Application not found'
+        message: "Application not found",
       });
     }
 
     res.json({
       success: true,
-      data: application
+      data: application,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get application details',
-      error: error.message
+      message: "Failed to get application details",
+      error: error.message,
     });
   }
 };
@@ -779,11 +868,11 @@ const getEngineerVetting = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const engineers = await Engineer.findAndCountAll({
-      where: { is_vetted: false, onboarding_completed: true },
-      include: [{ model: User, as: 'user' }],
+      where: { is_vetted: false, is_onboarded: true },
+      include: [{ model: User, as: "user", attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } },],
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['created_at', 'ASC']]
+      order: [["created_at", "ASC"]],
     });
 
     res.json({
@@ -794,15 +883,15 @@ const getEngineerVetting = async (req, res) => {
           currentPage: parseInt(page),
           totalPages: Math.ceil(engineers.count / limit),
           totalItems: engineers.count,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get engineers pending vetting',
-      error: error.message
+      message: "Failed to get engineers pending vetting",
+      error: error.message,
     });
   }
 };
@@ -811,39 +900,39 @@ const getEngineerVetting = async (req, res) => {
 const getSettings = async (req, res) => {
   try {
     const settings = await Setting.findAll();
-    
+
     const settingsObject = {};
-    settings.forEach(setting => {
+    settings.forEach((setting) => {
       let value = setting.value;
-      
+
       // Parse value based on type
       switch (setting.type) {
-        case 'number':
+        case "number":
           value = parseFloat(value);
           break;
-        case 'boolean':
-          value = value === 'true';
+        case "boolean":
+          value = value === "true";
           break;
-        case 'json':
+        case "json":
           value = JSON.parse(value);
           break;
         default:
           // string - no parsing needed
           break;
       }
-      
+
       settingsObject[setting.key] = value;
     });
 
     res.json({
       success: true,
-      data: settingsObject
+      data: settingsObject,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get settings',
-      error: error.message
+      message: "Failed to get settings",
+      error: error.message,
     });
   }
 };
@@ -854,37 +943,37 @@ const updateSettings = async (req, res) => {
     const { settings } = req.body;
 
     for (const [key, value] of Object.entries(settings)) {
-      let type = 'string';
+      let type = "string";
       let stringValue = value;
 
       // Determine type and convert to string
-      if (typeof value === 'number') {
-        type = 'number';
+      if (typeof value === "number") {
+        type = "number";
         stringValue = value.toString();
-      } else if (typeof value === 'boolean') {
-        type = 'boolean';
+      } else if (typeof value === "boolean") {
+        type = "boolean";
         stringValue = value.toString();
-      } else if (typeof value === 'object') {
-        type = 'json';
+      } else if (typeof value === "object") {
+        type = "json";
         stringValue = JSON.stringify(value);
       }
 
       await Setting.upsert({
         key,
         value: stringValue,
-        type
+        type,
       });
     }
 
     res.json({
       success: true,
-      message: 'Settings updated successfully'
+      message: "Settings updated successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to update settings',
-      error: error.message
+      message: "Failed to update settings",
+      error: error.message,
     });
   }
 };
@@ -910,5 +999,5 @@ module.exports = {
   getApplicationDetails,
   getEngineerVetting,
   getSettings,
-  updateSettings
+  updateSettings,
 };

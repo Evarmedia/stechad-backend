@@ -1,5 +1,5 @@
 const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return Math.floor(100000 + Math.random() * 900000).toString(); // number of figures: 6
 };
 
 const generateOTPExpiry = () => {

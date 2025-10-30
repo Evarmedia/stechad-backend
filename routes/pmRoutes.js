@@ -65,6 +65,8 @@ router.get('/profile', pmController.getProfile);
  *   put:
  *     summary: Update project manager profile
  *     tags: [Project Managers]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -96,6 +98,24 @@ router.get('/profile', pmController.getProfile);
  *               timezone:
  *                 type: string
  *                 example: "America/Los_Angeles"
+ *               first_name:
+ *                 type: string
+ *                 example: "John"
+ *               last_name:
+ *                 type: string
+ *                 example: "Doe"
+ *               phone_number:
+ *                 type: string
+ *                 example: "+1234567890"
+ *               city:
+ *                 type: string
+ *                 example: "New York"
+ *               country:
+ *                 type: string
+ *                 example: "USA"
+ *               avatar_url:
+ *                 type: string
+ *                 example: "https://example.com/avatar.jpg"
  *     responses:
  *       200:
  *         description: Profile updated successfully
@@ -103,6 +123,12 @@ router.get('/profile', pmController.getProfile);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
+ *       404:
+ *         description: Project manager profile not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       500:
  *         description: Server error
  *         content:
@@ -126,60 +152,67 @@ router.put('/profile', pmController.updateProfile);
  *             type: object
  *             required:
  *               - title
+ *               - company
+ *               - location
  *               - description
- *               - budget_type
+ *               - employment_type
+ *               - salary
+ *               - duration
+ *               - openings
  *               - experience_level
- *               - job_type
+ *               - skills_required
+ *               - requirements
+ *               - responsibilities
+ *               - deadline
  *             properties:
  *               title:
  *                 type: string
  *                 example: "Senior React Developer"
+ *               company:
+ *                 type: string
+ *                 example: "Stechad ltd"
+ *               location:
+ *                 type: string
+ *                 example: "remote"
  *               description:
  *                 type: string
  *                 example: "We are looking for an experienced React developer..."
- *               requirements:
- *                 type: array
- *                 items:
- *                   type: string
- *                 example: ["5+ years React experience", "TypeScript proficiency"]
+ *               salary:
+ *                 type: string
+ *                 example: "100usd"
+ *               duration:
+ *                 type: string
+ *                 example: "3 months"
+ *               openings:
+ *                 type: number
+ *                 example: "1"
+ *               employment_type:
+ *                 type: string
+ *                 enum: ['full-time', 'contract', 'part-time']
+ *                 example: "contract"
+ *               experience_level:
+ *                 type: string
+ *                 enum: [entry, intermediate, senior, expert]
+ *                 example: "senior"
  *               skills_required:
  *                 type: array
  *                 items:
  *                   type: string
  *                 example: ["React", "TypeScript", "Node.js"]
- *               budget_min:
- *                 type: number
- *                 format: decimal
- *                 example: 5000.00
- *               budget_max:
- *                 type: number
- *                 format: decimal
- *                 example: 8000.00
- *               budget_type:
- *                 type: string
- *                 enum: [hourly, fixed, negotiable]
- *                 example: "fixed"
- *               duration:
- *                 type: string
- *                 example: "3 months"
- *               location:
- *                 type: string
- *                 example: "Remote"
- *               remote_allowed:
- *                 type: boolean
- *                 example: true
- *               experience_level:
- *                 type: string
- *                 enum: [entry, intermediate, senior, expert]
- *                 example: "senior"
- *               job_type:
- *                 type: string
- *                 enum: [full_time, part_time, contract, freelance]
- *                 example: "contract"
+ *               requirements:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["5+ years React experience", "TypeScript proficiency"]
+ *               responsibilities:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["Build clean architecture", "Debug projects"]
  *               deadline:
  *                 type: string
  *                 format: date-time
- *                 example: "2024-03-01T00:00:00Z"
+ *                 example: "2025-11-01T00:00:00Z"
  *     responses:
  *       201:
  *         description: Job created successfully
@@ -225,7 +258,7 @@ router.post('/jobs', validateJobCreation, pmController.createJob);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [draft, open, closed, in_progress, completed]
+ *           enum: [draft, active, closed]
  *         description: Filter by job status
  *     responses:
  *       200:
@@ -245,42 +278,90 @@ router.get('/jobs', pmController.getJobs);
 
 /**
  * @swagger
- * /pm/jobs/{id}:
+ * /pm/jobs/{jobs_id}:
  *   put:
  *     summary: Update job posting
  *     tags: [Project Managers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Job ID
- *     requestBody:
+*     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - title
+ *               - company
+ *               - location
+ *               - description
+ *               - employment_type
+ *               - salary
+ *               - duration
+ *               - openings
+ *               - experience_level
+ *               - skills_required
+ *               - requirements
+ *               - responsibilities
+ *               - deadline
  *             properties:
  *               title:
  *                 type: string
- *                 example: "Updated Job Title"
+ *                 example: "Expert Rust Developer"
+ *               company:
+ *                 type: string
+ *                 example: "Stechad ltd"
+ *               location:
+ *                 type: string
+ *                 example: "remote"
  *               description:
  *                 type: string
- *                 example: "Updated job description..."
+ *                 example: "We are looking for an experienced Rust developer..."
+ *               salary:
+ *                 type: string
+ *                 example: "200EUR"
+ *               duration:
+ *                 type: string
+ *                 example: "6 months"
+ *               openings:
+ *                 type: number
+ *                 example: "1"
+ *               employment_type:
+ *                 type: string
+ *                 enum: ['full-time', 'contract', 'part-time']
+ *                 example: "full-time"
+ *               experience_level:
+ *                 type: string
+ *                 enum: [entry, intermediate, senior, expert]
+ *                 example: "expert"
+ *               skills_required:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["React", "TypeScript", "Node.js"]
+ *               requirements:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["12+ years expert experience", "Rust proficiency"]
+ *               responsibilities:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["Build clean architecture", "Debug projects"]
  *               status:
  *                 type: string
- *                 enum: [draft, open, closed, in_progress, completed]
- *                 example: "open"
- *               budget_min:
- *                 type: number
- *                 format: decimal
- *                 example: 6000.00
- *               budget_max:
- *                 type: number
- *                 format: decimal
- *                 example: 9000.00
+ *                 enum: [draft, active, closed]
+ *                 example: "draft"
+ *               deadline:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-10-01T00:00:00Z"
  *     responses:
  *       200:
  *         description: Job updated successfully
@@ -301,20 +382,20 @@ router.get('/jobs', pmController.getJobs);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/jobs/:id', pmController.updateJob);
+router.put('/jobs/:jobs_id', pmController.updateJob); // move
 
 /**
  * @swagger
- * /pm/jobs/{id}:
+ * /pm/jobs/{jobs_id}:
  *   delete:
  *     summary: Delete job posting
  *     tags: [Project Managers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Job ID
  *     responses:
  *       200:
@@ -336,20 +417,20 @@ router.put('/jobs/:id', pmController.updateJob);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.delete('/jobs/:id', pmController.deleteJob);
+router.delete('/jobs/:jobs_id', pmController.deleteJob); // move
 
 /**
  * @swagger
- * /pm/jobs/{id}/applicants:
+ * /pm/jobs/{jobs_id}/applicants:
  *   get:
  *     summary: Get applicants for specific job
  *     tags: [Project Managers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: jobs_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Job ID
  *       - in: query
  *         name: page
@@ -367,7 +448,7 @@ router.delete('/jobs/:id', pmController.deleteJob);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [pending, reviewed, shortlisted, rejected, hired]
+ *           enum: [pending, reviewed, shortlisted, rejected, accepted]
  *         description: Filter by application status
  *     responses:
  *       200:
@@ -389,20 +470,20 @@ router.delete('/jobs/:id', pmController.deleteJob);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/jobs/:id/applicants', pmController.getJobApplicants);
+router.get('/jobs/:jobs_id/applicants', pmController.getJobApplicants); // move
 
 /**
  * @swagger
- * /pm/applications/{id}/status:
+ * /pm/applications/{applications_id}/status:
  *   put:
  *     summary: Update application status
  *     tags: [Project Managers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: applications_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Application ID
  *     requestBody:
  *       required: true
@@ -440,7 +521,7 @@ router.get('/jobs/:id/applicants', pmController.getJobApplicants);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/applications/:id/status', pmController.updateApplicationStatus);
+router.put('/applications/:applications_id/status', pmController.updateApplicationStatus); // move
 
 /**
  * @swagger
@@ -497,7 +578,6 @@ router.get('/projects', pmController.getProjects);
  *             type: object
  *             required:
  *               - title
- *               - engineer_id
  *             properties:
  *               title:
  *                 type: string
@@ -508,26 +588,26 @@ router.get('/projects', pmController.getProjects);
  *               job_id:
  *                 type: integer
  *                 example: 1
- *               engineer_id:
+ *               progress:
  *                 type: integer
- *                 example: 5
- *               budget:
- *                 type: number
- *                 format: decimal
- *                 example: 7500.00
+ *                 example: 50
+ *               priority:
+ *                 type: string
+ *                 enum: [high, medium, low, critical]
+ *                 example: "high"
  *               start_date:
  *                 type: string
  *                 format: date-time
  *                 example: "2024-02-01T00:00:00Z"
- *               end_date:
+ *               deadline:
  *                 type: string
  *                 format: date-time
  *                 example: "2024-05-01T00:00:00Z"
- *               milestones:
+ *               team:
  *                 type: array
  *                 items:
- *                   type: object
- *                 example: [{"name": "Design Phase", "deadline": "2024-02-15", "completed": false}]
+ *                   type: string
+ *                 example: ["Micheal Scott", "Pam Beesly"]
  *     responses:
  *       201:
  *         description: Project created successfully
@@ -552,16 +632,16 @@ router.post('/projects', pmController.createProject);
 
 /**
  * @swagger
- * /pm/projects/{id}:
+ * /pm/projects/{projects_id}:
  *   put:
  *     summary: Update project details
  *     tags: [Project Managers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: projects_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Project ID
  *     requestBody:
  *       required: true
@@ -572,23 +652,37 @@ router.post('/projects', pmController.createProject);
  *             properties:
  *               title:
  *                 type: string
- *                 example: "Updated Project Title"
+ *                 example: "Exam Website Development"
  *               description:
  *                 type: string
- *                 example: "Updated project description"
+ *                 example: "Building a modern e-Exam platform with Nextjs and Node.js"
+ *               job_id:
+ *                 type: integer
+ *                 example: optional
  *               status:
  *                 type: string
- *                 enum: [planning, in_progress, review, completed, cancelled]
+ *                 enum: [planning, in_progress, completed, on_hold, cancelled]
  *                 example: "in_progress"
  *               progress:
  *                 type: integer
- *                 minimum: 0
- *                 maximum: 100
- *                 example: 75
- *               budget:
- *                 type: number
- *                 format: decimal
- *                 example: 8000.00
+ *                 example: 70
+ *               priority:
+ *                 type: string
+ *                 enum: [high, medium, low, critical]
+ *                 example: "medium"
+ *               start_date:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2024-02-01T00:00:00Z"
+ *               deadline:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2024-05-01T00:00:00Z"
+ *               team:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["Micheal Scott", "Pam Beesly"]
  *     responses:
  *       200:
  *         description: Project updated successfully
@@ -609,20 +703,20 @@ router.post('/projects', pmController.createProject);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/projects/:id', pmController.updateProject);
+router.put('/projects/:projects_id', pmController.updateProject);
 
 /**
  * @swagger
- * /pm/projects/{id}:
+ * /pm/projects/{projects_id}:
  *   delete:
  *     summary: Delete project
  *     tags: [Project Managers]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: projects_id
  *         required: true
  *         schema:
- *           type: integer
+ *           type: string
  *         description: Project ID
  *     responses:
  *       200:
@@ -644,6 +738,6 @@ router.put('/projects/:id', pmController.updateProject);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.delete('/projects/:id', pmController.deleteProject);
+router.delete('/projects/:projects_id', pmController.deleteProject);
 
 module.exports = router;

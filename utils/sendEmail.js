@@ -1,30 +1,43 @@
 const nodemailer = require('nodemailer');
+const fs = require('fs');
+
 
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: false,
+  host: 'smtp.hostinger.com',
+  port: 465,
+  secure: true,
   auth: {
-    user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD
-  }
+    user: 'no_reply@stechad.com',
+    pass: 'WBkc8:Zz9&',
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+  debug: true,
+  connectionTimeout: 30000, // 30 seconds
 });
 
-const sendEmail = async (options) => {
-  const mailOptions = {
-    from: process.env.SMTP_EMAIL,
-    to: options.email,
-    subject: options.subject,
-    text: options.message,
-    html: options.html
-  };
-
+const sendEmail = async ({to, subject, htmlFilePath, replacements}) => {
   try {
-    await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully');
+const html = fs.readFileSync(htmlFilePath, 'utf8')
+  .replace('{{firstname}}', replacements.firstname)
+  .replace('{{lastname}}', replacements.lastname)
+  .replace('{{resetCode}}', replacements.resetCode)
+  .replace('{{token}}', replacements.token)
+  .replace('{{device}}', replacements.device)
+  .replace('{{datetime}}', replacements.datetime)
+  .replace('{{header}}', replacements.header)
+  .replace('{{tempPassword}}', replacements.tempPassword)
+  .replace('{{year}}', replacements.year);
+    await transporter.sendMail({
+      from: 'no_reply@stechad.com',
+      to,
+      subject,
+      html,
+    });
+    console.log('Email sent successfully!');
   } catch (error) {
-    console.error('Email sending failed:', error);
-    throw new Error('Email could not be sent');
+    console.error('Error sending email:', error);
   }
 };
 

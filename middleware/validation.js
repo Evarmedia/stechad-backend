@@ -33,18 +33,29 @@ const validateLogin = [
 // Job creation validation
 const validateJobCreation = [
   body('title').notEmpty().trim(),
+  body('company').notEmpty().trim(),
+  body('location').notEmpty().trim(),
   body('description').notEmpty().trim(),
-  body('budget_type').isIn(['hourly', 'fixed', 'negotiable']),
+  body('employment_type').isIn(['full-time', 'contract', 'part-time']),
+  body('salary').optional().trim(),
+  body('duration').optional().trim(),
+  body('openings').isInt({ min: 1 }),
   body('experience_level').isIn(['entry', 'intermediate', 'senior', 'expert']),
-  body('job_type').isIn(['full_time', 'part_time', 'contract', 'freelance']),
+  body('skills_required').isArray({ min: 1 }),
+  body('requirements').isArray({ min: 1 }),
+  body('responsibilities').isArray({ min: 1 }),
   handleValidationErrors
 ];
 
 // Application validation
 const validateApplication = [
-  body('cover_letter').optional().trim(),
-  body('proposed_rate').optional().isNumeric(),
-  body('availability').optional().trim(),
+  body('job_id').isUUID(),
+  body('engineer_id').isUUID(),
+  // body('job_title').notEmpty().trim(),
+  // body('engineer_name').notEmpty().trim(),
+  // body('cover_letter').optional().trim(),
+  // body('proposed_rate').optional().isNumeric(),
+  // body('availability').optional().trim(),
   handleValidationErrors
 ];
 

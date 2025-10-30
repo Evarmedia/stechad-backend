@@ -1,103 +1,107 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/database');
-const User = require('./User');
+const { Model, DataTypes } = require("sequelize");
+const sequelize = require("../config/database");
+const User = require("./User"); // Import User model for relationship
 
-const Job = sequelize.define('Job', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  title: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  description: {
-    type: DataTypes.TEXT,
-    allowNull: false
-  },
-  requirements: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const value = this.getDataValue('requirements');
-      return value ? JSON.parse(value) : [];
+class Job extends Model {}
+
+Job.init(
+  {
+    jobs_id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      defaultValue: DataTypes.UUIDV4,
     },
-    set(value) {
-      this.setDataValue('requirements', JSON.stringify(value));
-    }
-  },
-  skills_required: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const value = this.getDataValue('skills_required');
-      return value ? JSON.parse(value) : [];
+    posted_by: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: User,
+        key: 'user_id',
+      },
     },
-    set(value) {
-      this.setDataValue('skills_required', JSON.stringify(value));
-    }
+    title: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    company: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    location: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+    },
+    job_type: {
+      type: DataTypes.ENUM('full-time', 'part-time', 'contract', 'internship'),
+    },
+    employment_type: {
+      type: DataTypes.ENUM('full-time', 'contract', 'part-time'),
+    },
+    salary: {
+      type: DataTypes.TEXT,
+    },
+    duration: {
+      type: DataTypes.TEXT,
+    },
+    openings: {
+      type: DataTypes.INTEGER,
+      defaultValue: 1,
+    },
+    experience_level: {
+      type: DataTypes.TEXT,
+    },
+    skills_required: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      defaultValue: [],
+    },
+    responsibilities: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      defaultValue: [],
+    },
+    requirements: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      defaultValue: [],
+    },
+    remote: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    status: {
+      type: DataTypes.ENUM('active', 'closed', 'draft'),
+      defaultValue: 'active',
+    },
+    deadline: {
+      type: DataTypes.DATE,
+    },
+    applications_count: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    posted_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
   },
-  budget_min: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: true
-  },
-  budget_max: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: true
-  },
-  budget_type: {
-    type: DataTypes.ENUM('hourly', 'fixed', 'negotiable'),
-    defaultValue: 'hourly'
-  },
-  duration: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  location: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  remote_allowed: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true
-  },
-  experience_level: {
-    type: DataTypes.ENUM('entry', 'intermediate', 'senior', 'expert'),
-    defaultValue: 'intermediate'
-  },
-  job_type: {
-    type: DataTypes.ENUM('full_time', 'part_time', 'contract', 'freelance'),
-    defaultValue: 'contract'
-  },
-  status: {
-    type: DataTypes.ENUM('draft', 'open', 'closed', 'in_progress', 'completed'),
-    defaultValue: 'draft'
-  },
-  posted_by: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: User,
-      key: 'id'
-    }
-  },
-  deadline: {
-    type: DataTypes.DATE,
-    allowNull: true
-  },
-  applications_count: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  views_count: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
+  {
+    sequelize,
+    modelName: "Job",
+    tableName: "jobs",
+    timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
   }
-});
-
-// Associations
-Job.belongsTo(User, { foreignKey: 'posted_by', as: 'poster' });
-User.hasMany(Job, { foreignKey: 'posted_by', as: 'posted_jobs' });
+);
 
 module.exports = Job;
