@@ -7,6 +7,7 @@ const express = require('express');
  */
 
 const { authenticate, authorize } = require('../middleware/auth');
+const { exportEngineers, exportJobs, exportApplications } = require('../controllers/exportController');
 
 const router = express.Router();
 
@@ -89,10 +90,7 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-// Export endpoints
-router.get('/engineers', authenticate, authorize('admin'), (req, res) => {
-  res.json({ success: true, message: 'Export Engineers - Coming Soon' });
-});
+router.get('/engineers', authenticate, authorize('admin'), exportEngineers);
 
 /**
  * @swagger
@@ -173,9 +171,7 @@ router.get('/engineers', authenticate, authorize('admin'), (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/jobs', authenticate, authorize('admin', 'project_manager'), (req, res) => {
-  res.json({ success: true, message: 'Export Jobs - Coming Soon' });
-});
+router.get('/jobs', authenticate, authorize('admin', 'project_manager'), exportJobs);
 
 /**
  * @swagger
@@ -261,8 +257,6 @@ router.get('/jobs', authenticate, authorize('admin', 'project_manager'), (req, r
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/applications', authenticate, authorize('admin', 'project_manager'), (req, res) => {
-  res.json({ success: true, message: 'Export Applications - Coming Soon' });
-});
+router.get('/applications', authenticate, authorize('admin', 'project_manager'), exportApplications);
 
 module.exports = router;

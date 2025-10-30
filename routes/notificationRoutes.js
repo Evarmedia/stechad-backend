@@ -7,6 +7,7 @@ const express = require('express');
  */
 
 const { authenticate } = require('../middleware/auth');
+const { getUserNotifications, markAsRead, markAllAsRead } = require('../utils/notificationUtil');
 
 const router = express.Router();
 
@@ -73,9 +74,20 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-// Notification endpoints
-router.get('/', (req, res) => {
-  res.json({ success: true, message: 'Get Notifications - Coming Soon' });
+router.get('/', async (req, res) => {
+  try {
+    const notifications = await getUserNotifications(req.user.user_id, req.query);
+    res.json({
+      success: true,
+      data: notifications
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get notifications',
+      error: error.message
+    });
+  }
 });
 
 /**
@@ -120,8 +132,27 @@ router.get('/', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/:id/read', (req, res) => {
-  res.json({ success: true, message: 'Mark Notification as Read - Coming Soon' });
+router.put('/:id/read', async (req, res) => {
+  try {
+    const notification = await markAsRead(req.params.id, req.user.user_id);
+    res.json({
+      success: true,
+      message: 'Notification marked as read',
+      data: notification
+    });
+  } catch (error) {
+    if (error.message === 'Notification not found') {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark notification as read',
+      error: error.message
+    });
+  }
 });
 
 /**
@@ -157,8 +188,21 @@ router.put('/:id/read', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/read-all', (req, res) => {
-  res.json({ success: true, message: 'Mark All Notifications as Read - Coming Soon' });
+router.put('/read-all', async (req, res) => {
+  try {
+    const updatedCount = await markAllAsRead(req.user.user_id);
+    res.json({
+      success: true,
+      message: 'All notifications marked as read',
+      data: { updated_count: updatedCount }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark all notifications as read',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

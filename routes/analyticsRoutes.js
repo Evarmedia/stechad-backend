@@ -7,6 +7,12 @@ const express = require('express');
  */
 
 const { authenticate, authorize } = require('../middleware/auth');
+const {
+  getUserAnalytics,
+  getJobAnalytics,
+  getApplicationAnalytics,
+  getPlatformAnalytics
+} = require('../controllers/analyticsController');
 
 const router = express.Router();
 
@@ -89,10 +95,7 @@ router.use(authenticate, authorize('admin'));
  *                           count:
  *                             type: integer
  */
-// Analytics endpoints
-router.get('/users', (req, res) => {
-  res.json({ success: true, message: 'User Analytics - Coming Soon' });
-});
+router.get('/users', getUserAnalytics);
 
 /**
  * @swagger
@@ -165,9 +168,7 @@ router.get('/users', (req, res) => {
  *                           count:
  *                             type: integer
  */
-router.get('/jobs', (req, res) => {
-  res.json({ success: true, message: 'Job Analytics - Coming Soon' });
-});
+router.get('/jobs', getJobAnalytics);
 
 /**
  * @swagger
@@ -234,9 +235,7 @@ router.get('/jobs', (req, res) => {
  *                           count:
  *                             type: integer
  */
-router.get('/applications', (req, res) => {
-  res.json({ success: true, message: 'Application Analytics - Coming Soon' });
-});
+router.get('/applications', getApplicationAnalytics);
 
 /**
  * @swagger
@@ -309,8 +308,6 @@ router.get('/applications', (req, res) => {
  *                             type: number
  *                             format: decimal
  */
-router.get('/platform', (req, res) => {
-  res.json({ success: true, message: 'Platform Analytics - Coming Soon' });
-});
+router.get('/platform', getPlatformAnalytics);
 
 module.exports = router;
