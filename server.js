@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -20,8 +22,17 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const exportRoutes = require('./routes/exportRoutes');
+const referralRoutes = require('./routes/referralRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 // Security middleware
 app.use(helmet());
@@ -67,6 +78,8 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/referrals', referralRoutes);
+app.use('/api/chat', chatRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -89,6 +102,174 @@ app.use('*', (req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
+// WebSocket handling for real-time chat
+const jwt = require('jsonwebtoken');
+const { User } = require('./models');
+const { sendMessage, markMessagesAsRead } = require('./utils/chatUtil');
+
+// Socket authentication middleware
+const authenticateSocket = async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      return next(new Error('Authentication error'));
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findByPk(decoded.user_id);
+    
+    if (!user || !user.is_active) {
+      return next(new Error('Authentication error'));
+    }
+
+    socket.userId = user.user_id;
+    socket.user = user;
+    next();
+  } catch (error) {
+    next(new Error('Authentication error'));
+  }
+};
+
+io.use(authenticateSocket);
+
+// Connected users tracking
+const connectedUsers = new Map();
+
+io.on('connection', (socket) => {
+  console.log(`User ${socket.user.first_name} connected: ${socket.id}`);
+  
+  // Track connected user
+  connectedUsers.set(socket.userId, {
+    socketId: socket.id,
+    user: socket.user,
+    lastSeen: new Date()
+  });
+
+  // Join user to their personal room
+  socket.join(`user_${socket.userId}`);
+
+  // Broadcast user online status
+  socket.broadcast.emit('user_online', {
+    user_id: socket.userId,
+    user: {
+      first_name: socket.user.first_name,
+      last_name: socket.user.last_name,
+      avatar_url: socket.user.avatar_url
+    }
+  });
+
+  // Join chat rooms
+  socket.on('join_chat', (chatId) => {
+    socket.join(`chat_${chatId}`);
+    console.log(`User ${socket.userId} joined chat ${chatId}`);
+  });
+
+  // Leave chat rooms
+  socket.on('leave_chat', (chatId) => {
+    socket.leave(`chat_${chatId}`);
+    console.log(`User ${socket.userId} left chat ${chatId}`);
+  });
+
+  // Handle sending messages
+  socket.on('send_message', async (data) => {
+    try {
+      const { chat_id, content, message_type = 'text', attachments = [], reply_to } = data;
+      
+      const message = await sendMessage(
+        chat_id,
+        socket.userId,
+        content,
+        message_type,
+        attachments,
+        reply_to
+      );
+
+      // Emit message to all users in the chat
+      io.to(`chat_${chat_id}`).emit('new_message', {
+        message,
+        chat_id
+      });
+
+      // Send acknowledgment to sender
+      socket.emit('message_sent', {
+        success: true,
+        message
+      });
+
+    } catch (error) {
+      socket.emit('message_error', {
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Handle typing indicators
+  socket.on('typing_start', (data) => {
+    socket.to(`chat_${data.chat_id}`).emit('user_typing', {
+      user_id: socket.userId,
+      user_name: `${socket.user.first_name} ${socket.user.last_name}`,
+      chat_id: data.chat_id
+    });
+  });
+
+  socket.on('typing_stop', (data) => {
+    socket.to(`chat_${data.chat_id}`).emit('user_stopped_typing', {
+      user_id: socket.userId,
+      chat_id: data.chat_id
+    });
+  });
+
+  // Handle message read receipts
+  socket.on('mark_messages_read', async (data) => {
+    try {
+      const { chat_id, message_ids = [] } = data;
+      
+      await markMessagesAsRead(chat_id, socket.userId, message_ids);
+      
+      // Notify other users in chat about read status
+      socket.to(`chat_${chat_id}`).emit('messages_read', {
+        user_id: socket.userId,
+        chat_id,
+        message_ids
+      });
+
+    } catch (error) {
+      socket.emit('read_error', {
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Handle disconnect
+  socket.on('disconnect', () => {
+    console.log(`User ${socket.user.first_name} disconnected: ${socket.id}`);
+    
+    // Remove from connected users
+    connectedUsers.delete(socket.userId);
+    
+    // Broadcast user offline status
+    socket.broadcast.emit('user_offline', {
+      user_id: socket.userId,
+      last_seen: new Date()
+    });
+  });
+
+  // Get online users
+  socket.on('get_online_users', () => {
+    const onlineUsers = Array.from(connectedUsers.values()).map(userData => ({
+      user_id: userData.user.user_id,
+      first_name: userData.user.first_name,
+      last_name: userData.user.last_name,
+      avatar_url: userData.user.avatar_url,
+      last_seen: userData.lastSeen
+    }));
+    
+    socket.emit('online_users', onlineUsers);
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 
 // Database connection and server start
@@ -100,7 +281,7 @@ const startServer = async () => {
     // await sequelize.sync({ alter: true, force: false });
     console.log('Database synchronized');
     
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`👀Server running on port ${PORT}`);
       console.log(`🖥️ API docs at http://localhost:${PORT}/api-docs`);
     });

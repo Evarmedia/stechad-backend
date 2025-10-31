@@ -1,7 +1,7 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const Chat = require("./Chat"); // Import Chat model for relationship
-const User = require("./User"); // Import User model for relationship
+const Chat = require("./Chat");
+const User = require("./User");
 
 class Message extends Model {}
 
@@ -28,13 +28,42 @@ Message.init(
         key: 'user_id',
       },
     },
+    message_type: {
+      type: DataTypes.ENUM('text', 'image', 'file', 'system'),
+      defaultValue: 'text',
+    },
     content: {
       type: DataTypes.TEXT,
       allowNull: false,
     },
     attachments: {
-      type: DataTypes.ARRAY(DataTypes.TEXT),
+      type: DataTypes.JSONB,
       defaultValue: [],
+    },
+    reply_to: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'messages',
+        key: 'messages_id',
+      },
+    },
+    is_edited: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    edited_at: {
+      type: DataTypes.DATE,
+    },
+    is_deleted: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    deleted_at: {
+      type: DataTypes.DATE,
+    },
+    read_by: {
+      type: DataTypes.JSONB,
+      defaultValue: {},
     },
     timestamp: {
       type: DataTypes.DATE,

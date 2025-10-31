@@ -4,11 +4,12 @@ const sendEmail = require("../utils/sendEmail");
 const { generateOTP, generateOTPExpiry } = require("../utils/otpGenerator");
 const path = require("path");
 const Sequelize = require("sequelize");
+const { createReferral, validateReferralCode } = require("../utils/referralUtil");
 
 // Register new user
 const signup = async (req, res) => {
   try {
-    const { email, password, confirm_password, first_name, last_name, role } = req.body;
+    const { email, password, confirm_password, first_name, last_name, role, referral_code } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
@@ -17,6 +18,17 @@ const signup = async (req, res) => {
         success: false,
         message: "User already exists with this email",
       });
+    }
+
+    // Validate referral code if provided
+    if (referral_code) {
+      const isValidReferral = await validateReferralCode(referral_code);
+      if (!isValidReferral) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid referral code",
+        });
+      }
     }
 
     // Create user
@@ -44,6 +56,15 @@ const signup = async (req, res) => {
       await ProjectManager.create({ user_id: user.user_id });
     } else if (role === "admin") {
       await Admin.create({ user_id: user.user_id });
+    }
+
+    // Create referral record if referral code was used
+    if (referral_code) {
+      try {
+        await createReferral(referral_code, user.user_id);
+      } catch (referralError) {
+        console.error('Error creating referral:', referralError);
+      }
     }
 
     // Generate token
