@@ -1,6 +1,5 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const User = require("./User"); // Import User model for relationship
 
 class Chat extends Model {}
 
@@ -11,9 +10,17 @@ Chat.init(
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
     },
+    chat_type: {
+      type: DataTypes.ENUM('direct', 'group', 'support'),
+      defaultValue: 'direct',
+    },
+    chat_name: {
+      type: DataTypes.STRING,
+    },
     participants: {
-      type: DataTypes.ARRAY(DataTypes.TEXT),
-      allowNull: false, // Array of user IDs
+      type: DataTypes.ARRAY(DataTypes.UUID),
+      allowNull: false,
+      defaultValue: [],
     },
     last_message_id: {
       type: DataTypes.UUID,
@@ -30,6 +37,14 @@ Chat.init(
     unread_counts: {
       type: DataTypes.JSONB,
       defaultValue: {},
+    },
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+    },
+    created_by: {
+      type: DataTypes.UUID,
+      allowNull: false,
     },
     created_at: {
       type: DataTypes.DATE,

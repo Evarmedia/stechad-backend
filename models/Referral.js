@@ -1,6 +1,6 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const User = require("./User"); // Import User model for relationship
+const User = require("./User");
 
 class Referral extends Model {}
 
@@ -27,9 +27,21 @@ Referral.init(
         key: 'user_id',
       },
     },
-    reward_status: {
-      type: DataTypes.ENUM('pending', 'claimed', 'expired'),
+    referral_code: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      unique: true,
+    },
+    status: {
+      type: DataTypes.ENUM('pending', 'completed', 'expired'),
       defaultValue: 'pending',
+    },
+    reward_claimed: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    completed_at: {
+      type: DataTypes.DATE,
     },
     created_at: {
       type: DataTypes.DATE,
@@ -50,7 +62,6 @@ Referral.init(
   }
 );
 
-
 class Reward extends Model {}
 
 Reward.init(
@@ -61,15 +72,23 @@ Reward.init(
       defaultValue: DataTypes.UUIDV4,
     },
     reward_type: {
-      type: DataTypes.ENUM('referral', 'signup', 'milestone'),
+      type: DataTypes.ENUM('referral', 'signup', 'milestone', 'bonus'),
       allowNull: false,
     },
     reward_amount: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
+    },
+    reward_currency: {
+      type: DataTypes.STRING(3),
+      defaultValue: 'USD',
     },
     reward_description: {
       type: DataTypes.TEXT,
+    },
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
     },
     created_at: {
       type: DataTypes.DATE,
@@ -89,7 +108,6 @@ Reward.init(
     updatedAt: 'updated_at',
   }
 );
-
 
 class UserReward extends Model {}
 
@@ -116,9 +134,26 @@ UserReward.init(
         key: 'reward_id',
       },
     },
+    referral_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: Referral,
+        key: 'referral_id',
+      },
+    },
     reward_status: {
-      type: DataTypes.ENUM('unclaimed', 'claimed', 'expired'),
-      defaultValue: 'unclaimed',
+      type: DataTypes.ENUM('pending', 'approved', 'paid', 'expired'),
+      defaultValue: 'pending',
+    },
+    reward_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+    },
+    claimed_at: {
+      type: DataTypes.DATE,
+    },
+    expires_at: {
+      type: DataTypes.DATE,
     },
     created_at: {
       type: DataTypes.DATE,

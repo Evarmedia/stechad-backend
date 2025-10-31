@@ -62,6 +62,17 @@ User.init(
     reset_password_expires: {
       type: DataTypes.DATE,
     },
+    referral_code: {
+      type: DataTypes.STRING(10),
+      unique: true,
+    },
+    referred_by: {
+      type: DataTypes.UUID,
+      references: {
+        model: 'users',
+        key: 'user_id',
+      },
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
@@ -86,6 +97,10 @@ User.beforeCreate(async (user) => {
   if (user.password) {
     user.password = await bcrypt.hash(user.password, 12);
   }
+  // Generate unique referral code
+  if (!user.referral_code) {
+    user.referral_code = generateReferralCode();
+  }
 });
 
 User.beforeUpdate(async (user) => {
@@ -105,6 +120,16 @@ User.prototype.toJSON = function() {
   delete user.reset_password_token;
   delete user.reset_password_expires;
   return user;
+};
+
+// Generate unique referral code
+const generateReferralCode = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 };
 
 module.exports = User;
