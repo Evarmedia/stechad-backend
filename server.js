@@ -9,6 +9,8 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
+const createDefaultRewards = require('./seeders/referralRewards');
+const { Reward } = require('./models');
 
 const sequelize = require('./config/database');
 const authRoutes = require('./routes/authRoutes');
@@ -278,6 +280,12 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connected successfully');
     
+    // Create default rewards if they don't exist
+    const existingRewards = await Reward.count();
+    if (existingRewards === 0) {
+      await createDefaultRewards();
+    }
+
     // await sequelize.sync({ alter: true, force: false });
     console.log('Database synchronized');
     

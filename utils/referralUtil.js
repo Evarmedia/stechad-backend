@@ -1,4 +1,4 @@
-const { User, Referral, Reward, UserReward } = require('../models');
+const { User, Referral, Reward, UserReward, sequelize } = require('../models');
 const { createNotification } = require('./notificationUtil');
 
 /**
@@ -21,8 +21,10 @@ const generateReferralCode = () => {
  * @returns {Promise<Object>} The created referral record
  */
 const createReferral = async (referrerCode, refereeId) => {
+  const transaction = await sequelize.transaction();
+  
   try {
-    // Find the referrer by their referral code
+    // Find the referrer
     const referrer = await User.findOne({
       where: { referral_code: referrerCode }
     });
@@ -40,131 +42,94 @@ const createReferral = async (referrerCode, refereeId) => {
       throw new Error('User already has a referral');
     }
 
-    // Create the referral record
+    // Create the referral record (already completed)
     const referral = await Referral.create({
       referrer_id: referrer.user_id,
       referee_id: refereeId,
       referral_code: referrerCode,
-      status: 'pending'
-    });
+      status: 'completed',
+      completed_at: new Date()
+    }, { transaction });
 
     // Update the referee's referred_by field
     await User.update(
       { referred_by: referrer.user_id },
-      { where: { user_id: refereeId } }
+      { 
+        where: { user_id: refereeId },
+        transaction 
+      }
     );
 
-    // Create notification for referrer
-    await createNotification({
-      user_id: referrer.user_id,
-      title: 'New Referral',
-      message: 'Someone signed up using your referral code!',
-      type: 'success',
-      metadata: {
-        referral_id: referral.referral_id,
-        referee_id: refereeId
+    // Get active rewards
+    const referralRewards = await Reward.findAll({
+      where: {
+        reward_type: ['referral', 'signup'],
+        is_active: true
       }
     });
 
+    // Create approved rewards immediately for both users
+    for (const reward of referralRewards) {
+      if (reward.reward_type === 'referral') {
+        // Create referrer reward (approved immediately)
+        await UserReward.create({
+          user_id: referrer.user_id,
+          reward_id: reward.reward_id,
+          referral_id: referral.referral_id,
+          reward_amount: reward.reward_amount,
+          reward_status: 'approved',
+          expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+        }, { transaction });
+
+        // Notify referrer
+        await createNotification({
+          user_id: referrer.user_id,
+          title: 'Referral Reward Earned!',
+          message: `You've earned $${reward.reward_amount} for your successful referral!`,
+          type: 'success',
+          action_url: '/rewards',
+          metadata: {
+            referral_id: referral.referral_id,
+            reward_amount: reward.reward_amount
+          }
+        });
+      } else if (reward.reward_type === 'signup') {
+        // Create referee reward (approved immediately)
+        const refereeAmount = reward.reward_amount;
+        await UserReward.create({
+          user_id: refereeId,
+          reward_id: reward.reward_id,
+          referral_id: referral.referral_id,
+          reward_amount: refereeAmount,
+          reward_status: 'approved',
+          expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+        }, { transaction });
+
+        // Notify referee
+        await createNotification({
+          user_id: refereeId,
+          title: 'Welcome Bonus!',
+          message: `You've earned $${refereeAmount} as a welcome bonus!`,
+          type: 'success',
+          action_url: '/rewards',
+          metadata: {
+            referral_id: referral.referral_id,
+            reward_amount: refereeAmount
+          }
+        });
+      }
+    }
+
+    await transaction.commit();
     return referral;
+
   } catch (error) {
+    await transaction.rollback();
     console.error('Error creating referral:', error);
     throw error;
   }
 };
 
-/**
- * Complete a referral and award rewards
- * @param {string} referralId - The referral ID to complete
- * @returns {Promise<Object>} The updated referral with rewards
- */
-const completeReferral = async (referralId) => {
-  try {
-    const referral = await Referral.findByPk(referralId, {
-      include: [
-        { model: User, as: 'referrer' },
-        { model: User, as: 'referee' }
-      ]
-    });
-
-    if (!referral) {
-      throw new Error('Referral not found');
-    }
-
-    if (referral.status === 'completed') {
-      throw new Error('Referral already completed');
-    }
-
-    // Update referral status
-    await referral.update({
-      status: 'completed',
-      completed_at: new Date()
-    });
-
-    // Get active referral rewards
-    const referralRewards = await Reward.findAll({
-      where: {
-        reward_type: 'referral',
-        is_active: true
-      }
-    });
-
-    // Award rewards to both referrer and referee
-    for (const reward of referralRewards) {
-      // Award to referrer
-      await UserReward.create({
-        user_id: referral.referrer_id,
-        reward_id: reward.reward_id,
-        referral_id: referral.referral_id,
-        reward_amount: reward.reward_amount,
-        reward_status: 'approved',
-        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days
-      });
-
-      // Award to referee (usually smaller amount)
-      const refereeAmount = reward.reward_amount * 0.5; // 50% of referrer reward
-      await UserReward.create({
-        user_id: referral.referee_id,
-        reward_id: reward.reward_id,
-        referral_id: referral.referral_id,
-        reward_amount: refereeAmount,
-        reward_status: 'approved',
-        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days
-      });
-
-      // Notify referrer
-      await createNotification({
-        user_id: referral.referrer_id,
-        title: 'Referral Reward Earned!',
-        message: `You've earned $${reward.reward_amount} for your successful referral!`,
-        type: 'success',
-        action_url: '/rewards',
-        metadata: {
-          referral_id: referral.referral_id,
-          reward_amount: reward.reward_amount
-        }
-      });
-
-      // Notify referee
-      await createNotification({
-        user_id: referral.referee_id,
-        title: 'Welcome Bonus!',
-        message: `You've earned $${refereeAmount} as a welcome bonus!`,
-        type: 'success',
-        action_url: '/rewards',
-        metadata: {
-          referral_id: referral.referral_id,
-          reward_amount: refereeAmount
-        }
-      });
-    }
-
-    return referral;
-  } catch (error) {
-    console.error('Error completing referral:', error);
-    throw error;
-  }
-};
 
 /**
  * Get user's referral statistics
@@ -314,7 +279,6 @@ const getUserRewards = async (userId, options = {}) => {
 module.exports = {
   generateReferralCode,
   createReferral,
-  completeReferral,
   getUserReferralStats,
   validateReferralCode,
   getUserRewards

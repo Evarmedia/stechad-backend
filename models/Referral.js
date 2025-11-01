@@ -30,7 +30,7 @@ Referral.init(
     referral_code: {
       type: DataTypes.STRING(10),
       allowNull: false,
-      unique: true,
+      // unique: true,
     },
     status: {
       type: DataTypes.ENUM('pending', 'completed', 'expired'),

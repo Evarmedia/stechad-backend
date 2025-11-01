@@ -12,7 +12,6 @@ const {
   getRewardHistory,
   validateReferral,
   getReferralLeaderboard,
-  completeReferralById,
   claimReward,
   getReferralAnalytics
 } = require('../controllers/referralController');
@@ -187,29 +186,6 @@ router.post('/rewards/:reward_id/claim', claimReward);
  *         description: Leaderboard retrieved successfully
  */
 router.get('/leaderboard', authorize('admin'), getReferralLeaderboard);
-
-/**
- * @swagger
- * /referrals/{referral_id}/complete:
- *   post:
- *     summary: Complete a referral and award rewards (Admin only)
- *     tags: [Referrals]
- *     parameters:
- *       - in: path
- *         name: referral_id
- *         required: true
- *         schema:
- *           type: string
- *         description: Referral ID to complete
- *     responses:
- *       200:
- *         description: Referral completed successfully
- *       404:
- *         description: Referral not found
- *       400:
- *         description: Referral already completed
- */
-router.post('/:referral_id/complete', authorize('admin'), completeReferralById);
 
 /**
  * @swagger

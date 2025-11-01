@@ -63,7 +63,7 @@ const signup = async (req, res) => {
       try {
         await createReferral(referral_code, user.user_id);
       } catch (referralError) {
-        console.error('Error creating referral:', referralError);
+        console.error('Error processing referral:', referralError);
       }
     }
 

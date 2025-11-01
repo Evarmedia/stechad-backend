@@ -2,7 +2,6 @@ const { User, Referral, Reward, UserReward } = require('../models');
 const { 
   getUserReferralStats, 
   getUserRewards, 
-  completeReferral,
   validateReferralCode 
 } = require('../utils/referralUtil');
 const { createNotification } = require('../utils/notificationUtil');
@@ -149,27 +148,6 @@ const getReferralLeaderboard = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get referral leaderboard',
-      error: error.message
-    });
-  }
-};
-
-// Complete referral (admin only)
-const completeReferralById = async (req, res) => {
-  try {
-    const { referral_id } = req.params;
-    
-    const referral = await completeReferral(referral_id);
-    
-    res.json({
-      success: true,
-      message: 'Referral completed successfully',
-      data: referral
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to complete referral',
       error: error.message
     });
   }
@@ -329,7 +307,6 @@ module.exports = {
   getRewardHistory,
   validateReferral,
   getReferralLeaderboard,
-  completeReferralById,
   claimReward,
   getReferralAnalytics
 };
