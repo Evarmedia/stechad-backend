@@ -93,15 +93,15 @@ Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' });
 User.hasMany(Notification, { foreignKey: 'user_id', as: 'notifications', onDelete: 'CASCADE' });
 Notification.belongsTo(User, { foreignKey: 'user_id', as: 'user_notifications' });
 
-// Referral to User (Many-to-One)
-Referral.belongsTo(User, { foreignKey: 'referrer_id', as: 'referrer', onDelete: 'CASCADE' });
-Referral.belongsTo(User, { foreignKey: 'referee_id', as: 'referee', onDelete: 'CASCADE' });
-
 // User model relationships
 User.hasMany(Referral, { foreignKey: 'referrer_id', as: 'referralsMade' });
 User.hasMany(Referral, { foreignKey: 'referee_id', as: 'referralsReceived' });
 User.belongsTo(User, { foreignKey: 'referrer_id', as: 'referrer', onDelete: 'SET NULL' });
 User.hasMany(User, { foreignKey: 'referred_by', as: 'referees' });
+
+// Referral to User (Many-to-One)
+Referral.belongsTo(User, { foreignKey: 'referrer_id', as: 'referrer', onDelete: 'CASCADE' });
+Referral.belongsTo(User, { foreignKey: 'referee_id', as: 'referee', onDelete: 'CASCADE' });
 
 // user - Invite (One-to-Many)
 User.hasMany(Invite, { foreignKey: 'invited_by_user_id', as: 'sent_invites', onDelete: 'CASCADE' });
@@ -113,6 +113,10 @@ UserReward.belongsTo(Reward, { foreignKey: 'reward_id' });
 
 User.hasMany(UserReward, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 UserReward.belongsTo(User, { foreignKey: 'user_id' });
+
+// Referral - UserReward (One-to-Many)
+Referral.hasMany(UserReward, { foreignKey: 'referral_id',  onDelete: 'CASCADE' });
+UserReward.belongsTo(Referral, { foreignKey: 'referral_id', as: 'referral', });
 
 // Self-referencing message replies
 Message.belongsTo(Message, { foreignKey: 'reply_to', as: 'replyToMessage', onDelete: 'SET NULL' });

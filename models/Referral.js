@@ -142,7 +142,7 @@ UserReward.init(
       },
     },
     reward_status: {
-      type: DataTypes.ENUM('pending', 'approved', 'paid', 'expired'),
+      type: DataTypes.ENUM('pending', 'approved', 'claimed', 'expired'),
       defaultValue: 'pending',
     },
     reward_amount: {

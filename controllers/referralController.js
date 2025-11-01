@@ -153,14 +153,13 @@ const getReferralLeaderboard = async (req, res) => {
   }
 };
 
-// Claim reward
+// Claim all eligible rewards for user
 const claimReward = async (req, res) => {
+  const transaction = await Reward.sequelize.transaction();
+  
   try {
-    const { reward_id } = req.params;
-    
-    const userReward = await UserReward.findOne({
+    const userRewards = await UserReward.findAll({
       where: {
-        user_reward_id: reward_id,
         user_id: req.user.user_id,
         reward_status: 'approved'
       },
@@ -169,51 +168,87 @@ const claimReward = async (req, res) => {
           model: Reward,
           attributes: ['reward_type', 'reward_description']
         }
-      ]
+      ],
+      transaction
     });
     
-    if (!userReward) {
+    if (!userRewards || userRewards.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Reward not found or not eligible for claiming'
+        message: 'No eligible rewards found for claiming'
       });
     }
-    
-    // Check if reward has expired
-    if (userReward.expires_at && new Date() > userReward.expires_at) {
-      await userReward.update({ reward_status: 'expired' });
-      return res.status(400).json({
-        success: false,
-        message: 'Reward has expired'
-      });
-    }
-    
-    await userReward.update({
-      reward_status: 'paid',
-      claimed_at: new Date()
-    });
-    
-    // Create notification
-    await createNotification({
-      user_id: req.user.user_id,
-      title: 'Reward Claimed!',
-      message: `You have successfully claimed your $${userReward.reward_amount} reward!`,
-      type: 'success',
-      metadata: {
-        reward_id: userReward.user_reward_id,
-        amount: userReward.reward_amount
+
+    let totalAmount = 0;
+    const claimedRewards = [];
+    const expiredRewards = [];
+
+    // Process each reward
+    for (const reward of userRewards) {
+      // Check expiration
+      if (reward.expires_at && new Date() > reward.expires_at) {
+        await reward.update({ 
+          reward_status: 'expired' 
+        }, { transaction });
+        expiredRewards.push(reward);
+        continue;
       }
-    });
-    
+
+      // Update reward status
+      await reward.update({
+        reward_status: 'claimed',
+        claimed_at: new Date()
+      }, { transaction });
+
+      totalAmount += parseFloat(reward.reward_amount);
+      claimedRewards.push(reward);
+    }
+
+    await transaction.commit();
+
+    // add reward to user.reward balance
+    if (totalAmount > 0) {
+      await User.increment(
+        { reward: totalAmount },
+        { where: { user_id: req.user.user_id } }
+      );
+    }
+
+    // Send notification after transaction commits
+    if (claimedRewards.length > 0) {
+      await createNotification({
+        user_id: req.user.user_id,
+        title: 'Rewards Claimed!',
+        message: `You have successfully claimed ${claimedRewards.length} rewards totaling $${totalAmount.toFixed(2)}!`,
+        type: 'success',
+        metadata: {
+          claimed_count: claimedRewards.length,
+          total_amount: totalAmount,
+          claimed_rewards: claimedRewards.map(r => ({
+            id: r.user_reward_id,
+            amount: r.reward_amount
+          }))
+        }
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Reward claimed successfully',
-      data: userReward
+      message: `Successfully processed rewards`,
+      data: {
+        claimed_rewards: claimedRewards,
+        expired_rewards: expiredRewards,
+        total_amount: totalAmount.toFixed(2),
+        claims_processed: claimedRewards.length,
+        expired_count: expiredRewards.length
+      }
     });
+
   } catch (error) {
+    await transaction.rollback();
     res.status(500).json({
       success: false,
-      message: 'Failed to claim reward',
+      message: 'Failed to claim rewards',
       error: error.message
     });
   }
@@ -255,9 +290,9 @@ const getReferralAnalytics = async (req, res) => {
       where: { status: 'completed' }
     });
     
-    // Total rewards paid
-    const totalRewardsPaid = await UserReward.sum('reward_amount', {
-      where: { reward_status: 'paid' }
+    // Total rewards claimed
+    const totalRewardsclaimed = await UserReward.sum('reward_amount', {
+      where: { reward_status: 'claimed' }
     });
     
     // Conversion rate
@@ -288,7 +323,7 @@ const getReferralAnalytics = async (req, res) => {
         total_referrals: totalReferrals,
         new_referrals: newReferrals,
         completed_referrals: completedReferrals,
-        total_rewards_paid: totalRewardsPaid || 0,
+        total_rewards_claimed: totalRewardsclaimed || 0,
         conversion_rate: parseFloat(conversionRate),
         top_referrers: topReferrers
       }

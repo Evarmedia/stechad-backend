@@ -73,6 +73,10 @@ User.init(
         key: 'user_id',
       },
     },
+    reward: {
+      type: DataTypes.DECIMAL(10, 2),
+      defaultValue: 0.00,
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,

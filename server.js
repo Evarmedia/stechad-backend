@@ -286,7 +286,7 @@ const startServer = async () => {
       await createDefaultRewards();
     }
 
-    // await sequelize.sync({ alter: true, force: false });
+    await sequelize.sync({ alter: true, force: false });
     console.log('Database synchronized');
     
     server.listen(PORT, () => {

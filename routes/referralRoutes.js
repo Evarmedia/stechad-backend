@@ -84,7 +84,7 @@ router.get('/dashboard', getReferralDashboard);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [pending, approved, paid, expired]
+ *           enum: [pending, approved, claimed, expired]
  *     responses:
  *       200:
  *         description: Reward history retrieved successfully
@@ -136,17 +136,10 @@ router.get('/validate/:referral_code', validateReferral);
 
 /**
  * @swagger
- * /referrals/rewards/{reward_id}/claim:
- *   post:
+ * /referrals/rewards/claim:
+ *   get:
  *     summary: Claim a reward
  *     tags: [Referrals]
- *     parameters:
- *       - in: path
- *         name: reward_id
- *         required: true
- *         schema:
- *           type: string
- *         description: Reward ID to claim
  *     responses:
  *       200:
  *         description: Reward claimed successfully
@@ -155,7 +148,7 @@ router.get('/validate/:referral_code', validateReferral);
  *       400:
  *         description: Reward has expired
  */
-router.post('/rewards/:reward_id/claim', claimReward);
+router.get('/rewards/claim', claimReward);
 
 // Admin only routes
 /**
