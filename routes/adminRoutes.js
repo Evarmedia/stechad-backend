@@ -49,22 +49,6 @@ router.get('/stats', adminController.getStats);
 /**
  * @swagger
  * /admin/profile:
- *   get:
- *     summary: Get admin profile
- *     tags: [Admin]
- *     responses:
- *       200:
- *         description: Profile retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.get('/profile', adminController.getProfile);
-
-/**
- * @swagger
- * /admin/profile:
  *   put:
  *     summary: Update admin profile
  *     tags: [Admin]
@@ -81,6 +65,18 @@ router.get('/profile', adminController.getProfile);
  *                   type: string
  *               is_super_admin:
  *                 type: boolean
+ *               first_name:
+ *                 type: string
+ *               last_name:
+ *                 type: string
+ *               phone_number:
+ *                 type: string
+ *               city:
+ *                 type: string
+ *               country:
+ *                 type: string
+ *               avatar_url:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Profile updated successfully
@@ -88,6 +84,18 @@ router.get('/profile', adminController.getProfile);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
+ *       404:
+ *         description: Admin profile not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Profile update failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.put('/profile', adminController.updateProfile);
 
@@ -311,7 +319,6 @@ router.post('/project-managers/invite', adminController.inviteProjectManager);
  *       500:
  *         description: Internal server error
  */
-
 router.get('/project-managers/:project_managers_id', adminController.getProjectManagerDetails);
 
 /**
@@ -335,136 +342,6 @@ router.get('/project-managers/:project_managers_id', adminController.getProjectM
  *               $ref: '#/components/schemas/Success'
  */
 router.delete('/project-managers/:project_managers_id', adminController.deleteProjectManager);
-
-/**
- * @swagger
- * /admin/jobs:
- *   get:
- *     summary: Get all jobs on platform
- *     tags: [Admin]
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [draft, active, closed]
- *     responses:
- *       200:
- *         description: Jobs retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.get('/jobs', adminController.getJobs);
-
-/**
- * @swagger
- * /admin/jobs/{jobs_id}:
- *   get:
- *     summary: Get specific job details
- *     tags: [Admin]
- *     parameters:
- *       - in: path
- *         name: jobs_id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Job details retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.get('/jobs/:jobs_id', adminController.getJobDetails);
-
-/**
- * @swagger
- * /admin/jobs/{jobs_id}:
- *   delete:
- *     summary: Delete job posting
- *     tags: [Admin]
- *     parameters:
- *       - in: path
- *         name: jobs_id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Job deleted successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.delete('/jobs/:jobs_id', adminController.deleteJob);
-
-/**
- * @swagger
- * /admin/applications:
- *   get:
- *     summary: Get all applications on platform
- *     tags: [Admin]
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [pending, reviewed, shortlisted, rejected, hired]
- *     responses:
- *       200:
- *         description: Applications retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.get('/applications', adminController.getApplications);
-
-/**
- * @swagger
- * /admin/applications/{applications_id}:
- *   get:
- *     summary: Get specific application details
- *     tags: [Admin]
- *     parameters:
- *       - in: path
- *         name: applications_id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Application details retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.get('/applications/:applications_id', adminController.getApplicationDetails);
 
 /**
  * @swagger

@@ -140,6 +140,66 @@ const getJobById = async (req, res) => {
   }
 };
 
+// Get applicants for specific job
+const getJobApplicants = async (req, res) => {
+  try {
+    const { jobs_id } = req.params;
+    const { page = 1, limit = 10, status } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Verify job belongs to current PM
+    const job = await Job.findOne({
+      where: { jobs_id, posted_by: req.user.user_id }
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    const where = { job_id: jobs_id };
+    if (status) {
+      where.status = status;
+    }
+
+    const applications = await Application.findAndCountAll({
+      where,
+      include: [
+        { 
+          model: User, 
+          as: 'applicant', 
+          attributes: ['first_name', 'last_name', 'email'],
+          include: [{ model: Engineer, as: 'engineer' }]
+        }
+      ],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']]
+    });
+
+    res.json({
+      success: true,
+      data: {
+        applications: applications.rows,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(applications.count / limit),
+          totalItems: applications.count,
+          itemsPerPage: parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get applicants',
+      error: error.message
+    });
+  }
+};
+
 // Get job statistics
 const getJobStats = async (req, res) => {
   try {
@@ -202,8 +262,111 @@ const getJobStats = async (req, res) => {
   }
 };
 
+// Update job posting
+const updateJob = async (req, res) => {
+  try {
+    const { jobs_id } = req.params;
+
+    const job = await Job.findOne({
+      where: { jobs_id, posted_by: req.user.user_id }
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    const allowedUpdates = [
+      "title","company","location","description","salary","duration","openings","employment_type","experience_level","skills_required","requirements","responsibilities","deadline", "status"
+    ];
+
+    const updates = {};
+    allowedUpdates.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    await job.update(updates);
+
+    res.json({
+      success: true,
+      message: 'Job updated successfully',
+      data: job
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Job update failed',
+      error: error.message
+    });
+  }
+};
+
+// Delete job posting
+const deleteJob = async (req, res) => {
+  try {
+    const { jobs_id } = req.params;
+    const userId = req.user.user_id;
+    const userRole = req.user.role;
+
+    const job = await Job.findByPk(jobs_id, {
+      include: [{ model: User, as: 'poster' }]
+    });
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
+    }
+
+    // Check if user is admin or the job poster
+    const isAdmin = userRole === 'admin';
+    const isJobPoster = job.poster_id === userId;
+
+    if (!isAdmin && !isJobPoster) {
+      return res.status(403).json({
+        success: false,
+        message: "You don't have permission to delete this job",
+      });
+    }
+
+    // Check for applications
+    const applicationCount = await Application.count({
+      where: { job_id: jobs_id },
+    });
+
+    if (applicationCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete job with existing applications",
+      });
+    }
+
+    await job.destroy();
+
+    res.json({
+      success: true,
+      message: "Job deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete job",
+      error: error.message,
+    });
+  }
+};
+
+
 module.exports = {
   getJobs,
   getJobById,
-  getJobStats
+  getJobApplicants,
+  getJobStats,
+  updateJob,
+  deleteJob
 };

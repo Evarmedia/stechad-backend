@@ -178,38 +178,13 @@ const getStats = async (req, res) => {
   }
 };
 
-// Get admin profile
-const getProfile = async (req, res) => {
-  try {
-    const admin = await User.findOne({
-      where: { user_id: req.user.user_id },
-      include: [{ model: Admin, as: "admin" }],
-    });
-
-    if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Admin profile not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: admin,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get profile",
-      error: error.message,
-    });
-  }
-};
-
 // Update admin profile
 const updateProfile = async (req, res) => {
   try {
-    const admin = await Admin.findOne({ where: { user_id: req.user.user_id } });
+    const admin = await Admin.findOne({ 
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: 'user', attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } }]
+    });
 
     if (!admin) {
       return res.status(404).json({
@@ -218,22 +193,48 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const { permissions, is_super_admin } = req.body;
-    const updates = {};
+    const { permissions, is_super_admin, first_name, last_name, phone_number, city, country, avatar_url } = req.body;
+    const adminUpdates = {};
+    const userUpdates = {};
 
     if (permissions !== undefined) {
-      updates.permissions = permissions;
+      adminUpdates.permissions = permissions;
     }
     if (is_super_admin !== undefined) {
-      updates.is_super_admin = is_super_admin;
+      adminUpdates.is_super_admin = is_super_admin;
     }
 
-    await admin.update(updates);
+    if (first_name !== undefined) {
+      userUpdates.first_name = first_name;
+    }
+    if (last_name !== undefined) {
+      userUpdates.last_name = last_name;
+    }
+    if (phone_number !== undefined) {
+      userUpdates.phone_number = phone_number;
+    }
+    if (city !== undefined) {
+      userUpdates.city = city;
+    }
+    if (country !== undefined) {
+      userUpdates.country = country;
+    }
+    if (avatar_url !== undefined) {
+      userUpdates.avatar_url = avatar_url;
+    }
+
+    await admin.update(adminUpdates);
+    await admin.user.update(userUpdates);
+
+    const updatedAdmin = await Admin.findOne({ 
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: 'user' }]
+    });
 
     res.json({
       success: true,
       message: "Profile updated successfully",
-      data: admin,
+      data: updatedAdmin,
     });
   } catch (error) {
     res.status(500).json({
@@ -658,209 +659,6 @@ const deleteProjectManager = async (req, res) => {
   }
 };
 
-// Get all jobs on platform
-const getJobs = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, status } = req.query;
-    const offset = (page - 1) * limit;
-
-    const where = {};
-    if (status) {
-      where.status = status;
-    }
-
-    const jobs = await Job.findAndCountAll({
-      where,
-      include: [
-        { model: User, as: "poster", attributes: ["first_name", "last_name"] },
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [["created_at", "DESC"]],
-    });
-
-    res.json({
-      success: true,
-      data: {
-        jobs: jobs.rows,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(jobs.count / limit),
-          totalItems: jobs.count,
-          itemsPerPage: parseInt(limit),
-        },
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get jobs",
-      error: error.message,
-    });
-  }
-};
-
-// Get specific job details
-const getJobDetails = async (req, res) => {
-  try {
-    const { jobs_id } = req.params;
-
-    const job = await Job.findOne({
-      where: { jobs_id },
-      include: [
-        { model: User, as: "poster", attributes: ["first_name", "last_name"] },
-        {
-          model: Application,
-          as: "applications",
-          include: [{ model: User, as: "engineer" }],
-        },
-      ],
-    });
-
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        message: "Job not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: job,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get job details",
-      error: error.message,
-    });
-  }
-};
-
-// Delete job posting
-const deleteJob = async (req, res) => {
-  try {
-    const { jobs_id } = req.params;
-
-    const job = await Job.findByPk(jobs_id);
-    if (!job) {
-      return res.status(404).json({
-        success: false,
-        message: "Job not found",
-      });
-    }
-
-    // Check for applications
-    const applicationCount = await Application.count({
-      where: { job_id: jobs_id },
-    });
-
-    if (applicationCount > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete job with existing applications",
-      });
-    }
-
-    await job.destroy();
-
-    res.json({
-      success: true,
-      message: "Job deleted successfully",
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete job",
-      error: error.message,
-    });
-  }
-};
-
-// Get all applications on platform
-const getApplications = async (req, res) => {
-  try {
-    const { page = 1, limit = 10, status } = req.query;
-    const offset = (page - 1) * limit;
-
-    const where = {};
-    if (status) {
-      where.status = status;
-    }
-
-    const applications = await Application.findAndCountAll({
-      where,
-      include: [
-        { model: Job, as: "job", attributes: ["title"] },
-        {
-          model: User,
-          as: "applicant",
-          attributes: ["first_name", "last_name"],
-        },
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [["created_at", "DESC"]],
-    });
-
-    res.json({
-      success: true,
-      data: {
-        applications: applications.rows,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(applications.count / limit),
-          totalItems: applications.count,
-          itemsPerPage: parseInt(limit),
-        },
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get applications",
-      error: error.message,
-    });
-  }
-};
-
-// Get specific application details
-const getApplicationDetails = async (req, res) => {
-  try {
-    const { applications_id } = req.params;
-
-    const application = await Application.findOne({
-      where: { applications_id },
-      include: [
-        { model: Job, as: "job", include: [{ model: User, as: "poster", attributes: ["first_name", "last_name"] }] },
-        {
-          model: User,
-          as: "applicant",
-          attributes: ["first_name", "last_name"],
-        },
-      ],
-    });
-
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        message: "Application not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: application,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get application details",
-      error: error.message,
-    });
-  }
-};
-
 // Get engineers pending vetting
 const getEngineerVetting = async (req, res) => {
   try {
@@ -981,7 +779,6 @@ const updateSettings = async (req, res) => {
 module.exports = {
   getDashboard,
   getStats,
-  getProfile,
   updateProfile,
   getEngineers,
   getEngineerDetails,
@@ -992,11 +789,6 @@ module.exports = {
   inviteProjectManager,
   getProjectManagerDetails,
   deleteProjectManager,
-  getJobs,
-  getJobDetails,
-  deleteJob,
-  getApplications,
-  getApplicationDetails,
   getEngineerVetting,
   getSettings,
   updateSettings,

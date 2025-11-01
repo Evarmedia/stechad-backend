@@ -96,14 +96,4 @@ Interview.init(
   }
 );
 
-// Define relationships for Interview
-Interview.belongsTo(Engineer, { foreignKey: 'candidate_id' });
-Engineer.hasMany(Interview, { foreignKey: 'candidate_id' });
-
-Interview.belongsTo(ProjectManager, { foreignKey: 'interviewer_id' });
-ProjectManager.hasMany(Interview, { foreignKey: 'interviewer_id' });
-
-Interview.belongsTo(Job, { foreignKey: 'job_id' });
-Job.hasMany(Interview, { foreignKey: 'job_id' });
-
 module.exports = Interview;

@@ -141,7 +141,6 @@ const createProject = async (req, res) => {
       title,
       description,
       job_id,
-      engineer_user_id,
       status = 'planning',
       priority = 'medium',
       progress = 0,
@@ -163,19 +162,6 @@ const createProject = async (req, res) => {
       }
     }
 
-    // Verify engineer exists if provided
-    if (engineer_user_id) {
-      const engineer = await User.findOne({
-        where: { user_id: engineer_user_id, role: 'engineer' }
-      });
-      if (!engineer) {
-        return res.status(404).json({
-          success: false,
-          message: 'Engineer not found'
-        });
-      }
-    }
-
     const project = await Project.create({
       project_managers_user_id: req.user.user_id,
       title,
@@ -193,19 +179,19 @@ const createProject = async (req, res) => {
     });
 
     // Create notification for assigned engineer
-    if (engineer_user_id) {
-      await createNotification({
-        user_id: engineer_user_id,
-        title: 'New Project Assignment',
-        message: `You have been assigned to project: ${title}`,
-        type: 'info',
-        action_url: `/projects/${project.projects_id}`,
-        metadata: {
-          project_id: project.projects_id,
-          project_manager_id: req.user.user_id
-        }
-      });
-    }
+    // if (engineer_user_id) {
+    //   await createNotification({
+    //     user_id: engineer_user_id,
+    //     title: 'New Project Assignment',
+    //     message: `You have been assigned to project: ${title}`,
+    //     type: 'info',
+    //     action_url: `/projects/${project.projects_id}`,
+    //     metadata: {
+    //       project_id: project.projects_id,
+    //       project_manager_id: req.user.user_id
+    //     }
+    //   });
+    // }
 
     res.status(201).json({
       success: true,

@@ -153,8 +153,8 @@ router.get('/:applications_id', getApplicationById);
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [pending, reviewed, accepted, rejected]
- *                 example: "reviewed"
+ *                 enum: [pending, reviewed, shortlisted, accepted, rejected]
+ *                 example: "shortlisted"
  *               feedback:
  *                 type: string
  *                 example: "Great profile, moving to next round"

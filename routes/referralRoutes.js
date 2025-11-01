@@ -93,49 +93,6 @@ router.get('/rewards', getRewardHistory);
 
 /**
  * @swagger
- * /referrals/validate/{referral_code}:
- *   get:
- *     summary: Validate a referral code
- *     tags: [Referrals]
- *     security: []
- *     parameters:
- *       - in: path
- *         name: referral_code
- *         required: true
- *         schema:
- *           type: string
- *         description: Referral code to validate
- *     responses:
- *       200:
- *         description: Referral code validation result
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     valid:
- *                       type: boolean
- *                       example: true
- *                     referrer:
- *                       type: object
- *                       properties:
- *                         first_name:
- *                           type: string
- *                         last_name:
- *                           type: string
- *                         role:
- *                           type: string
- */
-router.get('/validate/:referral_code', validateReferral);
-
-/**
- * @swagger
  * /referrals/rewards/claim:
  *   get:
  *     summary: Claim a reward

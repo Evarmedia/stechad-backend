@@ -48,43 +48,6 @@ const getRewardHistory = async (req, res) => {
   }
 };
 
-// Validate referral code
-const validateReferral = async (req, res) => {
-  try {
-    const { referral_code } = req.params;
-    
-    const isValid = await validateReferralCode(referral_code);
-    
-    if (isValid) {
-      const referrer = await User.findOne({
-        where: { referral_code },
-        attributes: ['first_name', 'last_name', 'role']
-      });
-      
-      res.json({
-        success: true,
-        data: {
-          valid: true,
-          referrer: referrer
-        }
-      });
-    } else {
-      res.json({
-        success: true,
-        data: {
-          valid: false
-        }
-      });
-    }
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to validate referral code',
-      error: error.message
-    });
-  }
-};
-
 // Get referral leaderboard (admin only)
 const getReferralLeaderboard = async (req, res) => {
   try {
@@ -340,7 +303,6 @@ const getReferralAnalytics = async (req, res) => {
 module.exports = {
   getReferralDashboard,
   getRewardHistory,
-  validateReferral,
   getReferralLeaderboard,
   claimReward,
   getReferralAnalytics

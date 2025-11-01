@@ -280,11 +280,6 @@ router.post('/', authorize('admin', 'project_manager'), createProject);
  *                 items:
  *                   type: string
  *                 example: ["John Doe", "Jane Smith", "Bob Wilson"]
- *               tasks:
- *                 type: array
- *                 items:
- *                   type: object
- *                 example: [{"id": 1, "title": "Setup project", "status": "completed"}]
  *               start_date:
  *                 type: string
  *                 format: date-time

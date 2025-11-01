@@ -7,7 +7,7 @@ const express = require('express');
  */
 
 const { authenticate, authorize } = require('../middleware/auth');
-const { getJobs, getJobById, getJobStats } = require('../controllers/jobsController');
+const { getJobs, getJobById, getJobApplicants, getJobStats, updateJob, deleteJob } = require('../controllers/jobsController');
 
 const router = express.Router();
 
@@ -137,6 +137,59 @@ router.get('/:jobs_id', getJobById);
 
 /**
  * @swagger
+ * /{jobs_id}/applicants:
+ *   get:
+ *     summary: Get applicants for specific job
+ *     tags: [Jobs]
+ *     parameters:
+ *       - in: path
+ *         name: jobs_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Job ID
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of items per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, reviewed, shortlisted, rejected, accepted]
+ *         description: Filter by application status
+ *     responses:
+ *       200:
+ *         description: Applicants retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PaginationResponse'
+ *       404:
+ *         description: Job not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/:jobs_id/applicants', authorize('admin', 'project_manager'), getJobApplicants);
+
+/**
+ * @swagger
  * /jobs/stats/overview:
  *   get:
  *     summary: Get job statistics and analytics
@@ -208,5 +261,135 @@ router.get('/:jobs_id', getJobById);
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/stats/overview', authenticate, authorize('admin', 'project_manager'), getJobStats);
+
+/**
+ * @swagger
+ * /update/{jobs_id}:
+ *   put:
+ *     summary: Update job posting
+ *     tags: [Jobs]
+ *     parameters:
+ *       - in: path
+ *         name: jobs_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Job ID
+*     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *               - company
+ *               - location
+ *               - description
+ *               - employment_type
+ *               - salary
+ *               - duration
+ *               - openings
+ *               - experience_level
+ *               - skills_required
+ *               - requirements
+ *               - responsibilities
+ *               - deadline
+ *             properties:
+ *               title:
+ *                 type: string
+ *                 example: "Expert Rust Developer"
+ *               company:
+ *                 type: string
+ *                 example: "Stechad ltd"
+ *               location:
+ *                 type: string
+ *                 example: "remote"
+ *               description:
+ *                 type: string
+ *                 example: "We are looking for an experienced Rust developer..."
+ *               salary:
+ *                 type: string
+ *                 example: "200EUR"
+ *               duration:
+ *                 type: string
+ *                 example: "6 months"
+ *               openings:
+ *                 type: number
+ *                 example: "1"
+ *               employment_type:
+ *                 type: string
+ *                 enum: ['full-time', 'contract', 'part-time']
+ *                 example: "full-time"
+ *               experience_level:
+ *                 type: string
+ *                 enum: [entry, intermediate, senior, expert]
+ *                 example: "expert"
+ *               skills_required:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["React", "TypeScript", "Node.js"]
+ *               requirements:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["12+ years expert experience", "Rust proficiency"]
+ *               responsibilities:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["Build clean architecture", "Debug projects"]
+ *               status:
+ *                 type: string
+ *                 enum: [draft, active, closed]
+ *                 example: "draft"
+ *               deadline:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-10-01T00:00:00Z"
+ *     responses:
+ *       200:
+ *         description: Job updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ *       404:
+ *         description: Job not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.put('/update/:jobs_id', authorize('admin', 'project_manager'), updateJob);
+
+/**
+ * @swagger
+ * /jobs/{jobs_id}:
+ *   delete:
+ *     summary: Delete job posting
+ *     tags: [Jobs]
+ *     parameters:
+ *       - in: path
+ *         name: jobs_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Job deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ */
+router.delete('/:jobs_id', authorize('admin', 'project_manager'), deleteJob);
 
 module.exports = router;
