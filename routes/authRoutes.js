@@ -65,6 +65,10 @@ const router = express.Router();
  *                 type: string
  *                 enum: [engineer, project_manager, admin]
  *                 example: engineer
+ *               referral_code:
+ *                 type: string
+ *                 description: Referral code (optional)
+ *                 example: "ionX23"
  *     responses:
  *       201:
  *         description: User registered successfully
@@ -428,8 +432,8 @@ router.post('/edit-password', authenticate, editPassword);
  *                 example: "King Mosi"
  *               last_name:
  *                 type: string
- *                 description: User's last name (optional)
  *                 example: "The third"
+ *                 description: User's last name (optional)
  *     responses:
  *       201:
  *         description: Invite accepted and user registered successfully

@@ -13,8 +13,6 @@ const Notification = require("./Notification");
 const Setting = require("./Setting");
 const Invite = require("./Invite");
 const { Referral, Reward, UserReward } = require("./Referral");
-const Chat = require("./Chat");
-const Message = require("./Message");
 
 // Define relationships between models
 
@@ -103,6 +101,7 @@ Referral.belongsTo(User, { foreignKey: 'referee_id', as: 'referee', onDelete: 'C
 User.hasMany(Referral, { foreignKey: 'referrer_id', as: 'referralsMade' });
 User.hasMany(Referral, { foreignKey: 'referee_id', as: 'referralsReceived' });
 User.belongsTo(User, { foreignKey: 'referrer_id', as: 'referrer', onDelete: 'SET NULL' });
+User.hasMany(User, { foreignKey: 'referred_by', as: 'referees' });
 
 // user - Invite (One-to-Many)
 User.hasMany(Invite, { foreignKey: 'invited_by_user_id', as: 'sent_invites', onDelete: 'CASCADE' });
@@ -114,22 +113,6 @@ UserReward.belongsTo(Reward, { foreignKey: 'reward_id' });
 
 User.hasMany(UserReward, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 UserReward.belongsTo(User, { foreignKey: 'user_id' });
-
-// Referral relationships
-Referral.belongsTo(User, { foreignKey: 'referrer_id', as: 'referrer', onDelete: 'CASCADE' });
-Referral.belongsTo(User, { foreignKey: 'referee_id', as: 'referee', onDelete: 'CASCADE' });
-User.hasMany(Referral, { foreignKey: 'referrer_id', as: 'referralsMade' });
-User.hasMany(Referral, { foreignKey: 'referee_id', as: 'referralsReceived' });
-User.belongsTo(User, { foreignKey: 'referred_by', as: 'referrer', onDelete: 'SET NULL' });
-User.hasMany(User, { foreignKey: 'referred_by', as: 'referees' });
-
-// Chat relationships
-Chat.hasMany(Message, { foreignKey: 'chat_id', as: 'messages', onDelete: 'CASCADE' });
-Message.belongsTo(Chat, { foreignKey: 'chat_id', as: 'chat' });
-
-// Message relationships
-User.hasMany(Message, { foreignKey: 'sender_id', as: 'sent_messages', onDelete: 'CASCADE' });
-Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' });
 
 // Self-referencing message replies
 Message.belongsTo(Message, { foreignKey: 'reply_to', as: 'replyToMessage', onDelete: 'SET NULL' });
@@ -152,6 +135,4 @@ module.exports = {
   Referral,
   Reward,
   UserReward,
-  Chat,
-  Message,
 };
