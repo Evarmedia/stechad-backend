@@ -4,12 +4,23 @@ const sendEmail = require("../utils/sendEmail");
 const { generateOTP, generateOTPExpiry } = require("../utils/otpGenerator");
 const path = require("path");
 const Sequelize = require("sequelize");
-const { createReferral, validateReferralCode } = require("../utils/referralUtil");
+const {
+  createReferral,
+  validateReferralCode,
+} = require("../utils/referralUtil");
 
 // Register new user
 const signup = async (req, res) => {
   try {
-    const { email, password, confirm_password, first_name, last_name, role, referral_code } = req.body;
+    const {
+      email,
+      password,
+      confirm_password,
+      first_name,
+      last_name,
+      role,
+      referral_code,
+    } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
@@ -17,6 +28,13 @@ const signup = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "User already exists with this email",
+      });
+    }
+
+    if (password !== confirm_password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password do not match",
       });
     }
 
@@ -36,17 +54,10 @@ const signup = async (req, res) => {
       email,
       password,
       confirm_password,
-      first_name, 
+      first_name,
       last_name,
       role,
     });
-
-    if (password !== confirm_password) {
-      return res.status(400).json({
-        success: false,
-        message: "Password do not match",
-      });
-    }
 
     // Create role-specific record
     if (role === "engineer") {
@@ -63,7 +74,7 @@ const signup = async (req, res) => {
       try {
         await createReferral(referral_code, user.user_id);
       } catch (referralError) {
-        console.error('Error processing referral:', referralError);
+        console.error("Error processing referral:", referralError);
       }
     }
 
@@ -129,9 +140,11 @@ const login = async (req, res) => {
       role: user.role,
     });
 
-    const inviteRecord = await Invite.findOne({ where: { email: user.email, status: 'accepted' } });
+    const inviteRecord = await Invite.findOne({
+      where: { email: user.email, status: "accepted" },
+    });
 
-    if (inviteRecord){
+    if (inviteRecord) {
       await inviteRecord.destroy();
     }
 
@@ -197,8 +210,14 @@ const sendOtp = async (req, res) => {
       __dirname,
       "../templates/resetOtpEmail.html"
     );
-    const header = purpose === 'password_reset' ? 'Password Reset Request' : 'Email Verification';
-    const subject = purpose === 'password_reset' ? 'Password Reset OTP' : 'Email Verification OTP';
+    const header =
+      purpose === "password_reset"
+        ? "Password Reset Request"
+        : "Email Verification";
+    const subject =
+      purpose === "password_reset"
+        ? "Password Reset OTP"
+        : "Email Verification OTP";
     const replacements = {
       header,
       firstname: user.first_name,
@@ -247,7 +266,7 @@ const verifyEmail = async (req, res) => {
       });
     }
 
-    if(user.is_verified){
+    if (user.is_verified) {
       return res.status(400).json({
         success: false,
         message: "Email is already verified",
@@ -347,7 +366,7 @@ const editPassword = async (req, res) => {
     }
 
     // Update password
-    await user.update({ 
+    await user.update({
       password: new_password,
     });
 
@@ -367,12 +386,20 @@ const editPassword = async (req, res) => {
 // accept invite
 const acceptInvites = async (req, res) => {
   try {
-    const { temp_password, new_password, confirm_password, first_name, last_name } = req.body;
-    
+    const {
+      temp_password,
+      new_password,
+      confirm_password,
+      first_name,
+      last_name,
+    } = req.body;
+
     const { token } = req.params;
-    
+
     // Find invite
-    const invitedUser = await Invite.findOne({ where: { token, status: 'pending' } });
+    const invitedUser = await Invite.findOne({
+      where: { token, status: "pending" },
+    });
     if (!invitedUser) {
       return res.status(400).json({
         success: false,
@@ -412,10 +439,10 @@ const acceptInvites = async (req, res) => {
       await ProjectManager.create({ user_id: user.user_id });
     }
     // Update invite status
-    await invitedUser.update({ 
-      status: 'accepted',
+    await invitedUser.update({
+      status: "accepted",
       responded_at: new Date(),
-     });
+    });
 
     res.status(201).json({
       success: true,
