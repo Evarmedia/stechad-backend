@@ -9,7 +9,54 @@ const {
   validateReferralCode,
 } = require("../utils/referralUtil");
 
-// Register new user
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: 'http://localhost:5000/api/auth/google/callback'
+  },
+  async (accessToken, refreshToken, profile, done) => {
+    // profile contains user information from Google
+    try {
+      const { email, first_name, last_name, id } = profile._json;
+
+      // Check if the user exists in the database
+      let user = await User.findOne({ where: { email } });
+      
+      if (!user) {
+        // Create a new user if they don't exist
+        user = await User.create({
+          email,
+          first_name,
+          last_name,
+          role: 'engineer',  // default role or make it dynamic if needed
+        });
+
+        // Create role-specific record (for engineers)
+        await Engineer.create({ user_id: user.user_id });
+      }
+
+      // Returning user object
+      done(null, user);
+    } catch (error) {
+      done(error, null);
+    }
+  }
+));
+
+// Serialize user
+passport.serializeUser((user, done) => {
+  done(null, user.user_id);
+});
+
+// Deserialize user
+passport.deserializeUser(async (id, done) => {
+  const user = await User.findOne({ where: { user_id: id } });
+  done(null, user);
+});
+
 const signup = async (req, res) => {
   try {
     const {
@@ -20,25 +67,58 @@ const signup = async (req, res) => {
       last_name,
       role,
       referral_code,
+      googleSignIn,  // Add this field to differentiate normal signup vs Google login
     } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: "User already exists with this email",
-      });
+    // If Google sign-in is used, skip password check (no password needed for Google sign-in)
+    if (!googleSignIn) {
+      // Check if passwords match
+      if (password !== confirm_password) {
+        return res.status(400).json({
+          success: false,
+          message: "Passwords do not match",
+        });
+      }
+      if (!email || !password || !confirm_password || !first_name || !last_name){
+        return res.status(400).json({
+          success: false,
+          message: "Please fill all required fields"
+        })
+      }
     }
 
-    if (password !== confirm_password) {
-      return res.status(400).json({
-        success: false,
-        message: "Password do not match",
-      });
+    // If Google sign-in is being used, check if the user exists
+    if (googleSignIn) {
+      const existingUser = await User.findOne({ where: { email } });
+      if (existingUser) {
+        // If the user exists, generate a token and return the user data
+        const { token } = generateTokens({
+          user_id: existingUser.user_id,
+          role: existingUser.role,
+        });
+        return res.status(200).json({
+          success: true,
+          message: "User logged in successfully",
+          data: {
+            user: existingUser,
+            token,
+          },
+        });
+      }
     }
 
-    // Validate referral code if provided
+    // If Google sign-in is not used, check if user already exists
+    if (!googleSignIn) {
+      const existingUser = await User.findOne({ where: { email } });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "User already exists with this email",
+        });
+      }
+    }
+
+    // Validate referral code if provided (only for normal signup)
     if (referral_code) {
       const isValidReferral = await validateReferralCode(referral_code);
       if (!isValidReferral) {
@@ -49,20 +129,19 @@ const signup = async (req, res) => {
       }
     }
 
-    // Create user
+    // Create a new user record if Google sign-in is not used, or new user for Google login
     const user = await User.create({
       email,
-      password,
-      confirm_password,
+      password: googleSignIn ? null : password,  // Skip password if Google sign-in
+      confirm_password: googleSignIn ? null : confirm_password,  // Skip confirm password if Google sign-in
       first_name,
       last_name,
-      role,
+      role: googleSignIn ? 'engineer' : role,  // Default to 'engineer' role for Google users
     });
 
-    // Create role-specific record
-    if (role === "engineer") {
+    // Create role-specific records based on the role provided (for normal signup or Google login)
+    if (role === "engineer" || googleSignIn) {
       await Engineer.create({ user_id: user.user_id });
-      // update is_onboarded to true for engineers
     } else if (role === "project_manager") {
       await ProjectManager.create({ user_id: user.user_id });
     } else if (role === "admin") {
@@ -78,15 +157,16 @@ const signup = async (req, res) => {
       }
     }
 
-    // Generate token
+    // Generate token for user login (both for normal signup and Google sign-in)
     const { token } = generateTokens({
       user_id: user.user_id,
       role: user.role,
     });
 
+    // Respond with success message and user data + token
     res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message: googleSignIn ? "User logged in successfully" : "User registered successfully",
       data: {
         user: user.toJSON(),
         token,

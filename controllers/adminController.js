@@ -13,7 +13,11 @@ const { Op } = require("sequelize");
 const sendEmail = require("../utils/sendEmail");
 const { generateTokens } = require("../utils/generateTokens");
 const path = require("path");
-const { v4: uuidv4, validate: uuidValidate } = require("uuid"); // Import UUID validation
+const { v4: uuidv4, validate: uuidValidate } = require("uuid");
+
+const multer = require("multer");
+const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
+const { bucket, getV4ReadSignedUrl } = require("../config/gcpStorage");
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -178,72 +182,128 @@ const getStats = async (req, res) => {
   }
 };
 
-// Update admin profile
+const toBool = (v) => {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string")
+    return ["true", "1", "yes", "on"].includes(v.toLowerCase());
+  return Boolean(v);
+};
+
+const toTextArray = (v) => {
+  if (v === undefined || v === null || v === "") return undefined;
+  if (Array.isArray(v)) return v.map(String); // e.g. repeated form-data keys
+  if (typeof v === "string") {
+    // try JSON first: '["read","write"]'
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {}
+    // fallback: comma-separated 'read,write'
+    return v
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  // final fallback
+  return [String(v)];
+};
+
+// update admin profile
 const updateProfile = async (req, res) => {
   try {
-    const admin = await Admin.findOne({ 
+    const admin = await Admin.findOne({
       where: { user_id: req.user.user_id },
-      include: [{ model: User, as: 'user', attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } }]
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: { exclude: ['password','reset_password_token','reset_password_expires'] }
+      }]
     });
-
     if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: "Admin profile not found",
-      });
+      return res.status(404).json({ success: false, message: 'Admin profile not found' });
     }
 
-    const { permissions, is_super_admin, first_name, last_name, phone_number, city, country, avatar_url } = req.body;
+    const {
+      permissions,
+      is_super_admin,
+      first_name,
+      last_name,
+      phone_number,
+      city,
+      country,
+    } = req.body;
+
     const adminUpdates = {};
-    const userUpdates = {};
+    const userUpdates  = {};
 
-    if (permissions !== undefined) {
-      adminUpdates.permissions = permissions;
-    }
-    if (is_super_admin !== undefined) {
-      adminUpdates.is_super_admin = is_super_admin;
-    }
+    // keep the old object so we can delete it after a successful update
+    const oldAvatarObjectName = admin.user?.avatar_object_name;
 
-    if (first_name !== undefined) {
-      userUpdates.first_name = first_name;
-    }
-    if (last_name !== undefined) {
-      userUpdates.last_name = last_name;
-    }
-    if (phone_number !== undefined) {
-      userUpdates.phone_number = phone_number;
-    }
-    if (city !== undefined) {
-      userUpdates.city = city;
-    }
-    if (country !== undefined) {
-      userUpdates.country = country;
-    }
-    if (avatar_url !== undefined) {
-      userUpdates.avatar_url = avatar_url;
+    // 1) If an avatar file is provided, upload it first
+    let newAvatarObjectName = null;
+    if (req.file) {
+      const { objectName } = await uploadToGCP(req.file, req.user.user_id, 'profile-images');
+      newAvatarObjectName = objectName;
+      userUpdates.avatar_object_name = objectName; // store ONLY the object path
     }
 
-    await admin.update(adminUpdates);
-    await admin.user.update(userUpdates);
+    // 2) Coerce/assign other fields
+    const permArray = toTextArray(permissions);
+    if (permArray !== undefined) adminUpdates.permissions = permArray;
 
-    const updatedAdmin = await Admin.findOne({ 
+    const superAdmin = toBool(is_super_admin);
+    if (superAdmin !== undefined) adminUpdates.is_super_admin = superAdmin;
+
+    if (first_name !== undefined)   userUpdates.first_name = first_name;
+    if (last_name !== undefined)    userUpdates.last_name = last_name;
+    if (phone_number !== undefined) userUpdates.phone_number = phone_number;
+    if (city !== undefined)         userUpdates.city = city;
+    if (country !== undefined)      userUpdates.country = country;
+
+    // 3) Persist updates
+    if (Object.keys(adminUpdates).length) await admin.update(adminUpdates);
+    if (Object.keys(userUpdates).length)  await admin.user.update(userUpdates);
+
+    // 4) Only now that DB points to the new object, delete the old file (if different)
+    if (req.file && oldAvatarObjectName && oldAvatarObjectName !== newAvatarObjectName) {
+      try {
+        await deleteFromGCP(oldAvatarObjectName);
+      } catch (e) {
+        // don't fail the whole request if cleanup fails
+        console.warn('Failed to delete old avatar:', e?.message || e);
+      }
+    }
+
+    // 5) Re-fetch and return a fresh signed URL (temporary)
+    const updated = await Admin.findOne({
       where: { user_id: req.user.user_id },
-      include: [{ model: User, as: 'user' }]
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: { exclude: ['password','reset_password_token','reset_password_expires'] }
+      }]
     });
+
+    const signedUrl = updated?.user?.avatar_object_name
+      ? await getV4ReadSignedUrl(updated.user.avatar_object_name, 3600) // 1h
+      : null;
 
     res.json({
       success: true,
-      message: "Profile updated successfully",
-      data: updatedAdmin,
+      message: 'Profile updated successfully',
+      data: {
+        admin: updated,
+        avatar_url: signedUrl || undefined,
+      },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Profile update failed",
-      error: error.message,
-    });
+    res.status(500).json({ success: false, message: 'Profile update failed', error: error.message });
   }
 };
+
+module.exports = { updateProfile };
+
 
 // Get all engineers with pagination
 const getEngineers = async (req, res) => {
@@ -631,7 +691,7 @@ const deleteProjectManager = async (req, res) => {
     const activeProjects = await Project.count({
       where: {
         project_managers_user_id: projectManager.user_id,
-        status: ["in_progress",],
+        status: ["in_progress"],
       },
     });
 
@@ -667,7 +727,19 @@ const getEngineerVetting = async (req, res) => {
 
     const engineers = await Engineer.findAndCountAll({
       where: { is_vetted: false, is_onboarded: true },
-      include: [{ model: User, as: "user", attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } },],
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: {
+            exclude: [
+              "password",
+              "reset_password_token",
+              "reset_password_expires",
+            ],
+          },
+        },
+      ],
       limit: parseInt(limit),
       offset: parseInt(offset),
       order: [["created_at", "ASC"]],

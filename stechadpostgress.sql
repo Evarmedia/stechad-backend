@@ -117,7 +117,7 @@ CREATE INDEX idx_project_managers_status ON project_managers(status);
 CREATE TABLE IF NOT EXISTS admins (
     admin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
-    permissions TEXT,
+    permissions TEXT[] DEFAULT '{}',
     is_super_admin BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

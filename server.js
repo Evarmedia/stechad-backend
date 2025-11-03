@@ -27,6 +27,9 @@ const exportRoutes = require('./routes/exportRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 
+const passport = require('passport');
+// const session = require('express-session');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -58,8 +61,14 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
+// Session management
+// app.use(session({ secret: process.env.JWT_SECRET, resave: false, saveUninitialized: true }));
+app.use(passport.initialize());
+
+// app.use(passport.session());
+
 // Static files
-app.use('/uploads', express.static('uploads'));
+// app.use('/uploads', express.static('uploads'));
 
 // Swagger documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
@@ -94,7 +103,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ 
     success: false, 
     message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    error: process.env.NODE_ENV === 'development' ? err.message : err.message
   });
 });
 

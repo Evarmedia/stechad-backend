@@ -18,7 +18,7 @@ User.init(
     },
     password: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: true,
     },
     role: {
       type: DataTypes.TEXT,
@@ -44,8 +44,9 @@ User.init(
       type: DataTypes.BOOLEAN,
       defaultValue: true,
     },
-    avatar_url: {
+    avatar_object_name: {
       type: DataTypes.TEXT,
+      allowNull: true,
     },
     country: {
       type: DataTypes.TEXT,

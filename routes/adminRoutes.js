@@ -8,6 +8,7 @@ const express = require('express');
 
 const { authenticate, authorize } = require('../middleware/auth');
 const adminController = require('../controllers/adminController');
+const { upload } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -50,12 +51,12 @@ router.get('/stats', adminController.getStats);
  * @swagger
  * /admin/profile:
  *   put:
- *     summary: Update admin profile
+ *     summary: Update admin profile (supports avatar upload). Returns a short-lived signed URL if a new avatar is uploaded.
  *     tags: [Admin]
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
@@ -75,15 +76,32 @@ router.get('/stats', adminController.getStats);
  *                 type: string
  *               country:
  *                 type: string
- *               avatar_url:
+ *               avatar:
  *                 type: string
+ *                 format: binary
+ *                 description: Avatar image file (optional). When uploaded, backend stores the GCS object name and returns a signed URL.
  *     responses:
  *       200:
  *         description: Profile updated successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: 'Profile updated successfully'
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     token:
+ *                       type: string
+ *                       example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
  *       404:
  *         description: Admin profile not found
  *         content:
@@ -97,7 +115,8 @@ router.get('/stats', adminController.getStats);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/profile', adminController.updateProfile);
+
+router.put('/profile', upload.single('avatar'), adminController.updateProfile);
 
 /**
  * @swagger

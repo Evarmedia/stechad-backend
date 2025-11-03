@@ -46,6 +46,14 @@ const options = {
             updated_at: { type: 'string', format: 'date-time' }
           }
         },
+        Admin: {
+          type: 'object',
+          properties: {
+            admin_id : { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000'},
+            user_id : { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000'},
+            permissions: { type: 'array', items: {type: 'string'}, example: [{edit: 'true'}]}
+          }
+        },
         Engineer: {
           type: 'object',
           properties: {

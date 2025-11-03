@@ -1,2 +1,4 @@
 node_modules
 .env
+.json
+config/googleServiceKey.json

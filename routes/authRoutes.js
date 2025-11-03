@@ -20,7 +20,107 @@ const {
 const { authenticate } = require('../middleware/auth');
 const { validateRegistration, validateLogin } = require('../middleware/validation');
 
+const passport = require('passport');
+const { generateTokens } = require('../utils/generateTokens')
+
 const router = express.Router();
+
+/**
+ * @swagger
+ * /auth/google:
+ *   get:
+ *     summary: Redirect to Google OAuth for authentication
+ *     tags: [Authentication]
+ *     description: This route redirects the user to Google's OAuth 2.0 authentication page.
+ *     responses:
+ *       302:
+ *         description: Redirects to Google OAuth page
+ *         headers:
+ *           Location:
+ *             description: Redirect location to Google OAuth
+ *             type: string
+ *             example: 'https://accounts.google.com/o/oauth2/auth?scope=profile%20email&response_type=code&client_id=YOUR_GOOGLE_CLIENT_ID&redirect_uri=http://localhost:5000/auth/google/callback'
+ *       400:
+ *         description: Bad request if there is a problem with the OAuth initiation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: 'Failed to initiate Google OAuth.'
+ */
+// Redirect to Google OAuth
+router.get('/google', passport.authenticate('google', {
+  scope: ['profile', 'email'],
+}));
+
+/**
+ * @swagger
+ * /auth/google/callback:
+ *   get:
+ *     summary: Google OAuth callback after authentication
+ *     tags: [Authentication]
+ *     description: This route handles the Google OAuth callback, exchanges the authorization code for a token, and sends the user a JWT token.
+ *     parameters:
+ *       - in: query
+ *         name: code
+ *         required: true
+ *         description: Authorization code received from Google
+ *         schema:
+ *           type: string
+ *           example: '4/0AY0e_g5Vpz7hf2Z58Lw9LlvFw9nlpLoZd1fv-9h-lrhD5T6sQgd3cL_FyZVYHjMKlhS'
+ *     responses:
+ *       200:
+ *         description: Successful authentication and token generation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "User logged in successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     token:
+ *                       type: string
+ *                       example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+ *       400:
+ *         description: Failed authentication or invalid authorization code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+// Google callback route
+router.get('/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/' }),
+  (req, res) => {
+    // Send JWT token after successful login or signup
+    const { token } = generateTokens({
+      user_id: req.user.user_id,
+      role: req.user.role,
+    });
+    res.redirect(`http://localhost:3000/dashboard?token=${token}`);
+  }
+);
 
 /**
  * @swagger
@@ -42,6 +142,7 @@ const router = express.Router();
  *               - firsst_name
  *               - last_name
  *               - role
+ *               - googleSignIn
  *             properties:
  *               email:
  *                 type: string
@@ -69,6 +170,10 @@ const router = express.Router();
  *                 type: string
  *                 description: Referral code (optional)
  *                 example: "ionX23"
+ *               googleSignIn:
+ *                 type: boolean
+ *                 description: Sign up using Google OAuth
+ *                 example: false
  *     responses:
  *       201:
  *         description: User registered successfully
