@@ -91,7 +91,7 @@ router.get('/dashboard', pmController.getDashboard);
  *               country:
  *                 type: string
  *                 example: "USA"
- *               avatar_url:
+ *               avatar_object_name:
  *                 type: string
  *                 example: "https://example.com/avatar.jpg"
  *     responses:

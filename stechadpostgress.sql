@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone_number TEXT,
     is_verified BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
-    avatar_url TEXT,
+    avatar_object_name TEXT,
     country TEXT,
     city TEXT,
     last_login TIMESTAMPTZ,

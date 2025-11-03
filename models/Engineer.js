@@ -81,7 +81,7 @@ Engineer.init(
     special_preferences: {
       type: DataTypes.TEXT,
     },
-    cv_url: {
+    cv_object_name: {
       type: DataTypes.TEXT,
     },
     is_vetted: {

@@ -152,7 +152,7 @@ const updateProfile = async (req, res) => {
       "date_of_birth",
       "years_of_experience",
       "project_types",
-      "cv_url",
+      "cv_object_name",
       "availability",
       "specialization",
       "skill_level",
@@ -164,7 +164,7 @@ const updateProfile = async (req, res) => {
       "phone_number",
       "city",
       "country",
-      "avatar_url",
+      "avatar_object_name",
     ];
 
     const engineerUpdates = {};

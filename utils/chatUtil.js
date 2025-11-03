@@ -93,7 +93,7 @@ const getUserChats = async (userId, options = {}) => {
             {
               model: User,
               as: 'sender',
-              attributes: ['first_name', 'last_name', 'avatar_url']
+              attributes: ['first_name', 'last_name', 'avatar_object_name']
             }
           ]
         }
@@ -112,7 +112,7 @@ const getUserChats = async (userId, options = {}) => {
               [Op.in]: chat.participants
             }
           },
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_url', 'role']
+          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name', 'role']
         });
 
         const chatData = chat.toJSON();
@@ -196,7 +196,7 @@ const sendMessage = async (chatId, senderId, content, messageType = 'text', atta
         {
           model: User,
           as: 'sender',
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_url']
+          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name']
         },
         {
           model: Message,
@@ -258,7 +258,7 @@ const getChatMessages = async (chatId, userId, options = {}) => {
         {
           model: User,
           as: 'sender',
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_url']
+          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name']
         },
         {
           model: Message,
@@ -453,7 +453,7 @@ const searchMessages = async (userId, query, options = {}) => {
         {
           model: User,
           as: 'sender',
-          attributes: ['first_name', 'last_name', 'avatar_url']
+          attributes: ['first_name', 'last_name', 'avatar_object_name']
         },
         {
           model: Chat,

@@ -214,7 +214,7 @@ router.get('/dashboard', getDashboard);
  *                 items:
  *                   type: string
  *                 example: ["Web Development", "Mobile App Development"]
- *               cv_url:
+ *               cv_object_name:
  *                 type: string
  *                 example: "https://example.com/cv.pdf"
  *               availability:
@@ -243,7 +243,7 @@ router.get('/dashboard', getDashboard);
  *               country:
  *                 type: string
  *                 example: "USA"
- *               avatar_url:
+ *               avatar:
  *                 type: string
  *                 example: "https://example.com/avatar.jpg"
  *     responses:

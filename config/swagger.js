@@ -36,7 +36,7 @@ const options = {
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },
             phone_number: { type: 'string', example: '+1234567890' },
-            avatar_url: { type: 'string', example: 'avatar-123.jpg' },
+            avatar_object_name: { type: 'string', example: 'avatar-123.jpg' },
             is_active: { type: 'boolean', example: true },
             is_verified: { type: 'boolean', example: false },
             country: { type: 'string', example: 'USA' },

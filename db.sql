@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name TEXT,
     phone_number TEXT,
     is_verified INTEGER DEFAULT 0,
-    avatar_url TEXT,
+    avatar_object_name TEXT,
     country TEXT,
     city TEXT,
     last_login DATETIME,

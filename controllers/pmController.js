@@ -112,7 +112,7 @@ const updateProfile = async (req, res) => {
     ];
 
     const allowedUserUpdates = [
-      'first_name', 'last_name', 'phone_number', 'city', 'country', 'avatar_url'
+      'first_name', 'last_name', 'phone_number', 'city', 'country', 'avatar_object_name'
     ];
 
     const projectManagerUpdates = {};

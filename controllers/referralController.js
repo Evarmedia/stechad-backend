@@ -88,7 +88,7 @@ const getReferralLeaderboard = async (req, res) => {
         {
           model: User,
           as: 'referrer',
-          attributes: ['first_name', 'last_name', 'role', 'avatar_url']
+          attributes: ['first_name', 'last_name', 'role', 'avatar_object_name']
         }
       ],
       group: ['referrer_id', 'referrer.user_id'],
