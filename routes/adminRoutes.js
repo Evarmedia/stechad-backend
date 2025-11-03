@@ -115,7 +115,6 @@ router.get('/stats', adminController.getStats);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-
 router.put('/profile', upload.single('avatar'), adminController.updateProfile);
 
 /**

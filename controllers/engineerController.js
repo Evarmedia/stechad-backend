@@ -1,5 +1,8 @@
 const { User, Engineer, Job, Application, Project } = require("../models");
 const { Op } = require("sequelize");
+const { uploadToGCP, deleteFromGCP } = require('../middleware/upload');
+const { getV4ReadSignedUrl } = require('../config/gcpStorage');
+const { toInt, toTextArray } = require('../utils/helpers')
 
 // Complete engineer onboarding
 const completeOnboarding = async (req, res) => {
@@ -138,63 +141,102 @@ const updateProfile = async (req, res) => {
   try {
     const engineer = await Engineer.findOne({
       where: { user_id: req.user.user_id },
-      include: [{ model: User, as: "user" }],
+      include: [{ model: User, as: 'user' }],
     });
 
     if (!engineer) {
-      return res.status(404).json({
-        success: false,
-        message: "Engineer profile not found",
-      });
+      return res.status(404).json({ success: false, message: 'Engineer profile not found' });
     }
 
-    const allowedEngineerUpdates = [
-      "date_of_birth",
-      "years_of_experience",
-      "project_types",
-      "cv_object_name",
-      "availability",
-      "specialization",
-      "skill_level",
-    ];
+    // Keep old object names so we can delete after successful update
+    const oldAvatarObjectName = engineer.user?.avatar_object_name || null;
+    const oldCvObjectName     = engineer?.cv_object_name || null;
 
-    const allowedUserUpdates = [
-      "first_name",
-      "last_name",
-      "phone_number",
-      "city",
-      "country",
-      "avatar_object_name",
-    ];
+    const {
+      date_of_birth,
+      years_of_experience,
+      project_types,
+      availability,
+      specialization,
+      skill_level,
+      first_name,
+      last_name,
+      phone_number,
+      city,
+      country,
+    } = req.body;
 
     const engineerUpdates = {};
-    allowedEngineerUpdates.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        engineerUpdates[field] = req.body[field];
-      }
+    const userUpdates     = {};
+
+    // ---- file uploads (optional) ----
+    // Expecting route to use upload.fields([{name:'avatar'},{name:'cv'}])
+    if (req.files?.avatar?.[0]) {
+      const { objectName } = await uploadToGCP(req.files.avatar[0], req.user.user_id, 'profile-images');
+      userUpdates.avatar_object_name = objectName; // store path only
+    }
+    if (req.files?.cv?.[0]) {
+      const { objectName } = await uploadToGCP(req.files.cv[0], req.user.user_id, 'resumes');
+      engineerUpdates.cv_object_name = objectName; // store path only
+    }
+
+    // ---- engineer fields ----
+    if (date_of_birth !== undefined)       engineerUpdates.date_of_birth = date_of_birth; // keep as ISO/date string
+    const yoe = toInt(years_of_experience);
+    if (yoe !== undefined)                 engineerUpdates.years_of_experience = yoe;
+
+    const projTypes = toTextArray(project_types);
+    if (projTypes !== undefined)           engineerUpdates.project_types = projTypes;     // make sure model is ARRAY(TEXT) or JSONB
+
+    if (availability !== undefined)        engineerUpdates.availability = availability;
+    const specArr = toTextArray(specialization);
+    if (specArr !== undefined)             engineerUpdates.specialization = specArr;      // ARRAY(TEXT) or JSONB
+    if (skill_level !== undefined)         engineerUpdates.skill_level = skill_level;
+
+    // ---- user fields ----
+    if (first_name !== undefined)          userUpdates.first_name = first_name;
+    if (last_name !== undefined)           userUpdates.last_name = last_name;
+    if (phone_number !== undefined)        userUpdates.phone_number = phone_number;
+    if (city !== undefined)                userUpdates.city = city;
+    if (country !== undefined)             userUpdates.country = country;
+
+    // Persist updates
+    if (Object.keys(engineerUpdates).length) await engineer.update(engineerUpdates);
+    if (Object.keys(userUpdates).length)      await engineer.user.update(userUpdates);
+
+    // Cleanup old files **after** DB points to new ones
+    if (req.files?.avatar?.[0] && oldAvatarObjectName && oldAvatarObjectName !== engineer.user.avatar_object_name) {
+      try { await deleteFromGCP(oldAvatarObjectName); } catch (e) { console.warn('Old avatar delete failed:', e?.message || e); }
+    }
+    if (req.files?.cv?.[0] && oldCvObjectName && oldCvObjectName !== engineer.cv_object_name) {
+      try { await deleteFromGCP(oldCvObjectName); } catch (e) { console.warn('Old CV delete failed:', e?.message || e); }
+    }
+
+    // Re-fetch and attach temporary signed URLs for immediate use
+    const fresh = await Engineer.findOne({
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: 'user' }],
     });
 
-    const userUpdates = {};
-    allowedUserUpdates.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        userUpdates[field] = req.body[field];
-      }
-    });
+    const avatar_url = fresh?.user?.avatar_object_name
+      ? await getV4ReadSignedUrl(fresh.user.avatar_object_name, 3600)
+      : undefined;
 
-    await engineer.update(engineerUpdates);
-    await engineer.user.update(userUpdates);
+    const cv_url = fresh?.cv_object_name
+      ? await getV4ReadSignedUrl(fresh.cv_object_name, 3600)
+      : undefined;
 
-    res.json({
+    return res.json({
       success: true,
-      message: "Profile updated successfully",
-      data: engineer,
+      message: 'Profile updated successfully',
+      data: {
+        engineer: fresh,
+        avatar_url, // temporary (signed)
+        cv_url,     // temporary (signed)
+      },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Profile update failed",
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: 'Profile update failed', error: error.message });
   }
 };
 

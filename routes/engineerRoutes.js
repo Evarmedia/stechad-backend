@@ -191,14 +191,14 @@ router.get('/dashboard', getDashboard);
  * @swagger
  * /engineers/profile:
  *   put:
- *     summary: Update engineer profile
+ *     summary: Update engineer profile (supports avatar & CV upload). Stores GCS object names; returns temporary signed URLs.
  *     tags: [Engineers]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
@@ -213,10 +213,8 @@ router.get('/dashboard', getDashboard);
  *                 type: array
  *                 items:
  *                   type: string
- *                 example: ["Web Development", "Mobile App Development"]
- *               cv_object_name:
- *                 type: string
- *                 example: "https://example.com/cv.pdf"
+ *                 description: Array of project types (JSON string or comma-separated also accepted)
+ *                 example: ["Web Development","Mobile App Development"]
  *               availability:
  *                 type: string
  *                 example: "available"
@@ -224,7 +222,8 @@ router.get('/dashboard', getDashboard);
  *                 type: array
  *                 items:
  *                   type: string
- *                 example: ["Backend Development", "Frontend Development"]
+ *                 description: Array of specializations (JSON string or comma-separated also accepted)
+ *                 example: ["Backend Development","Frontend Development"]
  *               skill_level:
  *                 type: string
  *                 example: "advanced"
@@ -245,7 +244,12 @@ router.get('/dashboard', getDashboard);
  *                 example: "USA"
  *               avatar:
  *                 type: string
- *                 example: "https://example.com/avatar.jpg"
+ *                 format: binary
+ *                 description: Optional profile image (image/*)
+ *               cv:
+ *                 type: string
+ *                 format: binary
+ *                 description: Optional CV file (PDF only)
  *     responses:
  *       200:
  *         description: Profile updated successfully
@@ -261,7 +265,18 @@ router.get('/dashboard', getDashboard);
  *                   type: string
  *                   example: Profile updated successfully
  *                 data:
- *                   $ref: '#/components/schemas/Engineer'
+ *                   type: object
+ *                   properties:
+ *                     engineer:
+ *                       $ref: '#/components/schemas/Engineer'
+ *                     avatar_url:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Temporary signed URL for the avatar (may be omitted if no avatar)
+ *                     cv_url:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Temporary signed URL for the CV (may be omitted if no CV)
  *       404:
  *         description: Engineer profile not found
  *         content:

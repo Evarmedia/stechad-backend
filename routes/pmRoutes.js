@@ -9,6 +9,7 @@ const express = require('express');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateJobCreation } = require('../middleware/validation');
 const pmController = require('../controllers/pmController');
+const { upload } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -39,68 +40,85 @@ router.get('/dashboard', pmController.getDashboard);
 
 /**
  * @swagger
- * /pm/profile:
+ * /pms/profile:
  *   put:
- *     summary: Update project manager profile
+ *     summary: Update project manager profile (supports avatar upload). Stores GCS object name; returns temporary signed URL.
  *     tags: [Project Managers]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
  *               company_name:
  *                 type: string
- *                 example: "Tech Solutions Inc"
+ *                 example: "Acme Corp"
  *               company_size:
  *                 type: string
- *                 example: "50-100"
+ *                 example: "11-50"
  *               industry:
  *                 type: string
- *                 example: "Technology"
+ *                 example: "IT Services"
  *               bio:
  *                 type: string
- *                 example: "Experienced project manager with 10+ years in tech"
+ *                 example: "We build great products."
  *               website_url:
  *                 type: string
- *                 example: "https://techsolutions.com"
+ *                 example: "https://acme.example"
  *               linkedin_url:
  *                 type: string
- *                 example: "https://linkedin.com/in/pmjohn"
+ *                 example: "https://linkedin.com/in/john-doe"
  *               location:
  *                 type: string
- *                 example: "San Francisco, CA"
+ *                 example: "London, UK"
  *               timezone:
  *                 type: string
- *                 example: "America/Los_Angeles"
+ *                 example: "Europe/London"
  *               first_name:
  *                 type: string
- *                 example: "John"
+ *                 example: "Jane"
  *               last_name:
  *                 type: string
  *                 example: "Doe"
  *               phone_number:
  *                 type: string
- *                 example: "+1234567890"
+ *                 example: "+2348012345678"
  *               city:
  *                 type: string
- *                 example: "New York"
+ *                 example: "London"
  *               country:
  *                 type: string
- *                 example: "USA"
- *               avatar_object_name:
+ *                 example: "UK"
+ *               avatar:
  *                 type: string
- *                 example: "https://example.com/avatar.jpg"
+ *                 format: binary
+ *                 description: Optional profile image file (image/*)
  *     responses:
  *       200:
  *         description: Profile updated successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Profile updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     project_manager:
+ *                       $ref: '#/components/schemas/ProjectManager'
+ *                     avatar_url:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Temporary signed URL for the avatar (omitted if no avatar)
  *       404:
  *         description: Project manager profile not found
  *         content:
@@ -108,13 +126,13 @@ router.get('/dashboard', pmController.getDashboard);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: Server error
+ *         description: Profile update failed
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/profile', pmController.updateProfile);
+router.put('/profile', upload.single('avatar'), pmController.updateProfile);
 
 /**
  * @swagger

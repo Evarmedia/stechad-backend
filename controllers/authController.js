@@ -9,8 +9,15 @@ const {
   validateReferralCode,
 } = require("../utils/referralUtil");
 
+const { getV4ReadSignedUrl } = require('../config/gcpStorage');
+
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+
+// Optionally control TTL via env (days). Default: 7 days
+const SIGNED_URL_TTL_SECONDS =
+  Number(process.env.GCS_SIGNED_URL_TTL_SECONDS) ||
+  (Number(process.env.GCS_SIGNED_URL_TTL_DAYS || 7) * 24 * 3600);
 
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
@@ -540,29 +547,71 @@ const acceptInvites = async (req, res) => {
   }
 };
 
-// Get current user profile
+// Get current user profile /auth/me
 const getMe = async (req, res) => {
   try {
     const user = await User.findByPk(req.user.user_id, {
       include: [
-        { model: Engineer, as: "engineer" },
-        { model: ProjectManager, as: "project_manager" },
-        { model: Admin, as: "admin" },
+        { model: Engineer, as: 'engineer' },
+        { model: ProjectManager, as: 'project_manager' },
+        { model: Admin, as: 'admin' },
       ],
     });
 
-    res.json({
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // build a plain object to safely augment
+    const data = user.toJSON();
+
+    // 1) Avatar (shared via users.avatar_object_name)
+    if (data.avatar_object_name) {
+      try {
+        data.avatar_url = await getV4ReadSignedUrl(
+          data.avatar_object_name,
+          SIGNED_URL_TTL_SECONDS
+        );
+      } catch (e) {
+        // If the object is gone, just omit the URL
+        data.avatar_url = undefined;
+      }
+    }
+
+    // 2) Engineer CV (engineers.cv_object_name)
+    if (data.engineer?.cv_object_name) {
+      try {
+        data.engineer.cv_url = await getV4ReadSignedUrl(
+          data.engineer.cv_object_name,
+          SIGNED_URL_TTL_SECONDS
+        );
+      } catch (e) {
+        data.engineer.cv_url = undefined;
+      }
+    }
+
+    // 3) If I add PM/ADMIN specific objects, sign them here similarly
+    // Example (if someday you store pm docs):
+    // if (data.project_manager?.some_object_name) { ... }
+
+    return res.json({
       success: true,
-      data: user,
+      data,
+      meta: {
+        signed_url_ttl_seconds: SIGNED_URL_TTL_SECONDS,
+      }
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to get user profile",
+      message: 'Failed to get user profile',
       error: error.message,
     });
   }
 };
+
+module.exports = { getMe };
+
 
 module.exports = {
   signup,

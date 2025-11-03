@@ -1,5 +1,6 @@
 const { User, Engineer, ProjectManager, Job, Application, Project } = require('../models');
-const { Op } = require('sequelize');
+const { uploadToGCP, deleteFromGCP } = require('../middleware/upload');
+const { getV4ReadSignedUrl } = require('../config/gcpStorage');
 
 // Get project manager dashboard
 const getDashboard = async (req, res) => {
@@ -94,11 +95,11 @@ const getDashboard = async (req, res) => {
 // Update project manager profile
 const updateProfile = async (req, res) => {
   try {
-    const projectManager = await ProjectManager.findOne({ 
+    const projectManager = await ProjectManager.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: 'user', attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } }]
     });
-    
+
     if (!projectManager) {
       return res.status(404).json({
         success: false,
@@ -112,30 +113,58 @@ const updateProfile = async (req, res) => {
     ];
 
     const allowedUserUpdates = [
-      'first_name', 'last_name', 'phone_number', 'city', 'country', 'avatar_object_name'
+      'first_name', 'last_name', 'phone_number', 'city', 'country'
+      // avatar_object_name is set only by upload below
     ];
 
-    const projectManagerUpdates = {};
+    const pmUpdates = {};
     allowedProjectManagerUpdates.forEach(field => {
-      if (req.body[field] !== undefined) {
-        projectManagerUpdates[field] = req.body[field];
-      }
+      if (req.body[field] !== undefined) pmUpdates[field] = req.body[field];
     });
 
     const userUpdates = {};
     allowedUserUpdates.forEach(field => {
-      if (req.body[field] !== undefined) {
-        userUpdates[field] = req.body[field];
-      }
+      if (req.body[field] !== undefined) userUpdates[field] = req.body[field];
     });
 
-    await projectManager.update(projectManagerUpdates);
-    await projectManager.user.update(userUpdates);
+    // keep old avatar so we can delete after successful update
+    const oldAvatarObjectName = projectManager.user?.avatar_object_name || null;
+
+    // handle avatar upload if present (route should use upload.single('avatar'))
+    let newAvatarObjectName = null;
+    if (req.file) {
+      const { objectName } = await uploadToGCP(req.file, req.user.user_id, 'profile-images');
+      newAvatarObjectName = objectName;
+      userUpdates.avatar_object_name = objectName; // store ONLY the GCS path
+    }
+
+    // persist changes
+    if (Object.keys(pmUpdates).length) await projectManager.update(pmUpdates);
+    if (Object.keys(userUpdates).length) await projectManager.user.update(userUpdates);
+
+    // delete old avatar only after DB points to the new one
+    if (req.file && oldAvatarObjectName && oldAvatarObjectName !== newAvatarObjectName) {
+      try { await deleteFromGCP(oldAvatarObjectName); }
+      catch (e) { console.warn('Failed to delete old PM avatar:', e?.message || e); }
+    }
+
+    // re-fetch and return a fresh signed URL
+    const fresh = await ProjectManager.findOne({
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: 'user', attributes: { exclude: ['password', 'reset_password_token', 'reset_password_expires'] } }]
+    });
+
+    const avatar_url = fresh?.user?.avatar_object_name
+      ? await getV4ReadSignedUrl(fresh.user.avatar_object_name, 3600) // 1h
+      : undefined;
 
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: projectManager
+      data: {
+        project_manager: fresh,
+        avatar_url, // temporary signed URL (may be undefined if no avatar)
+      }
     });
   } catch (error) {
     res.status(500).json({
