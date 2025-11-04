@@ -32,4 +32,4 @@ const toTextArray = (v) => {
   return [String(v)];
 };
 
-module.export = { toInt, toBool,toTextArray }
+module.exports = { toInt, toBool,toTextArray }
