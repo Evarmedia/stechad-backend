@@ -49,7 +49,6 @@ const getApplications = async (req, res) => {
           include: [{
             model: Engineer,
             as: 'engineer',
-            attributes: ['specialization', 'years_of_experience', 'skill_level']
           }]
         }
       ],
@@ -91,21 +90,22 @@ const getApplicationById = async (req, res) => {
         {
           model: Job,
           as: 'job',
+          attributes: ['title', 'company', 'location'],
           include: [{
             model: User,
             as: 'poster',
             attributes: ['first_name', 'last_name', 'email'],
-            include: [{
-              model: ProjectManager,
-              as: 'project_manager',
-              attributes: ['company']
-            }]
+            // include: [{
+            //   model: ProjectManager,
+            //   as: 'project_manager',
+            //   attributes: ['company']
+            // }]
           }]
         },
         {
           model: User,
           as: 'applicant',
-          attributes: ['first_name', 'last_name', 'email', 'phone_number'],
+          attributes: ['first_name', 'last_name', 'email'],
           include: [{
             model: Engineer,
             as: 'engineer'
@@ -201,7 +201,13 @@ const updateApplicationStatus = async (req, res) => {
     res.json({
       success: true,
       message: 'Application status updated successfully',
-      data: application
+      data: {
+        applications_id: application.applications_id,
+        job_title: application.job_title,
+        status: application.status,
+        reviewed_by: application.reviewed_by,
+        feedback: application.feedback
+      }
     });
   } catch (error) {
     res.status(500).json({

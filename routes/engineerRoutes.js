@@ -10,7 +10,7 @@ const {
   completeOnboarding,
   getDashboard,
   updateProfile,
-  getJobs,
+  // getJobs,
   getJobDetails,
   applyForJob,
   getApplications,
@@ -369,7 +369,7 @@ router.put('/profile', updateProfile);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/jobs', getJobs);
+// router.get('/jobs', getJobs);
 
 /**
  * @swagger

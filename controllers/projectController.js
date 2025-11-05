@@ -140,6 +140,7 @@ const createProject = async (req, res) => {
     const {
       title,
       description,
+      engineer_user_id,
       job_id,
       status = 'planning',
       priority = 'medium',
@@ -152,18 +153,18 @@ const createProject = async (req, res) => {
     } = req.body;
 
     // Verify job exists if provided
-    if (job_id) {
-      const job = await Job.findByPk(job_id);
-      if (!job) {
-        return res.status(404).json({
-          success: false,
-          message: 'Job not found'
-        });
-      }
-    }
+    // if (job_id) {
+    //   const job = await Job.findByPk(job_id);
+    //   if (!job) {
+    //     console.warn("Job not included")
+    //   }
+    // }
+
+    const manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id }})
 
     const project = await Project.create({
       project_managers_user_id: req.user.user_id,
+      project_managers_id: manager.project_managers_id,
       title,
       description,
       job_id,

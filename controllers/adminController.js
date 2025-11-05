@@ -190,13 +190,13 @@ const updateProfile = async (req, res) => {
         {
           model: User,
           as: "user",
-          attributes: {
-            exclude: [
-              "password",
-              "reset_password_token",
-              "reset_password_expires",
-            ],
-          },
+          // attributes: {
+          //   exclude: [
+          //     "password",
+          //     "reset_password_token",
+          //     "reset_password_expires",
+          //   ],
+          // },
         },
       ],
     });
@@ -272,13 +272,13 @@ const updateProfile = async (req, res) => {
         {
           model: User,
           as: "user",
-          attributes: {
-            exclude: [
-              "password",
-              "reset_password_token",
-              "reset_password_expires",
-            ],
-          },
+          // attributes: {
+          //   exclude: [
+          //     "password",
+          //     "reset_password_token",
+          //     "reset_password_expires",
+          //   ],
+          // },
         },
       ],
     });
@@ -732,13 +732,13 @@ const getEngineerVetting = async (req, res) => {
         {
           model: User,
           as: "user",
-          attributes: {
-            exclude: [
-              "password",
-              "reset_password_token",
-              "reset_password_expires",
-            ],
-          },
+          // attributes: {
+          //   exclude: [
+          //     "password",
+          //     "reset_password_token",
+          //     "reset_password_expires",
+          //   ],
+          // },
         },
       ],
       limit: parseInt(limit),

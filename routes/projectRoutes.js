@@ -158,11 +158,11 @@ router.get('/:projects_id', getProjectById);
  *                 example: "Building a modern e-commerce platform with React and Node.js"
  *               job_id:
  *                 type: string
- *                 format: uuid
+ *                 format: string
  *                 example: "123e4567-e89b-12d3-a456-426614174000"
  *               engineer_user_id:
  *                 type: string
- *                 format: uuid
+ *                 format: string
  *                 example: "123e4567-e89b-12d3-a456-426614174001"
  *               status:
  *                 type: string

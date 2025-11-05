@@ -241,69 +241,69 @@ const updateProfile = async (req, res) => {
 };
 
 // Get available jobs
-const getJobs = async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      skills,
-      experience_level,
-      job_type,
-    } = req.query;
-    const offset = (page - 1) * limit;
+// const getJobs = async (req, res) => {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 10,
+//       skills,
+//       experience_level,
+//       job_type,
+//     } = req.query;
+//     const offset = (page - 1) * limit;
 
-    let where = {
-      status: "active",
-    };
+//     let where = {
+//       status: "active",
+//     };
 
-    if (skills) {
-      const skillsArray = skills.split(",");
-      where = {
-        ...where,
-        [Op.and]: skillsArray.map((skill) => ({
-          skills_required: { [Op.like]: `%${skill.trim()}%` },
-        })),
-      };
-    }
+//     if (skills) {
+//       const skillsArray = skills.split(",");
+//       where = {
+//         ...where,
+//         [Op.and]: skillsArray.map((skill) => ({
+//           skills_required: { [Op.like]: `%${skill.trim()}%` },
+//         })),
+//       };
+//     } // comment this out, causes error when filtering using skills
 
-    if (experience_level) {
-      where.experience_level = experience_level;
-    }
+//     if (experience_level) {
+//       where.experience_level = experience_level;
+//     }
 
-    if (job_type) {
-      where.job_type = job_type;
-    }
+//     if (job_type) {
+//       where.job_type = job_type;
+//     }
 
-    const jobs = await Job.findAndCountAll({
-      where,
-      include: [
-        { model: User, as: "poster", attributes: ["first_name", "last_name"] },
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [["created_at", "DESC"]],
-    });
+//     const jobs = await Job.findAndCountAll({
+//       where,
+//       include: [
+//         { model: User, as: "poster", attributes: ["first_name", "last_name"] },
+//       ],
+//       limit: parseInt(limit),
+//       offset: parseInt(offset),
+//       order: [["created_at", "DESC"]],
+//     });
 
-    res.json({
-      success: true,
-      data: {
-        jobs: jobs.rows,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(jobs.count / limit),
-          totalItems: jobs.count,
-          itemsPerPage: parseInt(limit),
-        },
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get jobs",
-      error: error.message,
-    });
-  }
-};
+//     res.json({
+//       success: true,
+//       data: {
+//         jobs: jobs.rows,
+//         pagination: {
+//           currentPage: parseInt(page),
+//           totalPages: Math.ceil(jobs.count / limit),
+//           totalItems: jobs.count,
+//           itemsPerPage: parseInt(limit),
+//         },
+//       },
+//     });
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to get jobs",
+//       error: error.message,
+//     });
+//   }
+// };
 
 // Get specific job details XXX
 const getJobDetails = async (req, res) => {
@@ -529,7 +529,7 @@ module.exports = {
   completeOnboarding,
   getDashboard,
   updateProfile,
-  getJobs,
+  // getJobs,
   getJobDetails,
   applyForJob,
   getApplications,

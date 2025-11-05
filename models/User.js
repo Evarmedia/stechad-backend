@@ -137,4 +137,10 @@ const generateReferralCode = () => {
   return result;
 };
 
+User.addScope('defaultScope', {
+  attributes: {
+    exclude: ['password', 'reset_password_token', 'reset_password_expires']
+  }
+}, { override: true });
+
 module.exports = User;

@@ -40,7 +40,7 @@ router.get('/dashboard', pmController.getDashboard);
 
 /**
  * @swagger
- * /pms/profile:
+ * /pm/profile:
  *   put:
  *     summary: Update project manager profile (supports avatar upload). Stores GCS object name; returns temporary signed URL.
  *     tags: [Project Managers]
