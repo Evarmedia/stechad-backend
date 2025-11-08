@@ -194,7 +194,7 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user
-    const user = await User.findOne({ where: { email } });
+    const user = await User.unscoped().findOne({ where: { email } });
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -245,6 +245,7 @@ const login = async (req, res) => {
       },
     });
   } catch (error) {
+    console.log(error)
     res.status(500).json({
       success: false,
       message: "Login failed",
