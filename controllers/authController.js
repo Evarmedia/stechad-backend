@@ -194,7 +194,14 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user
-    const user = await User.unscoped().findOne({ where: { email } });
+    const user = await User.unscoped().findOne({ where: { email }, 
+      include: [
+        { model: Engineer, as: 'engineer' },
+        { model: ProjectManager, as: 'project_manager' },
+        { model: Admin, as: 'admin' },
+      ],
+     });
+
     if (!user) {
       return res.status(401).json({
         success: false,
