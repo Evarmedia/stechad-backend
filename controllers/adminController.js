@@ -306,54 +306,6 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// Get all engineers with pagination
-const getEngineers = async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      is_onboarded,
-      availability = "available",
-    } = req.query;
-    const offset = (page - 1) * limit;
-
-    const where = {};
-    if (is_onboarded !== undefined) {
-      where.is_onboarded = is_onboarded === "true";
-    }
-    if (availability) {
-      where.availability = availability;
-    }
-
-    const engineers = await Engineer.findAndCountAll({
-      where,
-      include: [{ model: User, as: "user" }],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [["created_at", "DESC"]],
-    });
-
-    res.json({
-      success: true,
-      data: {
-        engineers: engineers.rows,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(engineers.count / limit),
-          totalItems: engineers.count,
-          itemsPerPage: parseInt(limit),
-        },
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to get engineers",
-      error: error.message,
-    });
-  }
-};
-
 // Get specific engineer details
 const getEngineerDetails = async (req, res) => {
   try {
@@ -853,7 +805,6 @@ module.exports = {
   getDashboard,
   getStats,
   updateProfile,
-  getEngineers,
   getEngineerDetails,
   vetEngineer,
   removeVetting,

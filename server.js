@@ -26,6 +26,8 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const exportRoutes = require('./routes/exportRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const interviewRoutes = require('./routes/interviewRoutes');
+
 
 const passport = require('passport');
 // const session = require('express-session');
@@ -46,7 +48,7 @@ app.use(compression());
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 5 * 60 * 1000, // 5 minutes
   max: 1000, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
@@ -85,6 +87,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/interviews', interviewRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);

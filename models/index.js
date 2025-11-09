@@ -65,17 +65,25 @@ Project.belongsTo(User, { foreignKey: 'engineer_user_id', as: 'engineer' });
 Engineer.belongsToMany(Project, { through: 'engineer_project', as: 'engineer_projects' });
 Project.belongsToMany(Engineer, { through: 'engineer_project', as: 'engineers' });
 
-// Engineer - Interview (One-to-Many)
-Engineer.hasMany(Interview, { foreignKey: 'candidate_id', as: 'interviews', onDelete: 'CASCADE' });
-Interview.belongsTo(Engineer, { foreignKey: 'candidate_id', as: 'candidate' });
+// // Engineer - Interview (One-to-Many)
+// Engineer.hasMany(Interview, { foreignKey: 'candidate_id', as: 'interviews', onDelete: 'CASCADE' });
+// Interview.belongsTo(Engineer, { foreignKey: 'candidate_id', as: 'candidate' });
 
-// ProjectManager - Interview (One-to-Many)
-ProjectManager.hasMany(Interview, { foreignKey: 'interviewer_id', as: 'interviews', onDelete: 'CASCADE' });
-Interview.belongsTo(ProjectManager, { foreignKey: 'interviewer_id', as: 'interviewer' });
+// // ProjectManager - Interview (One-to-Many)
+// ProjectManager.hasMany(Interview, { foreignKey: 'interviewer_id', as: 'interviews', onDelete: 'CASCADE' });
+// Interview.belongsTo(ProjectManager, { foreignKey: 'interviewer_id', as: 'interviewer' });
 
-// Job - Interview (One-to-Many)
-Job.hasMany(Interview, { foreignKey: 'job_id', as: 'interviews', onDelete: 'CASCADE' });
-Interview.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
+// // Job - Interview (One-to-Many)
+// Job.hasMany(Interview, { foreignKey: 'job_id', as: 'interviews', onDelete: 'CASCADE' });
+// Interview.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
+
+Interview.belongsTo(Engineer,       { as: 'candidate',        foreignKey: 'candidate_id',    targetKey: 'engineer_id' });
+Interview.belongsTo(ProjectManager, { as: 'interviewer',  foreignKey: 'interviewer_id',  targetKey: 'project_managers_id' });
+Interview.belongsTo(Job,            { as: 'job',              foreignKey: 'job_id',          targetKey: 'jobs_id' });
+
+Engineer.hasMany(Interview,       { as: 'interviews',       foreignKey: 'candidate_id',   sourceKey: 'engineer_id' });
+ProjectManager.hasMany(Interview, { as: 'interviews',       foreignKey: 'interviewer_id', sourceKey: 'project_managers_id' });
+Job.hasMany(Interview,            { as: 'interviews',       foreignKey: 'job_id',         sourceKey: 'jobs_id' });
 
 // User - Chat (Many-to-Many via ChatParticipants)
 User.belongsToMany(Chat, { through: "ChatParticipants", foreignKey: "user_id", as: 'user_chats' });

@@ -17,8 +17,8 @@ const handleValidationErrors = (req, res, next) => {
 const validateRegistration = [
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }),
-  body('first_name').notEmpty().trim(),
-  body('last_name').notEmpty().trim(),
+  // body('first_name').notEmpty().trim(),
+  // body('last_name').notEmpty().trim(),
   body('role').isIn(['engineer', 'project_manager', 'admin']),
   handleValidationErrors
 ];

@@ -7,6 +7,7 @@ const express = require('express');
  */
 
 const {
+  getEngineers,
   completeOnboarding,
   getDashboard,
   updateProfile,
@@ -23,7 +24,43 @@ const { validateApplication } = require('../middleware/validation');
 const router = express.Router();
 
 // All routes require authentication and engineer role
-router.use(authenticate, authorize('engineer'));
+router.use(authenticate);
+
+/**
+ * @swagger
+ * /engineers/all:
+ *   get:
+ *     summary: Get all engineers with pagination(Admin/PM)
+ *     tags: [Engineers]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: is_onboarded
+ *         schema:
+ *           type: boolean
+ *       - in: query
+ *         name: availability
+ *         schema:
+ *           type: string
+ *           enum: [available, busy, unavailable]
+ *     responses:
+ *       200:
+ *         description: Engineers retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ */
+router.get('/all', authorize('project_manager', 'admin'), getEngineers);
 
 /**
  * @swagger
@@ -134,7 +171,7 @@ router.use(authenticate, authorize('engineer'));
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/onboarding', completeOnboarding);
+router.post('/onboarding', authorize('engineer'), completeOnboarding);
 
 /**
  * @swagger
@@ -185,7 +222,7 @@ router.post('/onboarding', completeOnboarding);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/dashboard', getDashboard);
+router.get('/dashboard', authorize('engineer'), getDashboard);
 
 /**
  * @swagger
@@ -290,7 +327,7 @@ router.get('/dashboard', getDashboard);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/profile', updateProfile);
+router.put('/profile', authorize('engineer'), updateProfile);
 
 /**
  * @swagger
@@ -410,7 +447,7 @@ router.put('/profile', updateProfile);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/jobs/:jobs_id', getJobDetails);
+router.get('/jobs/:jobs_id', authorize('engineer'), getJobDetails);
 
 /**
  * @swagger
@@ -477,7 +514,7 @@ router.get('/jobs/:jobs_id', getJobDetails);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/jobs/:jobs_id/apply', applyForJob);
+router.post('/jobs/:jobs_id/apply', authorize('engineer'), applyForJob);
 
 /**
  * @swagger
@@ -544,7 +581,7 @@ router.post('/jobs/:jobs_id/apply', applyForJob);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/applications', getApplications);
+router.get('/applications', authorize('engineer'), getApplications);
 
 /**
  * @swagger
@@ -611,7 +648,7 @@ router.get('/applications', getApplications);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/projects', getProjects);
+router.get('/projects', authorize('engineer'), getProjects);
 
 /**
  * @swagger
@@ -652,6 +689,6 @@ router.get('/projects', getProjects);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/projects/:id', getProjectDetails);
+router.get('/projects/:id', authorize('engineer'), getProjectDetails);
 
 module.exports = router;

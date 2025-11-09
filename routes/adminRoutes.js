@@ -119,42 +119,6 @@ router.put('/profile', upload.single('avatar'), adminController.updateProfile);
 
 /**
  * @swagger
- * /admin/engineers:
- *   get:
- *     summary: Get all engineers with pagination
- *     tags: [Admin]
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *       - in: query
- *         name: is_onboarded
- *         schema:
- *           type: boolean
- *       - in: query
- *         name: availability
- *         schema:
- *           type: string
- *           enum: [available, busy, unavailable]
- *     responses:
- *       200:
- *         description: Engineers retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.get('/engineers', adminController.getEngineers);
-
-/**
- * @swagger
  * /admin/engineers/{engineer_id}:
  *   get:
  *     summary: Get specific engineer details

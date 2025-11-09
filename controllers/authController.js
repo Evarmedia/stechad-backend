@@ -86,10 +86,10 @@ const signup = async (req, res) => {
           message: "Passwords do not match",
         });
       }
-      if (!email || !password || !confirm_password || !first_name || !last_name){
+      if (!email || !password || !confirm_password){
         return res.status(400).json({
           success: false,
-          message: "Please fill all required fields"
+          message: "Please fill required fields"
         })
       }
     }
