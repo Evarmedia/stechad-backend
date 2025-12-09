@@ -2,19 +2,18 @@ const { Project, User, Job, ProjectManager, Engineer } = require('../models');
 const { Op } = require('sequelize');
 const { createNotification } = require('../utils/notificationUtil');
 
-// Get all projects with filtering and pagination
+// Get all projects with filtering and pagination - list
 const getProjects = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 10,
+      page,
+      limit,
       status,
       priority,
       project_manager_id,
       engineer_id
     } = req.query;
     
-    const offset = (page - 1) * limit;
     let where = {};
 
     // Apply filters
@@ -34,8 +33,13 @@ const getProjects = async (req, res) => {
       where.engineer_user_id = engineer_id;
     }
 
+    const pagination = {
+      limit: limit ? parseInt(limit) : undefined,
+      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+    };
+
     const projects = await Project.findAndCountAll({
-      where,
+      where: Object.keys(where).length > 0 ? where : undefined,
       include: [
         {
           model: User,
@@ -53,8 +57,7 @@ const getProjects = async (req, res) => {
           attributes: ['title', 'company']
         }
       ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      ...pagination,
       order: [['created_at', 'DESC']],
       distinct: true
     });
@@ -64,10 +67,10 @@ const getProjects = async (req, res) => {
       data: {
         projects: projects.rows,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(projects.count / limit),
+          currentPage: page ? parseInt(page) : undefined,
+          totalPages: limit ? Math.ceil(projects.count / parseInt(limit)) : undefined,
           totalItems: projects.count,
-          itemsPerPage: parseInt(limit)
+          itemsPerPage: limit ? parseInt(limit) : undefined
         }
       }
     });

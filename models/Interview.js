@@ -59,7 +59,7 @@ Interview.init(
     },
     duration: {
       type: DataTypes.INTEGER,
-      defaultValue: 60, // Duration in minutes
+      defaultValue: 30, // Duration in minutes
     },
     phone_number: {
       type: DataTypes.TEXT,

@@ -214,7 +214,7 @@ async function updateInterview(req, res) {
     if (isEngineer) {
       // engineers can only mark their own interview as completed/cancelled; cannot reschedule date_time
       if (status && !['completed', 'cancelled'].includes(status)) {
-        return res.status(403).json({ success: false, message: 'Engineers can only mark completed/cancelled' });
+        return res.status(403).json({ success: false, message: 'Engineers can only cancel, contact a PM or your interviewer with Date and time you like to recschedule to via email' });
       }
       if (date_time) {
         return res.status(403).json({ success: false, message: 'Engineers cannot reschedule date/time' });

@@ -48,8 +48,8 @@ app.use(compression());
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 1000, // limit each IP to 100 requests per windowMs
+  windowMs: 2 * 60 * 1000, // 2 minutes
+  max: 10000, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -59,9 +59,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Logging middleware
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
+// if (process.env.NODE_ENV === 'development') {
+//   app.use(morgan('dev'));
+// }
 
 // Session management
 // app.use(session({ secret: process.env.JWT_SECRET, resave: false, saveUninitialized: true }));
@@ -292,16 +292,17 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connected successfully');
     
+    // await sequelize.sync({ alter: true, force: false });
+    console.log('Database synchronized');
+
     // Create default rewards if they don't exist
     const existingRewards = await Reward.count();
     if (existingRewards === 0) {
       await createDefaultRewards();
     }
-
-    // await sequelize.sync({ alter: true, force: false });
-    console.log('Database synchronized');
     
     server.listen(PORT, () => {
+      console.log(`Running in ${process.env.NODE_ENV} mode`)
       console.log(`👀Server running on port ${PORT}`);
       console.log(`🖥️ API docs at http://localhost:${PORT}/api-docs`);
     });

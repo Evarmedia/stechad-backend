@@ -1,5 +1,5 @@
 const express = require('express');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 const {
   scheduleInterview,
   getAllInterviews,
@@ -73,7 +73,7 @@ router.use(authenticate)
  *       500:
  *         description: Failed to schedule interview
  */
-router.post('/', scheduleInterview);
+router.post('/', authorize('admin', 'project_manager'), scheduleInterview);
 
 /**
  * @swagger
@@ -112,13 +112,13 @@ router.post('/', scheduleInterview);
  *       500:
  *         description: Failed to fetch interviews
  */
-router.get('/', getAllInterviews);
+router.get('/', authorize('admin', 'project_manager'), getAllInterviews);
 
 /**
  * @swagger
  * /interviews/me:
  *   get:
- *     summary: Get my interviews (Engineer/PM/Admin)
+ *     summary: Get my interviews (Engineer/PM)
  *     tags:
  *       - Interviews
  *     security:

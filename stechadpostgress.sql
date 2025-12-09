@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     FOREIGN KEY (posted_by) REFERENCES users(user_id) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
-CREATE INDEX idx_jobs_pm_id ON jobs(user_id);
+CREATE INDEX idx_jobs_pm_id ON jobs(posted_by);
 CREATE INDEX idx_jobs_status ON jobs(status);
 CREATE INDEX idx_jobs_posted_at ON jobs(posted_at DESC);
 CREATE INDEX idx_jobs_location ON jobs(location);
@@ -245,12 +245,12 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (project_managers_id) REFERENCES users(user_id) ON DELETE SET NULL ON UPDATE CASCADE
+    FOREIGN KEY (project_managers_user_id) REFERENCES users(user_id) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
-CREATE INDEX idx_projects_project_managers_id ON projects(project_managers_id);
+CREATE INDEX idx_projects_project_managers_id ON projects(project_managers_user_id);
 CREATE INDEX idx_projects_job ON projects(job_id);
-CREATE INDEX idx_projects_engr ON projects(engineer_id);
+CREATE INDEX idx_projects_engr ON projects(engineer_user_id);
 CREATE INDEX idx_projects_status ON projects(status);
 CREATE INDEX idx_projects_priority ON projects(priority);
 CREATE INDEX idx_projects_deadline ON projects(deadline);

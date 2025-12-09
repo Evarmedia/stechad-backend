@@ -50,7 +50,7 @@ Engineer.init(
       defaultValue: [],
     },
     skill_level: {
-      type: DataTypes.ENUM('beginner', 'intermediate', 'advanced', 'expert'),
+      type: DataTypes.ENUM('beginner', 'intermediate', 'advanced', 'expert'), //Change these
     },
     years_of_experience: {
       type: DataTypes.FLOAT,
@@ -108,7 +108,7 @@ Engineer.init(
     },
     is_onboarded: {
       type: DataTypes.BOOLEAN,
-      defaultValue: true,
+      defaultValue: false,
     },
     onboarded_at: {
       type: DataTypes.DATE,

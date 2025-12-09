@@ -33,7 +33,11 @@ User.hasOne(Admin, { foreignKey: 'user_id', as: 'admin', onDelete: 'CASCADE' });
 Admin.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // User - Job (One-to-Many)
-User.hasMany(Job, { foreignKey: 'posted_by', as: 'poster', onDelete: 'SET NULL' });
+User.hasMany(Job, {
+  foreignKey: "posted_by",
+  as: "poster",
+  onDelete: "NO ACTION",
+});
 Job.belongsTo(User, { foreignKey: 'posted_by', as: 'poster' });
 
 // Job - Application (One-to-Many)
@@ -53,7 +57,11 @@ Job.hasMany(Project, { foreignKey: 'job_id', as: 'projects', onDelete: 'SET NULL
 Project.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
 
 // job - ProjectManager (Many-to-One)
-Job.belongsTo(ProjectManager, { foreignKey: 'posted_by', as: 'postedBy', onDelete: 'SET NULL' });
+// Job.belongsTo(ProjectManager, {
+//   foreignKey: "posted_by",
+//   as: "postedBy",
+//   onDelete: "NO ACTION",
+// });
 ProjectManager.hasMany(Job, { foreignKey: 'posted_by', as: 'posted_jobs' });
 
 // User - Project (One-to-Many)
@@ -77,8 +85,8 @@ Project.belongsToMany(Engineer, { through: 'engineer_project', as: 'engineers' }
 // Job.hasMany(Interview, { foreignKey: 'job_id', as: 'interviews', onDelete: 'CASCADE' });
 // Interview.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
 
-Interview.belongsTo(Engineer,       { as: 'candidate',        foreignKey: 'candidate_id',    targetKey: 'engineer_id' });
-Interview.belongsTo(ProjectManager, { as: 'interviewer',  foreignKey: 'interviewer_id',  targetKey: 'project_managers_id' });
+Interview.belongsTo(Engineer,       { as: 'candidate',        foreignKey: 'candidate_id',    targetKey: 'engineer_id', onDelete: 'CASCADE' });
+Interview.belongsTo(ProjectManager, { as: 'interviewer',  foreignKey: 'interviewer_id',  targetKey: 'project_managers_id', onDelete: 'CASCADE' });
 Interview.belongsTo(Job,            { as: 'job',              foreignKey: 'job_id',          targetKey: 'jobs_id' });
 
 Engineer.hasMany(Interview,       { as: 'interviews',       foreignKey: 'candidate_id',   sourceKey: 'engineer_id' });

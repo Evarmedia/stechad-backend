@@ -5,8 +5,8 @@ const { Op } = require('sequelize');
 const getJobs = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 10,
+      page,
+      limit,
       status,
       location,
       employment_type,
@@ -14,8 +14,7 @@ const getJobs = async (req, res) => {
       skills,
       search
     } = req.query;
-    
-    const offset = (page - 1) * limit;
+
     let where = {};
 
     // Apply filters
@@ -48,8 +47,13 @@ const getJobs = async (req, res) => {
       ];
     }
 
+    const pagination = {
+      limit: limit ? parseInt(limit) : undefined,
+      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+    };
+
     const jobs = await Job.findAndCountAll({
-      where,
+      where: Object.keys(where).length > 0 ? where : undefined,
       include: [
         {
           model: User,
@@ -62,8 +66,7 @@ const getJobs = async (req, res) => {
           }]
         }
       ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      ...pagination,
       order: [['posted_at', 'DESC']],
       distinct: true
     });
@@ -73,10 +76,10 @@ const getJobs = async (req, res) => {
       data: {
         jobs: jobs.rows,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(jobs.count / limit),
+          currentPage: page ? parseInt(page) : undefined,
+          totalPages: limit ? Math.ceil(jobs.count / parseInt(limit)) : undefined,
           totalItems: jobs.count,
-          itemsPerPage: parseInt(limit)
+          itemsPerPage: limit ? parseInt(limit) : undefined
         }
       }
     });

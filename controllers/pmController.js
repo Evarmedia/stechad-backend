@@ -329,16 +329,20 @@ const getJobs = async (req, res) => {
   }
 };
 
-// Get project manager's projects
+// Get project manager's projects - list
 const getProjects = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status } = req.query;
-    const offset = (page - 1) * limit;
+    const { page, limit, status } = req.query;
 
     const where = { project_managers_user_id: req.user.user_id };
     if (status) {
       where.status = status;
     }
+
+    const pagination = {
+      limit: limit ? parseInt(limit) : undefined,
+      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+    };
 
     const projects = await Project.findAndCountAll({
       where,
@@ -350,8 +354,7 @@ const getProjects = async (req, res) => {
         },
         { model: Job, as: "job", attributes: ["title"] },
       ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      ...pagination,
       order: [["created_at", "DESC"]],
     });
 
@@ -360,10 +363,10 @@ const getProjects = async (req, res) => {
       data: {
         projects: projects.rows,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(projects.count / limit),
+          currentPage: page ? parseInt(page) : undefined,
+          totalPages: limit ? Math.ceil(projects.count / parseInt(limit)) : undefined,
           totalItems: projects.count,
-          itemsPerPage: parseInt(limit),
+          itemsPerPage: limit ? parseInt(limit) : undefined,
         },
       },
     });
@@ -375,7 +378,6 @@ const getProjects = async (req, res) => {
     });
   }
 };
-
 module.exports = {
   getDashboard,
   updateProfile,

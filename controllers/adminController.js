@@ -462,22 +462,25 @@ const deleteEngineer = async (req, res) => {
   }
 };
 
-// Get all project managers
+// Get all project managers - list
 const getProjectManagers = async (req, res) => {
   try {
-    const { page = 1, limit = 10, is_verified } = req.query;
-    const offset = (page - 1) * limit;
+    const { page, limit, is_verified } = req.query;
 
     const where = {};
     if (is_verified !== undefined) {
       where.is_verified = is_verified === "true";
     }
 
+    const pagination = {
+      limit: limit ? parseInt(limit) : undefined,
+      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+    };
+
     const projectManagers = await ProjectManager.findAndCountAll({
-      where,
+      where: Object.keys(where).length > 0 ? where : undefined,
       include: [{ model: User, as: "user" }],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
+      ...pagination,
       order: [["created_at", "DESC"]],
     });
 
@@ -486,10 +489,10 @@ const getProjectManagers = async (req, res) => {
       data: {
         projectManagers: projectManagers.rows,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(projectManagers.count / limit),
+          currentPage: page ? parseInt(page) : undefined,
+          totalPages: limit ? Math.ceil(projectManagers.count / parseInt(limit)) : undefined,
           totalItems: projectManagers.count,
-          itemsPerPage: parseInt(limit),
+          itemsPerPage: limit ? parseInt(limit) : undefined,
         },
       },
     });

@@ -91,7 +91,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', getProjects);
+router.get('/', authorize('admin', 'project_manager'), getProjects);
 
 /**
  * @swagger
@@ -133,7 +133,7 @@ router.get('/', getProjects);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:projects_id', getProjectById);
+router.get('/:projects_id', authorize('admin', 'project_manager'), getProjectById);
 
 /**
  * @swagger
