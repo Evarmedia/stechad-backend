@@ -9,39 +9,10 @@ const {
 const { Op } = require("sequelize");
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
-const { toInt, toTextArray } = require("../utils/helpers");
+const { toInt, toTextArray, toBool } = require("../utils/helpers");
 
-// ------ HELPERS ------ //
-// Converts "true"/"false"/"1"/"0" to Boolean
-const toBool = (value) => {
-  if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value === "boolean") return value;
-  return ["true", "1", "yes", "on"].includes(String(value).toLowerCase());
-};
 
-// Converts CSV or JSON array string to JS array
-const toArray = (value) => {
-  if (!value || value === "") return [];
-  try {
-    // if it's valid JSON array: ["A","B"]
-    if (value.startsWith("[") && value.endsWith("]")) {
-      return JSON.parse(value);
-    }
-  } catch {}
-  // fallback: CSV → "A,B" → ["A","B"]
-  return String(value)
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-};
-
-// Converts numeric strings to numbers
-const toNumber = (value) => {
-  if (!value || value === "") return undefined;
-  const n = Number(value);
-  return isNaN(n) ? undefined : n;
-};
-
+// Uses Normal req body, no file upload
 const UpdateEngrData = async (req, res) => {
   try {
     const engineer = await Engineer.findOne({
@@ -82,17 +53,17 @@ const UpdateEngrData = async (req, res) => {
     await engineer.update({
       date_of_birth: date_of_birth || null,
       open_to_nearby_cities: toBool(open_to_nearby_cities),
-      languages: toArray(languages),
+      languages: toTextArray(languages),
       language_proficiency: language_proficiency || null,
       has_drivers_license: toBool(has_drivers_license),
       has_car: toBool(has_car),
       is_native: toBool(is_native),
       work_authorized: toBool(work_authorized),
-      specialization: toArray(specialization),
+      specialization: toTextArray(specialization),
       skill_level: skill_level || null,
-      years_of_experience: toNumber(years_of_experience),
-      certifications: toArray(certifications),
-      project_types: toArray(project_types),
+      years_of_experience: toInt(years_of_experience),
+      certifications: toTextArray(certifications),
+      project_types: toTextArray(project_types),
       open_to_training: toBool(open_to_training),
       follows_linkedin: toBool(follows_linkedin),
       referee_info: referee_info || null,
@@ -172,17 +143,17 @@ const completeOnboarding = async (req, res) => {
     await engineer.update({
       date_of_birth: date_of_birth || null,
       open_to_nearby_cities: toBool(open_to_nearby_cities),
-      languages: toArray(languages),
+      languages: toTextArray(languages),
       language_proficiency: language_proficiency || null,
       has_drivers_license: toBool(has_drivers_license),
       has_car: toBool(has_car),
       is_native: toBool(is_native),
       work_authorized: toBool(work_authorized),
-      specialization: toArray(specialization),
+      specialization: toTextArray(specialization),
       skill_level: skill_level || null,
-      years_of_experience: toNumber(years_of_experience),
-      certifications: toArray(certifications),
-      project_types: toArray(project_types),
+      years_of_experience: toInt(years_of_experience),
+      certifications: toTextArray(certifications),
+      project_types: toTextArray(project_types),
       open_to_training: toBool(open_to_training),
       follows_linkedin: toBool(follows_linkedin),
       referee_info: referee_info || null,
@@ -364,7 +335,7 @@ const getDashboard = async (req, res) => {
   }
 };
 
-// Update engineer profile
+// Update engineer profile (multipart/form-data)
 const updateProfile = async (req, res) => {
   try {
     const engineer = await Engineer.findOne({
@@ -500,71 +471,6 @@ const updateProfile = async (req, res) => {
     });
   }
 };
-
-// Get available jobs
-// const getJobs = async (req, res) => {
-//   try {
-//     const {
-//       page = 1,
-//       limit = 10,
-//       skills,
-//       experience_level,
-//       job_type,
-//     } = req.query;
-//     const offset = (page - 1) * limit;
-
-//     let where = {
-//       status: "active",
-//     };
-
-//     if (skills) {
-//       const skillsArray = skills.split(",");
-//       where = {
-//         ...where,
-//         [Op.and]: skillsArray.map((skill) => ({
-//           skills_required: { [Op.like]: `%${skill.trim()}%` },
-//         })),
-//       };
-//     } // comment this out, causes error when filtering using skills
-
-//     if (experience_level) {
-//       where.experience_level = experience_level;
-//     }
-
-//     if (job_type) {
-//       where.job_type = job_type;
-//     }
-
-//     const jobs = await Job.findAndCountAll({
-//       where,
-//       include: [
-//         { model: User, as: "poster", attributes: ["first_name", "last_name"] },
-//       ],
-//       limit: parseInt(limit),
-//       offset: parseInt(offset),
-//       order: [["created_at", "DESC"]],
-//     });
-
-//     res.json({
-//       success: true,
-//       data: {
-//         jobs: jobs.rows,
-//         pagination: {
-//           currentPage: parseInt(page),
-//           totalPages: Math.ceil(jobs.count / limit),
-//           totalItems: jobs.count,
-//           itemsPerPage: parseInt(limit),
-//         },
-//       },
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to get jobs",
-//       error: error.message,
-//     });
-//   }
-// };
 
 // Get specific job details XXX
 const getJobDetails = async (req, res) => {
