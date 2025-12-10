@@ -57,6 +57,10 @@ const router = express.Router();
 // Redirect to Google OAuth
 router.get('/google', passport.authenticate('google', {
   scope: ['profile', 'email'],
+  session: false,
+  // Force Google to show the account chooser / consent screen
+  prompt: 'select_account',
+  accessType: 'offline',
 }));
 
 /**
@@ -111,14 +115,14 @@ router.get('/google', passport.authenticate('google', {
  */
 // Google callback route
 router.get('/google/callback', 
-  passport.authenticate('google', { failureRedirect: '/' }),
+  passport.authenticate('google', { failureRedirect: '/', session: false }),
   (req, res) => {
     // Send JWT token after successful login or signup
     const { token } = generateTokens({
       user_id: req.user.user_id,
       role: req.user.role,
     });
-    res.redirect(`http://localhost:3000/dashboard?token=${token}`);
+    res.redirect(`http://localhost:8080/dashboard/engineer?token=${token}`);
   }
 );
 

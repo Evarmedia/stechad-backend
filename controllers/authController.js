@@ -54,15 +54,15 @@ passport.use(new GoogleStrategy({
 ));
 
 // Serialize user
-passport.serializeUser((user, done) => {
-  done(null, user.user_id);
-});
+// passport.serializeUser((user, done) => {
+//   done(null, user.user_id);
+// });
 
-// Deserialize user
-passport.deserializeUser(async (id, done) => {
-  const user = await User.findOne({ where: { user_id: id } });
-  done(null, user);
-});
+// // Deserialize user
+// passport.deserializeUser(async (id, done) => {
+//   const user = await User.findOne({ where: { user_id: id } });
+//   done(null, user);
+// });
 
 const signup = async (req, res) => {
   try {
