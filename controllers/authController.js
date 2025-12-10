@@ -560,14 +560,16 @@ const getMe = async (req, res) => {
   try {
     const user = await User.findByPk(req.user.user_id, {
       include: [
-        { model: Engineer, as: 'engineer' },
-        { model: ProjectManager, as: 'project_manager' },
-        { model: Admin, as: 'admin' },
+        { model: Engineer, as: "engineer" },
+        { model: ProjectManager, as: "project_manager" },
+        { model: Admin, as: "admin" },
       ],
     });
 
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     // build a plain object to safely augment
@@ -587,14 +589,20 @@ const getMe = async (req, res) => {
     }
 
     // 2) Engineer CV (engineers.cv_object_name)
-    if (data.engineer?.cv_object_name) {
-      try {
-        data.engineer.cv_url = await getV4ReadSignedUrl(
-          data.engineer.cv_object_name,
-          SIGNED_URL_TTL_SECONDS
-        );
-      } catch (e) {
-        data.engineer.cv_url = undefined;
+    if (data.engineer) {
+      data.engineer = { ...data.engineer.toJSON() };
+
+      if (data.engineer.cv_object_name) {
+        try {
+          data.engineer.cv_url = await getV4ReadSignedUrl(
+            data.engineer.cv_object_name,
+            SIGNED_URL_TTL_SECONDS
+          );
+        } catch (e) {
+          data.engineer.cv_url = null;
+        }
+      } else {
+        data.engineer.cv_url = null;
       }
     }
 
@@ -607,7 +615,7 @@ const getMe = async (req, res) => {
       data,
       meta: {
         signed_url_ttl_seconds: SIGNED_URL_TTL_SECONDS,
-      }
+      },
     });
   } catch (error) {
     return res.status(500).json({

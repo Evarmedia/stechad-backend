@@ -17,7 +17,6 @@ const {
   getApplications,
   getProjects,
   getProjectDetails,
-  UpdateEngrData,
 } = require('../controllers/engineerController');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateApplication } = require('../middleware/validation');
@@ -149,6 +148,11 @@ router.get('/all', authorize('project_manager', 'admin'), getEngineers);
  *
  *               open_to_training:
  *                 type: string
+ *                 example: "true"
+ * 
+ *               is_freelancer:
+ *                 type: string
+ *                 description: Boolean value as string (true/false)
  *                 example: "true"
  *
  *               follows_linkedin:
@@ -308,7 +312,7 @@ router.get('/dashboard', authorize('engineer'), getDashboard);
  *                 type: string
  *                 format: binary
  *                 description: Optional profile image (image/*)
- *               cv:
+ *               cv_file:
  *                 type: string
  *                 format: binary
  *                 description: Optional CV file (PDF only)
@@ -353,86 +357,7 @@ router.get('/dashboard', authorize('engineer'), getDashboard);
  *               $ref: '#/components/schemas/Error'
  */
 // UPDATE: Added upload.fields() middleware to handle both avatar and cv file uploads
-router.put('/profile', authorize('engineer'), upload.fields([{name:'avatar', maxCount: 1}, {name:'cv', maxCount: 1}]), updateProfile);
-
-/**
- * @swagger
- * /engineers/jobs:
- *   get:
- *     summary: Get available jobs for engineers with filtering and pagination
- *     tags: [Engineers]
- *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Page number for pagination
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Number of items per page
- *       - in: query
- *         name: skills
- *         schema:
- *           type: string
- *         description: Filter by required skills
- *         example: JavaScript
- *       - in: query
- *         name: experience_level
- *         schema:
- *           type: string
- *           enum: [entry, intermediate, senior, expert]
- *         description: Filter by experience level
- *       - in: query
- *         name: job_type
- *         schema:
- *           type: string
- *           enum: [full_time, part_time, contract, freelance]
- *         description: Filter by job type
- *     responses:
- *       200:
- *         description: Jobs retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     jobs:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Job'
- *                     pagination:
- *                       type: object
- *                       properties:
- *                         currentPage:
- *                           type: integer
- *                           example: 1
- *                         totalPages:
- *                           type: integer
- *                           example: 5
- *                         totalItems:
- *                           type: integer
- *                           example: 50
- *                         itemsPerPage:
- *                           type: integer
- *                           example: 10
- *       500:
- *         description: Failed to get jobs
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-// router.get('/jobs', getJobs);
+router.put('/profile', authorize('engineer'), upload.fields([{name:'avatar', maxCount: 1}, {name:'cv_file', maxCount: 1}]), updateProfile);
 
 /**
  * @swagger
@@ -716,148 +641,5 @@ router.get('/projects', authorize('engineer'), getProjects);
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/projects/:id', authorize('engineer'), getProjectDetails);
-
-/**
- * @swagger
- * /engineers/update_data:
- *   put:
- *     summary: Update engineer profile data and complete onboarding
- *     description: Updates engineer profile information and marks the profile as onboarded
- *     tags: [Engineers]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               date_of_birth:
- *                 type: string
- *                 format: date
- *                 example: "1990-05-15"
- *               open_to_nearby_cities:
- *                 type: boolean
- *                 example: true
- *               languages:
- *                 type: array
- *                 items:
- *                   type: string
- *                 example: ["English", "Spanish", "French"]
- *               language_proficiency:
- *                 type: string
- *                 example: "fluent"
- *               has_drivers_license:
- *                 type: boolean
- *                 example: true
- *               has_car:
- *                 type: boolean
- *                 example: false
- *               is_native:
- *                 type: boolean
- *                 example: true
- *               work_authorized:
- *                 type: boolean
- *                 example: true
- *               specialization:
- *                 type: array
- *                 items:
- *                   type: string
- *                 example: ["Backend Development", "DevOps", "Cloud Architecture"]
- *               skill_level:
- *                 type: string
- *                 example: "expert"
- *               years_of_experience:
- *                 type: integer
- *                 example: 5
- *               certifications:
- *                 type: array
- *                 items:
- *                   type: string
- *                 example: ["AWS Certified", "Google Cloud Professional", "Scrum Master"]
- *               project_types:
- *                 type: array
- *                 items:
- *                   type: string
- *                 example: ["Web Applications", "Mobile Apps", "Enterprise Systems"]
- *               open_to_training:
- *                 type: boolean
- *                 example: true
- *               follows_linkedin:
- *                 type: boolean
- *                 example: true
- *               referee_info:
- *                 type: string
- *                 example: "John Doe, john.doe@email.com"
- *                 description: Referee information in format "Name, email@domain.com"
- *               newsletter:
- *                 type: boolean
- *                 example: false
- *               special_preferences:
- *                 type: string
- *                 example: "Prefers remote work, Available weekdays only"
- *             required:
- *               - open_to_nearby_cities
- *               - has_drivers_license
- *               - has_car
- *               - is_native
- *               - work_authorized
- *               - specialization
- *               - skill_level
- *               - years_of_experience
- *               - open_to_training
- *               - follows_linkedin
- *               - newsletter
- *     responses:
- *       '200':
- *         description: Onboarding completed successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Onboarding completed successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     engineer:
- *                       type: object
- *       '404':
- *         description: Engineer profile not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Engineer profile not found"
- *       '500':
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: "Onboarding failed"
- *                 error:
- *                   type: string
- *                   example: "Error message details"
- */
-router.put('/update_data', authorize('engineer'), UpdateEngrData);
 
 module.exports = router;

@@ -6,11 +6,9 @@ const { bucket, getV4ReadSignedUrl } = require("../config/gcpStorage");
 
 // ---------- fileFilter (yours, kept) ----------
 const fileFilter = (req, file, cb) => {
-  if (file.fieldname === "resume") {
-    if (file.fieldname === "resume" || file.fieldname === "cv") {
+  if (file.fieldname === "resume" || file.fieldname === "cv" || file.fieldname === "cv_file") {
       if (file.mimetype === "application/pdf") return cb(null, true);
       return cb(new Error("Only PDF files are allowed for resumes/CVs"), false);
-    }
   } else if (file.fieldname === "avatar") {
     if (file.mimetype.startsWith("image/")) return cb(null, true);
     return cb(new Error("Only image files are allowed for avatars"), false);

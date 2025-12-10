@@ -11,84 +11,6 @@ const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toInt, toTextArray, toBool } = require("../utils/helpers");
 
-
-// Uses Normal req body, no file upload
-const UpdateEngrData = async (req, res) => {
-  try {
-    const engineer = await Engineer.findOne({
-      where: { user_id: req.user.user_id },
-    });
-
-    if (!engineer) {
-      console.log("engineer Not found");
-      return res.status(404).json({
-        success: false,
-        message: "Engineer profile not found",
-      });
-    }
-
-    console.log("engr Found==>", engineer);
-
-    const {
-      date_of_birth,
-      open_to_nearby_cities,
-      languages,
-      language_proficiency,
-      has_drivers_license,
-      has_car,
-      is_native,
-      work_authorized,
-      specialization,
-      skill_level,
-      years_of_experience,
-      certifications,
-      project_types,
-      open_to_training,
-      follows_linkedin,
-      referee_info,
-      newsletter,
-      special_preferences,
-    } = req.body;
-
-    await engineer.update({
-      date_of_birth: date_of_birth || null,
-      open_to_nearby_cities: toBool(open_to_nearby_cities),
-      languages: toTextArray(languages),
-      language_proficiency: language_proficiency || null,
-      has_drivers_license: toBool(has_drivers_license),
-      has_car: toBool(has_car),
-      is_native: toBool(is_native),
-      work_authorized: toBool(work_authorized),
-      specialization: toTextArray(specialization),
-      skill_level: skill_level || null,
-      years_of_experience: toInt(years_of_experience),
-      certifications: toTextArray(certifications),
-      project_types: toTextArray(project_types),
-      open_to_training: toBool(open_to_training),
-      follows_linkedin: toBool(follows_linkedin),
-      referee_info: referee_info || null,
-      newsletter: toBool(newsletter),
-      special_preferences: special_preferences || null,
-      is_onboarded: true,
-      onboarded_at: new Date(),
-    });
-
-    res.json({
-      success: true,
-      message: "Onboarding Data updated successfully",
-      data: {
-        engineer,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Onboarding failed",
-      error: error.message,
-    });
-  }
-};
-
 // Complete engineer onboarding (multipart/form-data)
 const completeOnboarding = async (req, res) => {
   try {
@@ -133,6 +55,7 @@ const completeOnboarding = async (req, res) => {
       certifications,
       project_types,
       open_to_training,
+      is_freelancer,
       follows_linkedin,
       referee_info,
       newsletter,
@@ -155,6 +78,7 @@ const completeOnboarding = async (req, res) => {
       certifications: toTextArray(certifications),
       project_types: toTextArray(project_types),
       open_to_training: toBool(open_to_training),
+      is_freelancer: toBool(is_freelancer),
       follows_linkedin: toBool(follows_linkedin),
       referee_info: referee_info || null,
       newsletter: toBool(newsletter),
@@ -380,9 +304,9 @@ const updateProfile = async (req, res) => {
       );
       userUpdates.avatar_object_name = objectName; // store path only
     }
-    if (req.files?.cv?.[0]) {
+    if (req.files?.cv_file?.[0]) {
       const { objectName } = await uploadToGCP(
-        req.files.cv[0],
+        req.files.cv_file[0],
         req.user.user_id,
         "resumes"
       );
@@ -429,7 +353,7 @@ const updateProfile = async (req, res) => {
       }
     }
     if (
-      req.files?.cv?.[0] &&
+      req.files?.cv_file?.[0] &&
       oldCvObjectName &&
       oldCvObjectName !== engineer.cv_object_name
     ) {
@@ -729,5 +653,4 @@ module.exports = {
   getApplications,
   getProjects,
   getProjectDetails,
-  UpdateEngrData,
 };

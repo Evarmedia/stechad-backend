@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS engineers (
     referee_info TEXT, -- Format: "Name, email@example.com"
     newsletter BOOLEAN,
     special_preferences TEXT,
-    cv_file_name TEXT,
+    cv_object_name TEXT,
     
     -- Status & Metadata
     is_vetted BOOLEAN DEFAULT FALSE,
