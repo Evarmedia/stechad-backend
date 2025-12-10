@@ -195,7 +195,8 @@ router.get('/all', authorize('project_manager', 'admin'), getEngineers);
  *       500:
  *         description: Onboarding failed
  */
-router.put('/onboarding', authorize('engineer'), completeOnboarding);
+// UPDATE: Added upload.single('cv_file') middleware to handle file upload
+router.put('/onboarding', authorize('engineer'), upload.single('cv_file'), completeOnboarding);
 
 /**
  * @swagger
@@ -351,7 +352,8 @@ router.get('/dashboard', authorize('engineer'), getDashboard);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/profile', authorize('engineer'), updateProfile);
+// UPDATE: Added upload.fields() middleware to handle both avatar and cv file uploads
+router.put('/profile', authorize('engineer'), upload.fields([{name:'avatar', maxCount: 1}, {name:'cv', maxCount: 1}]), updateProfile);
 
 /**
  * @swagger
