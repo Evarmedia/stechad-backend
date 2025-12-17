@@ -1,6 +1,6 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const User = require("./User"); // Import the User model to define the relationship
+const User = require("./User");
 
 class Engineer extends Model {}
 
