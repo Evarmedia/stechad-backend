@@ -398,15 +398,10 @@ router.post('/verify-email', verifyEmail);
  *           schema:
  *             type: object
  *             required:
- *               - email
  *               - otp
  *               - new_password
  *               - confirm_password
  *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *                 example: mosimishak@gmail.com
  *               otp:
  *                 type: string
  *                 example: "123456"

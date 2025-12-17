@@ -9,6 +9,8 @@ const {
   validateReferralCode,
 } = require("../utils/referralUtil");
 
+const { Op } = require("sequelize");
+
 const { getV4ReadSignedUrl } = require('../config/gcpStorage');
 
 const passport = require('passport');
@@ -391,7 +393,15 @@ const verifyEmail = async (req, res) => {
 // Reset password
 const resetPassword = async (req, res) => {
   try {
-    const { email, otp, new_password, confirm_password } = req.body;
+    const { otp, new_password, confirm_password } = req.body;
+
+    // 1. Validate input
+    if (!otp || !new_password || !confirm_password) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
 
     if (new_password !== confirm_password) {
       return res.status(400).json({
@@ -400,14 +410,15 @@ const resetPassword = async (req, res) => {
       });
     }
 
+    // 2. Find user by valid OTP
     const user = await User.findOne({
       where: {
-        email,
         reset_password_token: otp,
         reset_password_expires: {
-          [require("sequelize").Op.gt]: new Date(),
+          [Op.gt]: new Date(),
         },
       },
+      attributes: { include: ["password"] }, // override default scope
     });
 
     if (!user) {
@@ -417,25 +428,35 @@ const resetPassword = async (req, res) => {
       });
     }
 
-    // Update password and clear reset token
+    // 3. Prevent reusing the same password
+    const isSamePassword = await user.comparePassword(new_password);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be different from the old password",
+      });
+    }
+
+    // 4. Update password (auto-hashed by beforeUpdate hook)
     await user.update({
       password: new_password,
       reset_password_token: null,
       reset_password_expires: null,
     });
 
-    res.json({
+    return res.status(200).json({
       success: true,
       message: "Password reset successful",
     });
   } catch (error) {
-    res.status(500).json({
+    console.error(error);
+    return res.status(500).json({
       success: false,
       message: "Password reset failed",
-      error: error.message,
     });
   }
 };
+
 
 // Reset password using old password if from temp_password or password field
 const editPassword = async (req, res) => {
