@@ -21,6 +21,47 @@ const SIGNED_URL_TTL_SECONDS =
   Number(process.env.GCS_SIGNED_URL_TTL_SECONDS) ||
   (Number(process.env.GCS_SIGNED_URL_TTL_DAYS || 7) * 24 * 3600);
 
+// Helper function to format user response with signed URLs
+const formatUserResponse = async (user) => {
+  const data = user.toJSON();
+
+  // Add avatar URL if exists
+  if (data.avatar_object_name) {
+    try {
+      data.avatar_url = await getV4ReadSignedUrl(
+        data.avatar_object_name,
+        SIGNED_URL_TTL_SECONDS
+      );
+    } catch (e) {
+      data.avatar_url = undefined;
+    }
+  }
+
+  // Add Engineer CV URL if exists
+  if (data.engineer) {
+    data.engineer = { ...data.engineer.toJSON() };
+    if (data.engineer.cv_object_name) {
+      try {
+        data.engineer.cv_url = await getV4ReadSignedUrl(
+          data.engineer.cv_object_name,
+          SIGNED_URL_TTL_SECONDS
+        );
+      } catch (e) {
+        data.engineer.cv_url = null;
+      }
+    } else {
+      data.engineer.cv_url = null;
+    }
+  }
+
+  // Add ProjectManager docs URL if exists (future use)
+  if (data.project_manager) {
+    data.project_manager = { ...data.project_manager.toJSON() };
+  }
+
+  return data;
+};
+
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
@@ -167,18 +208,22 @@ const signup = async (req, res) => {
     }
 
     // Generate token for user login (both for normal signup and Google sign-in)
-    const { token } = generateTokens({
+    const { token, refreshToken } = generateTokens({
       user_id: user.user_id,
       role: user.role,
     });
 
-    // Respond with success message and user data + token
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(user);
+
+    // Respond with success message and user data + token (matching login format)
     res.status(201).json({
       success: true,
       message: googleSignIn ? "User logged in successfully" : "User registered successfully",
       data: {
-        user: user.toJSON(),
+        user: formattedUser,
         token,
+        refreshToken,
       },
     });
   } catch (error) {
@@ -244,11 +289,14 @@ const login = async (req, res) => {
       await inviteRecord.destroy();
     }
 
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(user);
+
     res.json({
       success: true,
       message: "Login successful",
       data: {
-        user: user.toJSON(),
+        user: formattedUser,
         token,
         refreshToken,
       },
@@ -560,11 +608,31 @@ const acceptInvites = async (req, res) => {
       responded_at: new Date(),
     });
 
+    // Reload user with associations
+    const userWithAssociations = await User.findByPk(user.user_id, {
+      include: [
+        { model: Engineer, as: 'engineer' },
+        { model: ProjectManager, as: 'project_manager' },
+        { model: Admin, as: 'admin' },
+      ],
+    });
+
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(userWithAssociations);
+
+    // Generate tokens for user
+    const { refreshToken } = generateTokens({
+      user_id: user.user_id,
+      role: user.role,
+    });
+
     res.status(201).json({
       success: true,
       message: "Invite accepted and user registered successfully, Please Login",
       data: {
-        user: user.toJSON(),
+        user: formattedUser,
+        token,
+        refreshToken,
       },
     });
   } catch (error) {
@@ -593,47 +661,14 @@ const getMe = async (req, res) => {
         .json({ success: false, message: "User not found" });
     }
 
-    // build a plain object to safely augment
-    const data = user.toJSON();
-
-    // 1) Avatar (shared via users.avatar_object_name)
-    if (data.avatar_object_name) {
-      try {
-        data.avatar_url = await getV4ReadSignedUrl(
-          data.avatar_object_name,
-          SIGNED_URL_TTL_SECONDS
-        );
-      } catch (e) {
-        // If the object is gone, just omit the URL
-        data.avatar_url = undefined;
-      }
-    }
-
-    // 2) Engineer CV (engineers.cv_object_name)
-    if (data.engineer) {
-      data.engineer = { ...data.engineer.toJSON() };
-
-      if (data.engineer.cv_object_name) {
-        try {
-          data.engineer.cv_url = await getV4ReadSignedUrl(
-            data.engineer.cv_object_name,
-            SIGNED_URL_TTL_SECONDS
-          );
-        } catch (e) {
-          data.engineer.cv_url = null;
-        }
-      } else {
-        data.engineer.cv_url = null;
-      }
-    }
-
-    // 3) If I add PM/ADMIN specific objects, sign them here similarly
-    // Example (if someday you store pm docs):
-    // if (data.project_manager?.some_object_name) { ... }
+    // Format user response with signed URLs using shared helper
+    const formattedUser = await formatUserResponse(user);
 
     return res.json({
       success: true,
-      data,
+      data: {
+        user: formattedUser,
+      },
       meta: {
         signed_url_ttl_seconds: SIGNED_URL_TTL_SECONDS,
       },
@@ -647,9 +682,6 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { getMe };
-
-
 module.exports = {
   signup,
   login,
@@ -660,4 +692,5 @@ module.exports = {
   editPassword,
   acceptInvites,
   getMe,
+  formatUserResponse,
 };

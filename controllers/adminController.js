@@ -16,7 +16,8 @@ const { v4: uuidv4, validate: uuidValidate } = require("uuid");
 
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
-const { toBool, toTextArray } = require("../utils/helpers")
+const { toBool, toTextArray } = require("../utils/helpers");
+const { formatUserResponse, generateTokens } = require("./authController");
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -272,27 +273,33 @@ const updateProfile = async (req, res) => {
         {
           model: User,
           as: "user",
-          // attributes: {
-          //   exclude: [
-          //     "password",
-          //     "reset_password_token",
-          //     "reset_password_expires",
-          //   ],
-          // },
         },
       ],
     });
 
-    const signedUrl = updated?.user?.avatar_object_name
-      ? await getV4ReadSignedUrl(updated.user.avatar_object_name, 3600) // 1h
-      : null;
+    // Get full user with all associations
+    const userWithAssociations = await User.findByPk(req.user.user_id, {
+      include: [
+        { model: Admin, as: 'admin' },
+      ],
+    });
+
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(userWithAssociations);
+
+    // Generate tokens
+    const { token, refreshToken } = generateTokens({
+      user_id: req.user.user_id,
+      role: userWithAssociations.role,
+    });
 
     res.json({
       success: true,
       message: "Profile updated successfully",
       data: {
-        admin: updated,
-        avatar_url: signedUrl || undefined,
+        user: formattedUser,
+        token,
+        refreshToken,
       },
     });
   } catch (error) {

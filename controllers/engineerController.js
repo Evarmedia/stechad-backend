@@ -10,6 +10,8 @@ const { Op } = require("sequelize");
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toInt, toTextArray, toBool } = require("../utils/helpers");
+const { formatUserResponse } = require("./authController");
+const { generateTokens } = require("../utils/generateTokens");
 
 // Complete engineer onboarding (multipart/form-data)
 const completeOnboarding = async (req, res) => {
@@ -224,12 +226,30 @@ const completeOnboarding = async (req, res) => {
     }
 
     console.log('🟢 [BACKEND] ========== STEP 8: Sending success response ==========');
+    
+    // Reload user with all associations for complete data
+    const userWithAssociations = await User.findByPk(req.user.user_id, {
+      include: [
+        { model: Engineer, as: 'engineer' },
+      ],
+    });
+
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(userWithAssociations);
+
+    // Generate tokens
+    const { token, refreshToken } = generateTokens({
+      user_id: req.user.user_id,
+      role: userWithAssociations.role,
+    });
+
     res.json({
       success: true,
       message: "Onboarding completed successfully",
       data: {
-        engineer,
-        cv_url: signedCvUrl || undefined,
+        user: formattedUser,
+        token,
+        refreshToken,
       },
     });
     console.log('  ✅ Response sent successfully');
@@ -253,8 +273,6 @@ const completeOnboarding = async (req, res) => {
       success: false,
       message: "Onboarding failed",
       error: error.message,
-      details: error?.stack,
-      sqlError: error.parent?.message || undefined,
     });
   }
 };
@@ -367,7 +385,17 @@ const getDashboard = async (req, res) => {
       },
     });
 
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(engineer.user);
+
+    // Generate tokens
+    const { token, refreshToken } = generateTokens({
+      user_id: req.user.user_id,
+      role: engineer.user.role,
+    });
+
     const dashboardData = {
+      user: formattedUser,
       engineer,
       statistics: {
         totalApplicationsCount,
@@ -380,6 +408,8 @@ const getDashboard = async (req, res) => {
       },
       recentApplications,
       activeProjects,
+      token,
+      refreshToken,
     };
 
     res.json({
@@ -576,7 +606,7 @@ const updateProfile = async (req, res) => {
       }
     }
 
-    // Re-fetch and attach temporary signed URLs for immediate use
+    // Re-fetch and attach signed URLs for immediate use
     const fresh = await Engineer.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: "user" }],
@@ -584,13 +614,21 @@ const updateProfile = async (req, res) => {
 
     console.log("📝 [updateProfile] Re-fetching fresh engineer data");
 
-    const avatar_url = fresh?.user?.avatar_object_name
-      ? await getV4ReadSignedUrl(fresh.user.avatar_object_name, 3600)
-      : undefined;
+    // Get full user with all associations
+    const userWithAssociations = await User.findByPk(req.user.user_id, {
+      include: [
+        { model: Engineer, as: 'engineer' },
+      ],
+    });
 
-    const cv_url = fresh?.cv_object_name
-      ? await getV4ReadSignedUrl(fresh.cv_object_name, 3600)
-      : undefined;
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(userWithAssociations);
+
+    // Generate tokens
+    const { token, refreshToken } = generateTokens({
+      user_id: req.user.user_id,
+      role: userWithAssociations.role,
+    });
 
     console.log("✅ [updateProfile] Profile updated successfully");
 
@@ -598,10 +636,9 @@ const updateProfile = async (req, res) => {
       success: true,
       message: "Profile updated successfully",
       data: {
-        user: fresh.user,
-        engineer: fresh,
-        avatar_url,
-        cv_url,
+        user: formattedUser,
+        token,
+        refreshToken,
       },
     });
   } catch (error) {

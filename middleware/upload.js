@@ -31,7 +31,7 @@ function buildObjectName(folder, userId, originalname) {
   const base = path
     .basename(originalname || "", ext)
     .replace(/[^\w\-]+/g, "_")
-    .slice(0, 60);
+    .slice(0, 30);
   const rand = crypto.randomBytes(6).toString("hex");
   return `${folder}/${userId}__${ts}__${rand}${base ? "__" + base : ""}${ext}`;
 }

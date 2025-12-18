@@ -8,6 +8,7 @@ const {
 } = require("../models");
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
+const { formatUserResponse, generateTokens } = require("./authController");
 
 // Get project manager dashboard
 const getDashboard = async (req, res) => {
@@ -207,27 +208,33 @@ const updateProfile = async (req, res) => {
         {
           model: User,
           as: "user",
-          // attributes: {
-          //   exclude: [
-          //     "password",
-          //     "reset_password_token",
-          //     "reset_password_expires",
-          //   ],
-          // },
         },
       ],
     });
 
-    const avatar_url = fresh?.user?.avatar_object_name
-      ? await getV4ReadSignedUrl(fresh.user.avatar_object_name, 3600) // 1h
-      : undefined;
+    // Get full user with all associations
+    const userWithAssociations = await User.findByPk(req.user.user_id, {
+      include: [
+        { model: ProjectManager, as: 'project_manager' },
+      ],
+    });
+
+    // Format user response with signed URLs
+    const formattedUser = await formatUserResponse(userWithAssociations);
+
+    // Generate tokens
+    const { token, refreshToken } = generateTokens({
+      user_id: req.user.user_id,
+      role: userWithAssociations.role,
+    });
 
     res.json({
       success: true,
       message: "Profile updated successfully",
       data: {
-        project_manager: fresh,
-        avatar_url, // temporary signed URL (may be undefined if no avatar)
+        user: formattedUser,
+        token,
+        refreshToken,
       },
     });
   } catch (error) {
