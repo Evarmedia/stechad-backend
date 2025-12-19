@@ -388,11 +388,11 @@ const getDashboard = async (req, res) => {
     // Format user response with signed URLs
     const formattedUser = await formatUserResponse(engineer.user);
 
-    // Generate tokens
-    const { token, refreshToken } = generateTokens({
-      user_id: req.user.user_id,
-      role: engineer.user.role,
-    });
+    // // Generate tokens
+    // const { token, refreshToken } = generateTokens({
+    //   user_id: req.user.user_id,
+    //   role: engineer.user.role,
+    // });
 
     const dashboardData = {
       user: formattedUser,
@@ -408,8 +408,8 @@ const getDashboard = async (req, res) => {
       },
       recentApplications,
       activeProjects,
-      token,
-      refreshToken,
+      // token,
+      // refreshToken,
     };
 
     res.json({

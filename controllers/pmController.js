@@ -26,48 +26,46 @@ const getDashboard = async (req, res) => {
     }
 
     // Get statistics
-    const totalJobs = await Job.count({
-      where: { posted_by: req.user.user_id },
-    });
+    const totalJobsCount = await Job.count();
 
-    const activeJobs = await Job.count({
+    const activeJobsCount = await Job.count({
       where: {
-        posted_by: req.user.user_id,
         status: "active",
       },
     });
 
-    const totalApplications = await Application.count({
+    const totalApplicationsCount = await Application.count({
       include: [
         {
           model: Job,
           as: "job",
-          where: { posted_by: req.user.user_id },
         },
       ],
     });
 
-    const activeProjects = await Project.count({
+    const activeProjects = await Project.findAll({
       where: {
         project_managers_user_id: req.user.user_id,
         status: ["planning", "in_progress"],
       },
     });
 
-    const completedProjects = await Project.count({
+    const totalProjectsCount = await Project.count({
       where: {
         project_managers_user_id: req.user.user_id,
         status: "completed",
       },
     });
 
+    const activeProjectsCount = activeProjects.length;
+    
     // Get recent applications
     const recentApplications = await Application.findAll({
       include: [
         {
           model: Job,
           as: "job",
-          where: { posted_by: req.user.user_id },
+          // where: { posted_by: req.user.user_id },
           include: [
             {
               model: User,
@@ -86,16 +84,23 @@ const getDashboard = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
+    const recentJobs = await Job.findAll({
+      limit: 3,
+      order: [["created_at", "DESC"]],
+    })
+
     const dashboardData = {
       projectManager,
       statistics: {
-        totalJobs,
-        activeJobs,
-        totalApplications,
-        activeProjects,
-        completedProjects,
+        activeProjectsCount,
+        totalApplicationsCount,
+        totalJobsCount,
+        activeJobsCount,
+        totalProjectsCount,
       },
       recentApplications,
+      recentJobs,
+      activeProjects,
     };
 
     res.json({
