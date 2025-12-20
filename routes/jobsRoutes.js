@@ -137,7 +137,7 @@ router.get('/:jobs_id', getJobById);
 
 /**
  * @swagger
- * /{jobs_id}/applicants:
+ * /jobs/{jobs_id}/applicants:
  *   get:
  *     summary: Get applicants for specific job
  *     tags: [Jobs]
@@ -186,7 +186,7 @@ router.get('/:jobs_id', getJobById);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:jobs_id/applicants', authorize('admin', 'project_manager'), getJobApplicants);
+router.get('/:jobs_id/applicants', authenticate, authorize('admin', 'project_manager'), getJobApplicants);
 
 /**
  * @swagger
@@ -368,7 +368,7 @@ router.get('/stats/overview', authenticate, authorize('admin', 'project_manager'
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/update/:jobs_id', authorize('admin', 'project_manager'), updateJob);
+router.put('/update/:jobs_id', authenticate, authorize('admin', 'project_manager'), updateJob);
 
 /**
  * @swagger
@@ -390,6 +390,6 @@ router.put('/update/:jobs_id', authorize('admin', 'project_manager'), updateJob)
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.delete('/:jobs_id', authorize('admin', 'project_manager'), deleteJob);
+router.delete('/:jobs_id', authenticate, authorize('admin', 'project_manager'), deleteJob);
 
 module.exports = router;

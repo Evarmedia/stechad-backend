@@ -1,4 +1,4 @@
-const { User, Job, Application, ProjectManager } = require('../models');
+const { User, Job, Application, ProjectManager, Engineer } = require('../models');
 const { Op } = require('sequelize');
 
 // Get all jobs with filtering and pagination
@@ -152,7 +152,7 @@ const getJobApplicants = async (req, res) => {
 
     // Verify job belongs to current PM
     const job = await Job.findOne({
-      where: { jobs_id, posted_by: req.user.user_id }
+      where: { jobs_id }
     });
 
     if (!job) {
