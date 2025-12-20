@@ -169,16 +169,16 @@ const updateApplicationStatus = async (req, res) => {
     }
 
     // Check if user has permission to update this application
-    if (req.user.role === 'project_manager' && application.job.posted_by !== req.user.user_id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this application'
-      });
-    }
+    // if (req.user.role === 'project_manager') {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: 'Not authorized to update this application'
+    //   });
+    // }
 
     const oldStatus = application.status;
     await application.update({
-      status,
+      status: status.toLowerCase(),
       feedback,
       reviewed_at: new Date(),
       reviewed_by: req.user.user_id
