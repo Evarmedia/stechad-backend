@@ -143,6 +143,13 @@ const updateApplicationStatus = async (req, res) => {
     const { applications_id } = req.params;
     const { status, feedback } = req.body;
 
+    if (status && !['pending', 'shortlisted', 'reviewed', 'accepted', 'rejected'].includes(status.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status value'
+      });
+    }
+
     const application = await Application.findOne({
       where: { applications_id },
       include: [

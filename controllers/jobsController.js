@@ -1,5 +1,8 @@
 const { User, Job, Application, ProjectManager, Engineer } = require('../models');
 const { Op } = require('sequelize');
+const { getV4ReadSignedUrl } = require('../config/gcpStorage');
+
+const SIGNED_URL_TTL_SECONDS = 3600; // 1 hour
 
 // Get all jobs with filtering and pagination
 const getJobs = async (req, res) => {
@@ -182,10 +185,34 @@ const getJobApplicants = async (req, res) => {
       order: [['created_at', 'DESC']]
     });
 
+    // Add CV URLs to engineer objects
+    const applicationsWithUrls = await Promise.all(
+      applications.rows.map(async (app) => {
+        const appData = app.toJSON();
+        
+        // Add cv_url to engineer object if cv_object_name exists
+        if (appData.applicant && appData.applicant.engineer && appData.applicant.engineer.cv_object_name) {
+          try {
+            appData.applicant.engineer.cv_url = await getV4ReadSignedUrl(
+              appData.applicant.engineer.cv_object_name,
+              SIGNED_URL_TTL_SECONDS
+            );
+          } catch (error) {
+            console.error('Error generating CV URL:', error);
+            appData.applicant.engineer.cv_url = null;
+          }
+        } else if (appData.applicant && appData.applicant.engineer) {
+          appData.applicant.engineer.cv_url = null;
+        }
+        
+        return appData;
+      })
+    );
+
     res.json({
       success: true,
       data: {
-        applications: applications.rows,
+        applications: applicationsWithUrls,
         pagination: {
           currentPage: parseInt(page),
           totalPages: Math.ceil(applications.count / limit),
