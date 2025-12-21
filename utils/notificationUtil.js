@@ -1,4 +1,4 @@
-const { Notification } = require('../models');
+const { Notification } = require("../models");
 
 /**
  * Create a new notification
@@ -15,9 +15,9 @@ const createNotification = async ({
   user_id,
   title,
   message,
-  type = 'info',
+  type = "info",
   action_url = null,
-  metadata = {}
+  metadata = {},
 }) => {
   try {
     const notification = await Notification.create({
@@ -27,12 +27,12 @@ const createNotification = async ({
       type,
       action_url,
       metadata,
-      is_read: false
+      is_read: false,
     });
 
     return notification;
   } catch (error) {
-    console.error('Error creating notification:', error);
+    console.error("Error creating notification:", error);
     throw error;
   }
 };
@@ -45,17 +45,17 @@ const createNotification = async ({
 const createBulkNotifications = async (notifications) => {
   try {
     const createdNotifications = await Notification.bulkCreate(
-      notifications.map(notification => ({
+      notifications.map((notification) => ({
         ...notification,
-        type: notification.type || 'info',
+        type: notification.type || "info",
         is_read: false,
-        metadata: notification.metadata || {}
+        metadata: notification.metadata || {},
       }))
     );
 
     return createdNotifications;
   } catch (error) {
-    console.error('Error creating bulk notifications:', error);
+    console.error("Error creating bulk notifications:", error);
     throw error;
   }
 };
@@ -71,22 +71,22 @@ const markAsRead = async (notification_id, user_id) => {
     const notification = await Notification.findOne({
       where: {
         notifications_id: notification_id,
-        user_id: user_id
-      }
+        user_id: user_id,
+      },
     });
 
     if (!notification) {
-      throw new Error('Notification not found');
+      throw new Error("Notification not found");
     }
 
     await notification.update({
       is_read: true,
-      read_at: new Date()
+      read_at: new Date(),
     });
 
     return notification;
   } catch (error) {
-    console.error('Error marking notification as read:', error);
+    console.error("Error marking notification as read:", error);
     throw error;
   }
 };
@@ -101,43 +101,39 @@ const markAllAsRead = async (user_id) => {
     const [updatedCount] = await Notification.update(
       {
         is_read: true,
-        read_at: new Date()
+        read_at: new Date(),
       },
       {
         where: {
           user_id: user_id,
-          is_read: false
-        }
+          is_read: false,
+        },
       }
     );
 
     return updatedCount;
   } catch (error) {
-    console.error('Error marking all notifications as read:', error);
+    console.error("Error marking all notifications as read:", error);
     throw error;
   }
 };
 
 /**
- * Get notifications for a user with pagination
+ * Get notifications for a user (pagination optional)
  * @param {string} user_id - The user ID
  * @param {Object} options - Query options
- * @param {number} [options.page=1] - Page number
- * @param {number} [options.limit=20] - Items per page
+ * @param {number} [options.page] - Page number (optional)
+ * @param {number} [options.limit] - Items per page (optional)
  * @param {boolean} [options.is_read] - Filter by read status
  * @param {string} [options.type] - Filter by notification type
- * @returns {Promise<Object>} Paginated notifications
+ * @returns {Promise<Object>} Notifications result
  */
 const getUserNotifications = async (user_id, options = {}) => {
   try {
-    const {
-      page = 1,
-      limit = 20,
-      is_read,
-      type
-    } = options;
+    const { page, limit, is_read, type } = options;
 
-    const offset = (page - 1) * limit;
+    const isPaginated = page !== undefined || limit !== undefined;
+
     let where = { user_id };
 
     if (is_read !== undefined) {
@@ -148,33 +144,55 @@ const getUserNotifications = async (user_id, options = {}) => {
       where.type = type;
     }
 
-    const notifications = await Notification.findAndCountAll({
+    // Base query
+    const queryOptions = {
       where,
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['created_at', 'DESC']]
-    });
+      order: [
+        ["is_read", "ASC"], // false (0) first, true (1) last
+        ["created_at", "DESC"], // newest first within each group
+      ],
+    };
 
-    // Get unread count
+    // Add pagination only if requested
+    if (isPaginated) {
+      const pageNumber = Number(page) || 1;
+      const pageLimit = Number(limit) || 20;
+
+      queryOptions.limit = pageLimit;
+      queryOptions.offset = (pageNumber - 1) * pageLimit;
+    }
+
+    const notifications = await Notification.findAndCountAll(queryOptions);
+
+    // Unread count (always returned)
     const unreadCount = await Notification.count({
       where: {
         user_id,
-        is_read: false
-      }
+        is_read: false,
+      },
     });
 
-    return {
+    const response = {
       notifications: notifications.rows,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(notifications.count / limit),
-        totalItems: notifications.count,
-        itemsPerPage: parseInt(limit)
-      },
-      unread_count: unreadCount
+      unread_count: unreadCount,
     };
+
+    // Attach pagination metadata only if pagination is used
+    if (isPaginated) {
+      const pageLimit = Number(limit) || 20;
+      const pageNumber = Number(page) || 1;
+
+      response.pagination = {
+        currentPage: pageNumber,
+        totalPages: Math.ceil(notifications.count / pageLimit),
+        totalItems: notifications.count,
+        itemsPerPage: pageLimit,
+      };
+    }
+
+    return response;
   } catch (error) {
-    console.error('Error getting user notifications:', error);
+    console.error("Error getting user notifications:", error);
     throw error;
   }
 };
@@ -192,15 +210,15 @@ const deleteOldNotifications = async (daysOld = 30) => {
     const deletedCount = await Notification.destroy({
       where: {
         created_at: {
-          [require('sequelize').Op.lt]: cutoffDate
+          [require("sequelize").Op.lt]: cutoffDate,
         },
-        is_read: true
-      }
+        is_read: true,
+      },
     });
 
     return deletedCount;
   } catch (error) {
-    console.error('Error deleting old notifications:', error);
+    console.error("Error deleting old notifications:", error);
     throw error;
   }
 };
@@ -211,28 +229,32 @@ const deleteOldNotifications = async (daysOld = 30) => {
  * @param {string} oldStatus - The previous status
  * @param {string} newStatus - The new status
  */
-const createApplicationStatusNotification = async (application, oldStatus, newStatus) => {
-  let type = 'info';
+const createApplicationStatusNotification = async (
+  application,
+  oldStatus,
+  newStatus
+) => {
+  let type = "info";
   let message = `Your application for "${application.job_title}" status has been updated to ${newStatus}`;
 
   switch (newStatus) {
-    case 'accepted':
-      type = 'success';
+    case "accepted":
+      type = "success";
       message = `Congratulations! Your application for "${application.job_title}" has been accepted`;
       break;
-    case 'rejected':
-      type = 'warning';
+    case "rejected":
+      type = "warning";
       message = `Your application for "${application.job_title}" has been rejected`;
       break;
-    case 'reviewed':
-      type = 'info';
+    case "reviewed":
+      type = "info";
       message = `Your application for "${application.job_title}" is under review`;
       break;
   }
 
   return await createNotification({
     user_id: application.engineer_id,
-    title: 'Application Status Update',
+    title: "Application Status Update",
     message,
     type,
     action_url: `/applications/${application.applications_id}`,
@@ -240,8 +262,8 @@ const createApplicationStatusNotification = async (application, oldStatus, newSt
       application_id: application.applications_id,
       job_id: application.job_id,
       old_status: oldStatus,
-      new_status: newStatus
-    }
+      new_status: newStatus,
+    },
   });
 };
 
@@ -251,17 +273,17 @@ const createApplicationStatusNotification = async (application, oldStatus, newSt
  * @param {Array} engineerIds - Array of engineer user IDs to notify
  */
 const createNewJobNotification = async (job, engineerIds) => {
-  const notifications = engineerIds.map(engineer_id => ({
+  const notifications = engineerIds.map((engineer_id) => ({
     user_id: engineer_id,
-    title: 'New Job Opportunity',
+    title: "New Job Opportunity",
     message: `A new job "${job.title}" at ${job.company} matches your profile`,
-    type: 'info',
+    type: "info",
     action_url: `/jobs/${job.jobs_id}`,
     metadata: {
       job_id: job.jobs_id,
       company: job.company,
-      location: job.location
-    }
+      location: job.location,
+    },
   }));
 
   return await createBulkNotifications(notifications);
@@ -275,14 +297,14 @@ const createNewJobNotification = async (job, engineerIds) => {
 const createProjectAssignmentNotification = async (project, engineer_id) => {
   return await createNotification({
     user_id: engineer_id,
-    title: 'New Project Assignment',
+    title: "New Project Assignment",
     message: `You have been assigned to project: ${project.title}`,
-    type: 'info',
+    type: "info",
     action_url: `/projects/${project.projects_id}`,
     metadata: {
       project_id: project.projects_id,
-      project_manager_id: project.project_managers_user_id
-    }
+      project_manager_id: project.project_managers_user_id,
+    },
   });
 };
 
@@ -295,5 +317,5 @@ module.exports = {
   deleteOldNotifications,
   createApplicationStatusNotification,
   createNewJobNotification,
-  createProjectAssignmentNotification
+  createProjectAssignmentNotification,
 };
