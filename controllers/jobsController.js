@@ -150,62 +150,52 @@ const getJobById = async (req, res) => {
 const getJobApplicants = async (req, res) => {
   try {
     const { jobs_id } = req.params;
-    const { page = 1, limit = 10, status } = req.query;
-    const offset = (page - 1) * limit;
+    const { page, limit, status } = req.query;
 
-    // Verify job belongs to current PM
-    const job = await Job.findOne({
-      where: { jobs_id }
-    });
-
+    const job = await Job.findOne({ where: { jobs_id } });
     if (!job) {
-      return res.status(404).json({
-        success: false,
-        message: 'Job not found'
-      });
+      return res.status(404).json({ success: false, message: "Job not found" });
     }
 
     const where = { job_id: jobs_id };
-    if (status) {
-      where.status = status;
-    }
+    if (status) where.status = status;
+
+    const pagination = {
+      limit: limit ? parseInt(limit) : undefined,
+      offset:
+        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+    };
 
     const applications = await Application.findAndCountAll({
       where,
       include: [
-        { 
-          model: User, 
-          as: 'applicant', 
-          attributes: ['first_name', 'last_name', 'email'],
-          include: [{ model: Engineer, as: 'engineer' }]
-        }
+        {
+          model: User,
+          as: "applicant",
+          attributes: ["first_name", "last_name", "email"],
+          include: [{ model: Engineer, as: "engineer" }],
+        },
       ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['created_at', 'DESC']]
+      ...pagination,
+      order: [["created_at", "DESC"]],
+      distinct: true,
     });
 
-    // Add CV URLs to engineer objects
     const applicationsWithUrls = await Promise.all(
       applications.rows.map(async (app) => {
-        const appData = app.toJSON();
-        
-        // Add cv_url to engineer object if cv_object_name exists
-        if (appData.applicant && appData.applicant.engineer && appData.applicant.engineer.cv_object_name) {
-          try {
-            appData.applicant.engineer.cv_url = await getV4ReadSignedUrl(
-              appData.applicant.engineer.cv_object_name,
-              SIGNED_URL_TTL_SECONDS
-            );
-          } catch (error) {
-            console.error('Error generating CV URL:', error);
-            appData.applicant.engineer.cv_url = null;
-          }
-        } else if (appData.applicant && appData.applicant.engineer) {
-          appData.applicant.engineer.cv_url = null;
+        const data = app.toJSON();
+        const engineer = data?.applicant?.engineer;
+
+        if (engineer) {
+          engineer.cv_url = engineer.cv_object_name
+            ? await getV4ReadSignedUrl(
+                engineer.cv_object_name,
+                SIGNED_URL_TTL_SECONDS
+              )
+            : null;
         }
-        
-        return appData;
+
+        return data;
       })
     );
 
@@ -214,21 +204,24 @@ const getJobApplicants = async (req, res) => {
       data: {
         applications: applicationsWithUrls,
         pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(applications.count / limit),
+          currentPage: page ? parseInt(page) : undefined,
+          totalPages: limit
+            ? Math.ceil(applications.count / parseInt(limit))
+            : undefined,
           totalItems: applications.count,
-          itemsPerPage: parseInt(limit)
-        }
-      }
+          itemsPerPage: limit ? parseInt(limit) : undefined,
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get applicants',
-      error: error.message
+      message: "Failed to get applicants",
+      error: error.message,
     });
   }
 };
+
 
 // Get job statistics
 const getJobStats = async (req, res) => {
@@ -298,7 +291,7 @@ const updateJob = async (req, res) => {
     const { jobs_id } = req.params;
 
     const job = await Job.findOne({
-      where: { jobs_id, posted_by: req.user.user_id }
+      where: { jobs_id }
     });
 
     if (!job) {

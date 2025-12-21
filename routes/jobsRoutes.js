@@ -264,7 +264,7 @@ router.get('/stats/overview', authenticate, authorize('admin', 'project_manager'
 
 /**
  * @swagger
- * /update/{jobs_id}:
+ * /jobs/update/{jobs_id}:
  *   put:
  *     summary: Update job posting
  *     tags: [Jobs]

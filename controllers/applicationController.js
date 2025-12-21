@@ -1,83 +1,96 @@
 const { Application, Job, User, Engineer, ProjectManager } = require('../models');
 const { Op } = require('sequelize');
 const { createNotification } = require('../utils/notificationUtil');
+const { getV4ReadSignedUrl } = require("../config/gcpStorage");
+const SIGNED_URL_TTL_SECONDS = 3600;
 
 // Get all applications with filtering and pagination - list
 const getApplications = async (req, res) => {
   try {
-    const {
-      page,
-      limit,
-      status,
-      job_id,
-      engineer_id
-    } = req.query;
-    
-    let where = {};
+    const { page, limit, status, job_id, engineer_id } = req.query;
 
-    // Apply filters
-    if (status) {
-      where.status = status;
-    }
-    
-    if (job_id) {
-      where.job_id = job_id;
-    }
-    
-    if (engineer_id) {
-      where.engineer_id = engineer_id;
-    }
+    let where = {};
+    if (status) where.status = status;
+    if (job_id) where.job_id = job_id;
+    if (engineer_id) where.engineer_id = engineer_id;
 
     const pagination = {
       limit: limit ? parseInt(limit) : undefined,
-      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+      offset:
+        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
     const applications = await Application.findAndCountAll({
-      where: Object.keys(where).length > 0 ? where : undefined,
+      where: Object.keys(where).length ? where : undefined,
       include: [
         {
           model: Job,
-          as: 'job',
-          attributes: ['title', 'company', 'location'],
-          include: [{
-            model: User,
-            as: 'poster',
-            attributes: ['first_name', 'last_name']
-          }]
+          as: "job",
+          attributes: ["title", "company", "location"],
+          include: [
+            {
+              model: User,
+              as: "poster",
+              attributes: ["first_name", "last_name"],
+            },
+          ],
         },
         {
           model: User,
-          as: 'applicant',
-          attributes: ['first_name', 'last_name', 'email'],
-          include: [{
-            model: Engineer,
-            as: 'engineer',
-          }]
-        }
+          as: "applicant",
+          attributes: ["first_name", "last_name", "email"],
+          include: [{ model: Engineer, as: "engineer" }],
+        },
       ],
       ...pagination,
-      order: [['applied_at', 'DESC']],
-      distinct: true
+      order: [["applied_at", "DESC"]],
+      distinct: true,
     });
+
+    // 🔹 Attach cv_url (same logic as getJobApplicants)
+    const applicationsWithCv = await Promise.all(
+      applications.rows.map(async (app) => {
+        const data = app.toJSON();
+
+        const engineer = data?.applicant?.engineer;
+        if (engineer) {
+          if (engineer.cv_object_name) {
+            try {
+              engineer.cv_url = await getV4ReadSignedUrl(
+                engineer.cv_object_name,
+                SIGNED_URL_TTL_SECONDS
+              );
+            } catch (err) {
+              engineer.cv_url = null;
+            }
+          } else {
+            engineer.cv_url = null;
+          }
+        }
+
+        return data;
+      })
+    );
 
     res.json({
       success: true,
       data: {
-        applications: applications.rows,
+        applications: applicationsWithCv,
         pagination: {
           currentPage: page ? parseInt(page) : undefined,
-          totalPages: limit ? Math.ceil(applications.count / parseInt(limit)) : undefined,
+          totalPages: limit
+            ? Math.ceil(applications.count / parseInt(limit))
+            : undefined,
           totalItems: applications.count,
-          itemsPerPage: limit ? parseInt(limit) : undefined
-        }
-      }
+          itemsPerPage: limit ? parseInt(limit) : undefined,
+        },
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get applications',
-      error: error.message
+      message: "Failed to get applications",
+      error: error.message,
     });
   }
 };
@@ -98,11 +111,6 @@ const getApplicationById = async (req, res) => {
             model: User,
             as: 'poster',
             attributes: ['first_name', 'last_name', 'email'],
-            // include: [{
-            //   model: ProjectManager,
-            //   as: 'project_manager',
-            //   attributes: ['company']
-            // }]
           }]
         },
         {

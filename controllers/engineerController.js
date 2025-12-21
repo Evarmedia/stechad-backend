@@ -428,11 +428,11 @@ const getDashboard = async (req, res) => {
 // Update engineer profile (multipart/form-data)
 const updateProfile = async (req, res) => {
   try {
-    console.log("📝 [updateProfile] Starting profile update");
-    console.log("📝 [updateProfile] req.user:", { user_id: req.user.user_id, role: req.user.role });
-    console.log("📝 [updateProfile] req.body keys:", Object.keys(req.body));
-    console.log("📝 [updateProfile] req.files:", req.files ? Object.keys(req.files) : "none");
-    console.log("📝 [updateProfile] req.file:", req.file ? `${req.file.fieldname} - ${req.file.size} bytes` : "none");
+    // console.log("📝 [updateProfile] Starting profile update");
+    // console.log("📝 [updateProfile] req.user:", { user_id: req.user.user_id, role: req.user.role });
+    // console.log("📝 [updateProfile] req.body keys:", Object.keys(req.body));
+    // console.log("📝 [updateProfile] req.files:", req.files ? Object.keys(req.files) : "none");
+    // console.log("📝 [updateProfile] req.file:", req.file ? `${req.file.fieldname} - ${req.file.size} bytes` : "none");
 
     const engineer = await Engineer.findOne({
       where: { user_id: req.user.user_id },
@@ -446,14 +446,14 @@ const updateProfile = async (req, res) => {
         .json({ success: false, message: "Engineer profile not found" });
     }
 
-    console.log("✅ [updateProfile] Engineer found, id:", engineer.id);
+    // console.log("✅ [updateProfile] Engineer found, id:", engineer.engineers_id);
 
     // Keep old object names so we can delete after successful update
     const oldAvatarObjectName = engineer.user?.avatar_object_name || null;
     const oldCvObjectName = engineer?.cv_object_name || null;
 
-    console.log("📝 [updateProfile] Old avatar:", oldAvatarObjectName);
-    console.log("📝 [updateProfile] Old CV:", oldCvObjectName);
+    // console.log("📝 [updateProfile] Old avatar:", oldAvatarObjectName);
+    // console.log("📝 [updateProfile] Old CV:", oldCvObjectName);
 
     const {
       date_of_birth,
@@ -475,95 +475,95 @@ const updateProfile = async (req, res) => {
     // ---- file uploads (optional) ----
     // Expecting route to use upload.fields([{name:'avatar'},{name:'cv_file'}])
     if (req.files?.avatar?.[0]) {
-      console.log("📁 [updateProfile] Avatar file detected, uploading to GCP...");
+      // console.log("📁 [updateProfile] Avatar file detected, uploading to GCP...");
       const { objectName } = await uploadToGCP(
         req.files.avatar[0],
         req.user.user_id,
         "profile-images"
       );
-      console.log("✅ [updateProfile] Avatar uploaded:", objectName);
+      // console.log("✅ [updateProfile] Avatar uploaded:", objectName);
       userUpdates.avatar_object_name = objectName;
     } else if (req.file && req.file.fieldname === "avatar") {
-      console.log("📁 [updateProfile] Avatar file (single) detected, uploading to GCP...");
+      // console.log("📁 [updateProfile] Avatar file (single) detected, uploading to GCP...");
       const { objectName } = await uploadToGCP(
         req.file,
         req.user.user_id,
         "profile-images"
       );
-      console.log("✅ [updateProfile] Avatar uploaded:", objectName);
+      // console.log("✅ [updateProfile] Avatar uploaded:", objectName);
       userUpdates.avatar_object_name = objectName;
     }
 
     if (req.files?.cv_file?.[0]) {
-      console.log("📁 [updateProfile] CV file detected, uploading to GCP...");
+      // console.log("📁 [updateProfile] CV file detected, uploading to GCP...");
       const { objectName } = await uploadToGCP(
         req.files.cv_file[0],
         req.user.user_id,
         "resumes"
       );
-      console.log("✅ [updateProfile] CV uploaded:", objectName);
+      // console.log("✅ [updateProfile] CV uploaded:", objectName);
       engineerUpdates.cv_object_name = objectName;
     }
 
     // ---- engineer fields ----
     if (date_of_birth !== undefined) {
-      console.log("📝 [updateProfile] Updating date_of_birth:", date_of_birth);
+      // console.log("📝 [updateProfile] Updating date_of_birth:", date_of_birth);
       engineerUpdates.date_of_birth = date_of_birth;
     }
     const yoe = toInt(years_of_experience);
     if (yoe !== undefined) {
-      console.log("📝 [updateProfile] Updating years_of_experience:", yoe);
+      // console.log("📝 [updateProfile] Updating years_of_experience:", yoe);
       engineerUpdates.years_of_experience = yoe;
     }
 
     const projTypes = toTextArray(project_types);
     if (projTypes !== undefined) {
-      console.log("📝 [updateProfile] Updating project_types:", projTypes);
+      // console.log("📝 [updateProfile] Updating project_types:", projTypes);
       engineerUpdates.project_types = projTypes;
     }
 
     if (availability !== undefined) {
-      console.log("📝 [updateProfile] Updating availability:", availability);
+      // console.log("📝 [updateProfile] Updating availability:", availability);
       engineerUpdates.availability = availability;
     }
     const specArr = toTextArray(specialization);
     if (specArr !== undefined) {
-      console.log("📝 [updateProfile] Updating specialization:", specArr);
+      // console.log("📝 [updateProfile] Updating specialization:", specArr);
       engineerUpdates.specialization = specArr;
     }
     if (skill_level !== undefined) {
-      console.log("📝 [updateProfile] Updating skill_level:", skill_level);
+      // console.log("📝 [updateProfile] Updating skill_level:", skill_level);
       engineerUpdates.skill_level = skill_level;
     }
 
     // ---- user fields ----
     if (first_name !== undefined) {
-      console.log("📝 [updateProfile] Updating first_name:", first_name);
+      // console.log("📝 [updateProfile] Updating first_name:", first_name);
       userUpdates.first_name = first_name;
     }
     if (last_name !== undefined) {
-      console.log("📝 [updateProfile] Updating last_name:", last_name);
+      // console.log("📝 [updateProfile] Updating last_name:", last_name);
       userUpdates.last_name = last_name;
     }
     if (phone_number !== undefined) {
-      console.log("📝 [updateProfile] Updating phone_number:", phone_number);
+      // console.log("📝 [updateProfile] Updating phone_number:", phone_number);
       userUpdates.phone_number = phone_number;
     }
     if (city !== undefined) {
-      console.log("📝 [updateProfile] Updating city:", city);
+      // console.log("📝 [updateProfile] Updating city:", city);
       userUpdates.city = city;
     }
     if (country !== undefined) {
-      console.log("📝 [updateProfile] Updating country:", country);
+      // console.log("📝 [updateProfile] Updating country:", country);
       userUpdates.country = country;
     }
 
     // Persist updates
-    console.log("📝 [updateProfile] Applying engineer updates:", Object.keys(engineerUpdates));
+    // console.log("📝 [updateProfile] Applying engineer updates:", Object.keys(engineerUpdates));
     if (Object.keys(engineerUpdates).length)
       await engineer.update(engineerUpdates);
 
-    console.log("📝 [updateProfile] Applying user updates:", Object.keys(userUpdates));
+    // console.log("📝 [updateProfile] Applying user updates:", Object.keys(userUpdates));
     if (Object.keys(userUpdates).length)
       await engineer.user.update(userUpdates);
 
@@ -574,21 +574,21 @@ const updateProfile = async (req, res) => {
       oldAvatarObjectName !== engineer.user.avatar_object_name
     ) {
       try {
-        console.log("🗑️ [updateProfile] Deleting old avatar:", oldAvatarObjectName);
+        // console.log("🗑️ [updateProfile] Deleting old avatar:", oldAvatarObjectName);
         await deleteFromGCP(oldAvatarObjectName);
-        console.log("✅ [updateProfile] Old avatar deleted");
+        // console.log("✅ [updateProfile] Old avatar deleted");
       } catch (e) {
-        console.warn("⚠️ [updateProfile] Old avatar delete failed:", e?.message || e);
+        // console.warn("⚠️ [updateProfile] Old avatar delete failed:", e?.message || e);
       }
     } else if (req.file && req.file.fieldname === "avatar") {
       try {
         if (oldAvatarObjectName && oldAvatarObjectName !== engineer.user.avatar_object_name) {
-          console.log("🗑️ [updateProfile] Deleting old avatar (single file):", oldAvatarObjectName);
+          // console.log("🗑️ [updateProfile] Deleting old avatar (single file):", oldAvatarObjectName);
           await deleteFromGCP(oldAvatarObjectName);
-          console.log("✅ [updateProfile] Old avatar deleted");
+          // console.log("✅ [updateProfile] Old avatar deleted");
         }
       } catch (e) {
-        console.warn("⚠️ [updateProfile] Old avatar delete failed:", e?.message || e);
+        // console.warn("⚠️ [updateProfile] Old avatar delete failed:", e?.message || e);
       }
     }
 
@@ -598,9 +598,9 @@ const updateProfile = async (req, res) => {
       oldCvObjectName !== engineer.cv_object_name
     ) {
       try {
-        console.log("🗑️ [updateProfile] Deleting old CV:", oldCvObjectName);
+        // console.log("🗑️ [updateProfile] Deleting old CV:", oldCvObjectName);
         await deleteFromGCP(oldCvObjectName);
-        console.log("✅ [updateProfile] Old CV deleted");
+        // console.log("✅ [updateProfile] Old CV deleted");
       } catch (e) {
         console.warn("⚠️ [updateProfile] Old CV delete failed:", e?.message || e);
       }
@@ -612,7 +612,7 @@ const updateProfile = async (req, res) => {
       include: [{ model: User, as: "user" }],
     });
 
-    console.log("📝 [updateProfile] Re-fetching fresh engineer data");
+    // console.log("📝 [updateProfile] Re-fetching fresh engineer data");
 
     // Get full user with all associations
     const userWithAssociations = await User.findByPk(req.user.user_id, {
@@ -643,7 +643,7 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ [updateProfile] Error:", error.message);
-    console.error("❌ [updateProfile] Error stack:", error.stack);
+    // console.error("❌ [updateProfile] Error stack:", error.stack);
     return res.status(500).json({
       success: false,
       message: "Profile update failed",
