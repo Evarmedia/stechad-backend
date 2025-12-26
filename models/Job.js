@@ -13,7 +13,7 @@ Job.init(
     },
     posted_by: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: User,
         key: 'user_id',

@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS projects (
     -- Project Information
     title TEXT NOT NULL,
     description TEXT,
-    job_id UUID REFERENCES jobs (jobs_id) ON DELETE SET NULL ON UPDATE CASCADE,
+    -- job_id UUID REFERENCES jobs (jobs_id) ON DELETE SET NULL ON UPDATE CASCADE,
     engineer_user_id UUID REFERENCES users (user_id) ON DELETE SET NULL ON UPDATE CASCADE,
     status TEXT DEFAULT 'planning' CHECK(status IN ('planning', 'in_progress', 'completed', 'on_hold', 'cancelled')),
     priority TEXT DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low', 'critical')),

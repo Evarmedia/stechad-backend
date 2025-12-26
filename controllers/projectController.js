@@ -5,83 +5,85 @@ const { createNotification } = require('../utils/notificationUtil');
 // Get all projects with filtering and pagination - list
 const getProjects = async (req, res) => {
   try {
-    const {
-      page,
-      limit,
-      status,
-      priority,
-      project_manager_id,
-      engineer_id
-    } = req.query;
-    
+    const { page, limit, status, priority } = req.query;
+    const { user_id, role } = req.user; // 🔐 from auth middleware
+
     let where = {};
 
-    // Apply filters
+    /* ===============================
+       ROLE-BASED ACCESS CONTROL
+       =============================== */
+    if (role === "project_manager") {
+      // Project managers can only see their own projects
+      where.project_managers_user_id = user_id;
+    }
+    // Admin sees all → no restriction
+
+    /* ===============================
+       OPTIONAL FILTERS
+       =============================== */
     if (status) {
       where.status = status;
     }
-    
+
     if (priority) {
       where.priority = priority;
     }
-    
-    if (project_manager_id) {
-      where.project_managers_user_id = project_manager_id;
-    }
-    
-    if (engineer_id) {
-      where.engineer_user_id = engineer_id;
-    }
 
-    const pagination = {
-      limit: limit ? parseInt(limit) : undefined,
-      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
-    };
+    /* ===============================
+       PAGINATION (optional)
+       =============================== */
+    const pagination = {};
+    if (page && limit) {
+      pagination.limit = parseInt(limit);
+      pagination.offset = (parseInt(page) - 1) * parseInt(limit);
+    }
 
     const projects = await Project.findAndCountAll({
-      where: Object.keys(where).length > 0 ? where : undefined,
+      where,
       include: [
         {
           model: User,
-          as: 'engineer',
-          attributes: ['first_name', 'last_name', 'email'],
-          include: [{
-            model: Engineer,
-            as: 'engineer',
-            attributes: ['specialization', 'years_of_experience']
-          }]
+          as: "engineer",
+          attributes: ["first_name", "last_name", "email"],
+          include: [
+            {
+              model: Engineer,
+              as: "engineer",
+              attributes: ["specialization", "years_of_experience"],
+            },
+          ],
         },
-        {
-          model: Job,
-          as: 'job',
-          attributes: ['title', 'company']
-        }
       ],
+      order: [["created_at", "DESC"]],
+      distinct: true,
       ...pagination,
-      order: [['created_at', 'DESC']],
-      distinct: true
     });
 
     res.json({
       success: true,
       data: {
         projects: projects.rows,
-        pagination: {
-          currentPage: page ? parseInt(page) : undefined,
-          totalPages: limit ? Math.ceil(projects.count / parseInt(limit)) : undefined,
-          totalItems: projects.count,
-          itemsPerPage: limit ? parseInt(limit) : undefined
-        }
-      }
+        pagination:
+          page && limit
+            ? {
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(projects.count / parseInt(limit)),
+                totalItems: projects.count,
+                itemsPerPage: parseInt(limit),
+              }
+            : undefined,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get projects',
-      error: error.message
+      message: "Failed to get projects",
+      error: error.message,
     });
   }
 };
+
 
 // Get project by ID
 const getProjectById = async (req, res) => {
@@ -100,20 +102,6 @@ const getProjectById = async (req, res) => {
             as: 'engineer'
           }]
         },
-        {
-          model: Job,
-          as: 'job',
-          include: [{
-            model: User,
-            as: 'poster',
-            attributes: ['first_name', 'last_name'],
-            include: [{
-              model: ProjectManager,
-              as: 'project_manager',
-              attributes: ['company']
-            }]
-          }]
-        }
       ]
     });
 
@@ -170,7 +158,6 @@ const createProject = async (req, res) => {
       project_managers_id: manager.project_managers_id,
       title,
       description,
-      job_id,
       engineer_user_id,
       status,
       priority,

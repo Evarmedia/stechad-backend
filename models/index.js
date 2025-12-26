@@ -53,8 +53,8 @@ ProjectManager.hasMany(Project, { foreignKey: 'project_managers_id', as: 'pm_pro
 Project.belongsTo(ProjectManager, { foreignKey: 'project_managers_id', as: 'project_manager' });
 
 // Job - Project (One-to-Many)
-Job.hasMany(Project, { foreignKey: 'job_id', as: 'projects', onDelete: 'SET NULL', onUpdate: 'CASCADE' });
-Project.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
+// Job.hasMany(Project, { foreignKey: 'job_id', as: 'projects', onDelete: 'SET NULL', onUpdate: 'CASCADE' });
+// Project.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
 
 // job - ProjectManager (Many-to-One)
 // Job.belongsTo(ProjectManager, {

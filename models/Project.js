@@ -28,20 +28,20 @@ Project.init(
     description: {
       type: DataTypes.TEXT,
     },
-    job_id: {
-      type: DataTypes.UUID,
-      references: {
-        model: Job,
-        key: 'jobs_id',
-      },
-    },
-    engineer_user_id: {
-      type: DataTypes.UUID,
-      references: {
-        model: User,
-        key: 'user_id',
-      },
-    },
+    // job_id: {
+    //   type: DataTypes.UUID,
+    //   references: {
+    //     model: Job,
+    //     key: 'jobs_id',
+    //   },
+    // },
+    // engineer_user_id: {
+    //   type: DataTypes.UUID,
+    //   references: {
+    //     model: User,
+    //     key: 'user_id',
+    //   },
+    // },
     status: {
       type: DataTypes.ENUM('planning', 'in_progress', 'completed', 'on_hold', 'cancelled'),
       defaultValue: 'planning',
