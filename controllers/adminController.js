@@ -31,16 +31,23 @@ const getDashboard = async (req, res) => {
     const totalProjects = await Project.count();
 
     // Get recent activity
-    const recentUsers = await User.findAll({
+    const recentEngineers = await Engineer.findAll({
       limit: 5,
       order: [["created_at", "DESC"]],
-      attributes: [
-        "user_id",
-        "first_name",
-        "last_name",
-        "email",
-        "role",
-        "created_at",
+      // attributes: [
+      //   "user_id",
+      //   "first_name",
+      //   "last_name",
+      //   "email",
+      //   "role",
+      //   "created_at",
+      // ],
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["first_name", "last_name", "role", "country"],
+        },
       ],
     });
 
@@ -54,6 +61,11 @@ const getDashboard = async (req, res) => {
           attributes: ["first_name", "last_name", "role"],
         },
       ],
+    });
+
+    const recentProjects = await Project.findAll({
+      limit: 3,
+      order: [["created_at", "DESC"]],
     });
 
     // Get growth metrics (last 30 days)
@@ -79,8 +91,9 @@ const getDashboard = async (req, res) => {
         newJobsThisMonth,
       },
       recentActivity: {
-        recentUsers,
+        recentEngineers,
         recentJobs,
+        recentProjects,
       },
     };
 
@@ -279,9 +292,7 @@ const updateProfile = async (req, res) => {
 
     // Get full user with all associations
     const userWithAssociations = await User.findByPk(req.user.user_id, {
-      include: [
-        { model: Admin, as: 'admin' },
-      ],
+      include: [{ model: Admin, as: "admin" }],
     });
 
     // Format user response with signed URLs
@@ -303,13 +314,11 @@ const updateProfile = async (req, res) => {
       },
     });
   } catch (error) {
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Profile update failed",
-        error: error.message,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Profile update failed",
+      error: error.message,
+    });
   }
 };
 
@@ -481,30 +490,66 @@ const getProjectManagers = async (req, res) => {
 
     const pagination = {
       limit: limit ? parseInt(limit) : undefined,
-      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+      offset:
+        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
     const projectManagers = await ProjectManager.findAndCountAll({
-      where: Object.keys(where).length > 0 ? where : undefined,
-      include: [{ model: User, as: "user" }],
+      where: Object.keys(where).length ? where : undefined,
+
+      include: [
+        {
+          model: User,
+          as: "user",
+        },
+        {
+          model: Project,
+          as: "pm_projects",
+          required: false, // LEFT JOIN stays intact
+          on: {
+            [Op.or]: [
+              // PM-owned projects
+              {
+                project_managers_id: {
+                  [Op.col]: "ProjectManager.project_managers_id",
+                },
+              },
+              // Unassigned projects
+              { project_managers_id: null },
+            ],
+          },
+        },
+      ],
+
       ...pagination,
+      distinct: true,
       order: [["created_at", "DESC"]],
     });
 
-    res.json({
+    const transformedPMs = projectManagers.rows.map((pm) => {
+      const pmJson = pm.toJSON();
+
+      pmJson.pm_projects = (pmJson.pm_projects || []).map((p) => ({
+        ...p,
+        is_unassigned: p.project_managers_id === null,
+      }));
+
+      return pmJson;
+    });
+
+    return res.json({
       success: true,
       data: {
-        projectManagers: projectManagers.rows,
+        projectManagers: transformedPMs,
         pagination: {
-          currentPage: page ? parseInt(page) : undefined,
-          totalPages: limit ? Math.ceil(projectManagers.count / parseInt(limit)) : undefined,
           totalItems: projectManagers.count,
-          itemsPerPage: limit ? parseInt(limit) : undefined,
         },
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get project managers:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get project managers",
       error: error.message,
@@ -531,13 +576,22 @@ const inviteProjectManager = async (req, res) => {
         message: "User already exists with this email, Please Login",
       });
     }
+    const existingInvite = await Invite.findOne({
+      where: { email, status: "pending" },
+    });
+    if (existingInvite) {
+      return res.status(400).json({
+        success: false,
+        message: "An invitation has already been sent to this email.",
+      });
+    }
 
     // Create invited user
     const invitedUser = await Invite.create({
       email,
       temp_password: tempPassword, // set to temp_password Later
       role: role,
-      first_name,
+      // first_name,
       token,
       invited_by_user_id: req.user.user_id,
       sent_at: new Date(),
@@ -568,6 +622,7 @@ const inviteProjectManager = async (req, res) => {
       message: "Project manager invited successfully",
     });
   } catch (error) {
+    console.log(error);
     res.status(500).json({
       success: false,
       message: "Failed to invite project manager",
@@ -826,4 +881,5 @@ module.exports = {
   getEngineerVetting,
   getSettings,
   updateSettings,
+  // getPmsProjectById,
 };

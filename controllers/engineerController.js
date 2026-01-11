@@ -24,10 +24,10 @@ const completeOnboarding = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "User not found",
-      })
+      });
     }
     // console.log('  ✓ User found:', user.user_id, user.email);
-    
+
     const engineer = await Engineer.findOne({
       where: { user_id: req.user.user_id },
     });
@@ -48,16 +48,20 @@ const completeOnboarding = async (req, res) => {
     // --- 2. Upload CV file if provided ---
     // console.log('🟢 [BACKEND] ========== STEP 2: Processing file upload ==========');
     if (req.file) {
-      console.log('  ℹ️  CV file received:', req.file.originalname, '(' + req.file.size + ' bytes)');
+      console.log(
+        "  ℹ️  CV file received:",
+        req.file.originalname,
+        "(" + req.file.size + " bytes)"
+      );
       const { objectName } = await uploadToGCP(
         req.file,
         req.user.user_id,
         "resumes"
       );
       newCvObjectName = objectName;
-      console.log('  ✓ CV uploaded to GCP:', newCvObjectName);
+      console.log("  ✓ CV uploaded to GCP:", newCvObjectName);
     } else {
-      console.log('  ℹ️  No CV file provided in request');
+      console.log("  ℹ️  No CV file provided in request");
     }
 
     // --- 3. Extract form fields ---
@@ -88,7 +92,7 @@ const completeOnboarding = async (req, res) => {
       newsletter,
       special_preferences,
     } = req.body;
-    
+
     // console.log('  📥 Received from FormData:');
     // console.log('    - language_proficiency (raw):', language_proficiency);
     // console.log('    - skill_level (raw):', skill_level);
@@ -99,17 +103,17 @@ const completeOnboarding = async (req, res) => {
     // console.log('🟢 [BACKEND] ========== STEP 4: Preparing engineer updates ==========');
     try {
       // 🔴 CRITICAL: Convert ENUM values to lowercase for PostgreSQL
-      const processedLanguageProficiency = language_proficiency 
-        ? language_proficiency.toLowerCase() 
+      const processedLanguageProficiency = language_proficiency
+        ? language_proficiency.toLowerCase()
         : null;
-      const processedSkillLevel = skill_level 
-        ? skill_level.toLowerCase() 
+      const processedSkillLevel = skill_level
+        ? skill_level.toLowerCase()
         : null;
-      
+
       // console.log('  🔄 ENUM Conversions:');
       // console.log('    - language_proficiency: "' + language_proficiency + '" → "' + processedLanguageProficiency + '"');
       // console.log('    - skill_level: "' + skill_level + '" → "' + processedSkillLevel + '"');
-      
+
       const engineerUpdates = {
         date_of_birth: date_of_birth || null,
         open_to_nearby_cities: toBool(open_to_nearby_cities),
@@ -134,7 +138,7 @@ const completeOnboarding = async (req, res) => {
         onboarded_at: new Date(),
         ...(newCvObjectName && { cv_object_name: newCvObjectName }),
       };
-      
+
       // console.log('  📤 Prepared updates for Engineer:');
       // console.log('    - date_of_birth:', engineerUpdates.date_of_birth);
       // console.log('    - languages:', engineerUpdates.languages);
@@ -142,7 +146,7 @@ const completeOnboarding = async (req, res) => {
       // console.log('    - specialization:', engineerUpdates.specialization);
       // console.log('    - skill_level:', engineerUpdates.skill_level);
       // console.log('    - years_of_experience:', engineerUpdates.years_of_experience);
-      
+
       // console.log('  🔵 Executing engineer.update()...');
       await engineer.update(engineerUpdates);
       // console.log('  ✅ Engineer update successful');
@@ -152,7 +156,7 @@ const completeOnboarding = async (req, res) => {
       // console.error('  Error message:', engineerUpdateError.message);
       if (engineerUpdateError.parent) {
         // console.error('  Parent error:', engineerUpdateError.parent.message);
-        console.error('  SQL:', engineerUpdateError.sql);
+        console.error("  SQL:", engineerUpdateError.sql);
       }
       // console.error('  Full error:', engineerUpdateError);
       throw engineerUpdateError;
@@ -182,13 +186,13 @@ const completeOnboarding = async (req, res) => {
         userUpdates.country = country;
         // console.log('  ✓ Setting country:', country);
       }
-      
+
       if (Object.keys(userUpdates).length > 0) {
         // console.log('  🔵 Executing user.update()...');
         await user.update(userUpdates);
-        console.log('  ✅ User update successful');
+        console.log("  ✅ User update successful");
       } else {
-        console.log('  ℹ️  No user updates needed');
+        console.log("  ℹ️  No user updates needed");
       }
     } catch (userUpdateError) {
       // console.error('🔴 [BACKEND] ❌ User update FAILED:');
@@ -210,10 +214,15 @@ const completeOnboarding = async (req, res) => {
         await deleteFromGCP(oldCvObjectName);
         // console.log('  ✓ Old CV deleted successfully');
       } catch (err) {
-        console.warn('  ⚠️  Failed to delete old CV:', err?.message || err);
+        console.warn("  ⚠️  Failed to delete old CV:", err?.message || err);
       }
     } else {
-      console.log('  ℹ️  No old CV to delete (old:', oldCvObjectName, ', new:', newCvObjectName + ')');
+      console.log(
+        "  ℹ️  No old CV to delete (old:",
+        oldCvObjectName,
+        ", new:",
+        newCvObjectName + ")"
+      );
     }
 
     // --- 6. Generate signed URL for response (optional) ---
@@ -226,12 +235,10 @@ const completeOnboarding = async (req, res) => {
     }
 
     // console.log('🟢 [BACKEND] ========== STEP 8: Sending success response ==========');
-    
+
     // Reload user with all associations for complete data
     const userWithAssociations = await User.findByPk(req.user.user_id, {
-      include: [
-        { model: Engineer, as: 'engineer' },
-      ],
+      include: [{ model: Engineer, as: "engineer" }],
     });
 
     // Format user response with signed URLs
@@ -255,20 +262,20 @@ const completeOnboarding = async (req, res) => {
     // console.log('  ✅ Response sent successfully');
   } catch (error) {
     // console.error('🔴 [BACKEND] ❌ ========== ONBOARDING FAILED ==========');
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error code:', error.code);
-    
+    console.error("Error name:", error.name);
+    console.error("Error message:", error.message);
+    console.error("Error code:", error.code);
+
     if (error.parent) {
       // console.error('\n🔴 Database-level error:');
-      console.error('  Parent message:', error.parent.message);
-      console.error('  SQL:', error.sql);
-      console.error('  Parameters:', error.parameters);
+      console.error("  Parent message:", error.parent.message);
+      console.error("  SQL:", error.sql);
+      console.error("  Parameters:", error.parameters);
     }
-    
-    console.error('\nFull error object:', error);
-    console.error('Stack trace:', error?.stack);
-    
+
+    console.error("\nFull error object:", error);
+    console.error("Stack trace:", error?.stack);
+
     res.status(500).json({
       success: false,
       message: "Onboarding failed",
@@ -277,6 +284,7 @@ const completeOnboarding = async (req, res) => {
   }
 };
 
+// Get all engineers with pagination - list
 // Get all engineers with pagination - list
 const getEngineers = async (req, res) => {
   try {
@@ -296,6 +304,7 @@ const getEngineers = async (req, res) => {
         page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
+    // Fetch engineers with pagination and filtering
     const engineers = await Engineer.findAndCountAll({
       where: Object.keys(where).length > 0 ? where : undefined,
       include: [{ model: User, as: "user" }],
@@ -303,10 +312,22 @@ const getEngineers = async (req, res) => {
       order: [["created_at", "DESC"]],
     });
 
+    // Get signed URLs for CVs
+    const engineersWithCvUrl = await Promise.all(
+      engineers.rows.map(async (engineer) => {
+        // If there's a CV object name, generate the signed URL
+        if (engineer.cv_object_name) {
+          const cvUrl = await getV4ReadSignedUrl(engineer.cv_object_name);
+          return { ...engineer.dataValues, cv_url: cvUrl };
+        }
+        return engineer;
+      })
+    );
+
     res.json({
       success: true,
       data: {
-        engineers: engineers.rows,
+        engineers: engineersWithCvUrl, // Add CV URL to the engineer data
         pagination: {
           currentPage: page ? parseInt(page) : undefined,
           totalPages: limit
@@ -440,7 +461,10 @@ const updateProfile = async (req, res) => {
     });
 
     if (!engineer) {
-      console.warn("⚠️ [updateProfile] Engineer profile not found for user:", req.user.user_id);
+      console.warn(
+        "⚠️ [updateProfile] Engineer profile not found for user:",
+        req.user.user_id
+      );
       return res
         .status(404)
         .json({ success: false, message: "Engineer profile not found" });
@@ -582,7 +606,10 @@ const updateProfile = async (req, res) => {
       }
     } else if (req.file && req.file.fieldname === "avatar") {
       try {
-        if (oldAvatarObjectName && oldAvatarObjectName !== engineer.user.avatar_object_name) {
+        if (
+          oldAvatarObjectName &&
+          oldAvatarObjectName !== engineer.user.avatar_object_name
+        ) {
           // console.log("🗑️ [updateProfile] Deleting old avatar (single file):", oldAvatarObjectName);
           await deleteFromGCP(oldAvatarObjectName);
           // console.log("✅ [updateProfile] Old avatar deleted");
@@ -602,7 +629,10 @@ const updateProfile = async (req, res) => {
         await deleteFromGCP(oldCvObjectName);
         // console.log("✅ [updateProfile] Old CV deleted");
       } catch (e) {
-        console.warn("⚠️ [updateProfile] Old CV delete failed:", e?.message || e);
+        console.warn(
+          "⚠️ [updateProfile] Old CV delete failed:",
+          e?.message || e
+        );
       }
     }
 
@@ -616,9 +646,7 @@ const updateProfile = async (req, res) => {
 
     // Get full user with all associations
     const userWithAssociations = await User.findByPk(req.user.user_id, {
-      include: [
-        { model: Engineer, as: 'engineer' },
-      ],
+      include: [{ model: Engineer, as: "engineer" }],
     });
 
     // Format user response with signed URLs

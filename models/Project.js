@@ -13,13 +13,17 @@ Project.init(
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
     },
-    project_managers_user_id: {
+    // project_managers_user_id: {
+    //   type: DataTypes.UUID,
+    //   allowNull: true,
+    //   references: {
+    //     model: ProjectManager,
+    //     key: 'user_id',
+    //   },
+    // },
+    project_managers_id: {
       type: DataTypes.UUID,
-      allowNull: false,
-      references: {
-        model: ProjectManager,
-        key: 'user_id',
-      },
+      allowNull: true,
     },
     title: {
       type: DataTypes.TEXT,
@@ -43,12 +47,18 @@ Project.init(
     //   },
     // },
     status: {
-      type: DataTypes.ENUM('planning', 'in_progress', 'completed', 'on_hold', 'cancelled'),
-      defaultValue: 'planning',
+      type: DataTypes.ENUM(
+        "planning",
+        "in_progress",
+        "completed",
+        "on_hold",
+        "cancelled"
+      ),
+      defaultValue: "planning",
     },
     priority: {
-      type: DataTypes.ENUM('high', 'medium', 'low', 'critical'),
-      defaultValue: 'medium',
+      type: DataTypes.ENUM("high", "medium", "low", "critical"),
+      defaultValue: "medium",
     },
     progress: {
       type: DataTypes.INTEGER,
@@ -89,8 +99,8 @@ Project.init(
     modelName: "Project",
     tableName: "projects",
     timestamps: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   }
 );
 

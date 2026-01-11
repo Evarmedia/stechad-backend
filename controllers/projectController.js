@@ -1,6 +1,6 @@
-const { Project, User, Job, ProjectManager, Engineer } = require('../models');
-const { Op } = require('sequelize');
-const { createNotification } = require('../utils/notificationUtil');
+const { Project, User, Job, ProjectManager, Engineer } = require("../models");
+const { Op } = require("sequelize");
+const { createNotification } = require("../utils/notificationUtil");
 
 // Get all projects with filtering and pagination - list
 const getProjects = async (req, res) => {
@@ -84,7 +84,6 @@ const getProjects = async (req, res) => {
   }
 };
 
-
 // Get project by ID
 const getProjectById = async (req, res) => {
   try {
@@ -95,32 +94,34 @@ const getProjectById = async (req, res) => {
       include: [
         {
           model: User,
-          as: 'engineer',
-          attributes: ['first_name', 'last_name', 'email', 'phone_number'],
-          include: [{
-            model: Engineer,
-            as: 'engineer'
-          }]
+          as: "engineer",
+          attributes: ["first_name", "last_name", "email", "phone_number"],
+          include: [
+            {
+              model: Engineer,
+              as: "engineer",
+            },
+          ],
         },
-      ]
+      ],
     });
 
     if (!project) {
       return res.status(404).json({
         success: false,
-        message: 'Project not found'
+        message: "Project not found",
       });
     }
 
     res.json({
       success: true,
-      data: project
+      data: project,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get project details',
-      error: error.message
+      message: "Failed to get project details",
+      error: error.message,
     });
   }
 };
@@ -133,14 +134,14 @@ const createProject = async (req, res) => {
       description,
       engineer_user_id,
       job_id,
-      status = 'planning',
-      priority = 'medium',
+      status = "planning",
+      priority = "medium",
       progress = 0,
       team = [],
       tasks = [],
       start_date,
       deadline,
-      feedback
+      feedback,
     } = req.body;
 
     // Verify job exists if provided
@@ -151,7 +152,9 @@ const createProject = async (req, res) => {
     //   }
     // }
 
-    const manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id }})
+    const manager = await ProjectManager.findOne({
+      where: { user_id: req.user.user_id },
+    });
 
     const project = await Project.create({
       project_managers_user_id: req.user.user_id,
@@ -166,7 +169,7 @@ const createProject = async (req, res) => {
       tasks,
       start_date,
       deadline,
-      feedback
+      feedback,
     });
 
     // Create notification for assigned engineer
@@ -186,14 +189,14 @@ const createProject = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Project created successfully',
-      data: project
+      message: "Project created successfully",
+      data: project,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Project creation failed',
-      error: error.message
+      message: "Project creation failed",
+      error: error.message,
     });
   }
 };
@@ -206,25 +209,30 @@ const updateProject = async (req, res) => {
 
     const project = await Project.findOne({
       where: { projects_id },
-      include: [{
-        model: User,
-        as: 'engineer',
-        attributes: ['first_name', 'last_name']
-      }]
+      include: [
+        {
+          model: User,
+          as: "engineer",
+          attributes: ["first_name", "last_name"],
+        },
+      ],
     });
 
     if (!project) {
       return res.status(404).json({
         success: false,
-        message: 'Project not found'
+        message: "Project not found",
       });
     }
 
     // Check permissions
-    if (req.user.role === 'project_manager' && project.project_managers_user_id !== req.user.user_id) {
+    if (
+      req.user.role === "project_manager" &&
+      project.project_managers_user_id !== req.user.user_id
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to update this project'
+        message: "Not authorized to update this project",
       });
     }
 
@@ -238,43 +246,47 @@ const updateProject = async (req, res) => {
       if (oldStatus !== updates.status && updates.status) {
         await createNotification({
           user_id: project.engineer_user_id,
-          title: 'Project Status Updated',
+          title: "Project Status Updated",
           message: `Project "${project.title}" status changed to ${updates.status}`,
-          type: 'info',
+          type: "info",
           action_url: `/projects/${projects_id}`,
           metadata: {
             project_id: projects_id,
             old_status: oldStatus,
-            new_status: updates.status
-          }
+            new_status: updates.status,
+          },
         });
       }
 
-      if (updates.progress && updates.progress !== oldProgress && updates.progress % 25 === 0) {
+      if (
+        updates.progress &&
+        updates.progress !== oldProgress &&
+        updates.progress % 25 === 0
+      ) {
         await createNotification({
           user_id: project.engineer_user_id,
-          title: 'Project Milestone',
+          title: "Project Milestone",
           message: `Project "${project.title}" is now ${updates.progress}% complete`,
-          type: 'success',
+          type: "success",
           action_url: `/projects/${projects_id}`,
           metadata: {
             project_id: projects_id,
-            progress: updates.progress
-          }
+            progress: updates.progress,
+          },
         });
       }
     }
 
     res.json({
       success: true,
-      message: 'Project updated successfully',
-      data: project
+      message: "Project updated successfully",
+      data: project,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Project update failed',
-      error: error.message
+      message: "Project update failed",
+      error: error.message,
     });
   }
 };
@@ -288,23 +300,26 @@ const deleteProject = async (req, res) => {
     if (!project) {
       return res.status(404).json({
         success: false,
-        message: 'Project not found'
+        message: "Project not found",
       });
     }
 
     // Check permissions
-    if (req.user.role === 'project_manager' && project.project_managers_user_id !== req.user.user_id) {
+    if (
+      req.user.role === "project_manager" &&
+      project.project_managers_user_id !== req.user.user_id
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to delete this project'
+        message: "Not authorized to delete this project",
       });
     }
 
     // Only allow deletion if project is in planning or cancelled status
-    if (!['planning', 'cancelled'].includes(project.status)) {
+    if (!["planning", "cancelled"].includes(project.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete project that is in progress or completed'
+        message: "Cannot delete project that is in progress or completed",
       });
     }
 
@@ -312,13 +327,13 @@ const deleteProject = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Project deleted successfully'
+      message: "Project deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Project deletion failed',
-      error: error.message
+      message: "Project deletion failed",
+      error: error.message,
     });
   }
 };
@@ -327,38 +342,57 @@ const deleteProject = async (req, res) => {
 const getProjectStats = async (req, res) => {
   try {
     const totalProjects = await Project.count();
-    const planningProjects = await Project.count({ where: { status: 'planning' } });
-    const inProgressProjects = await Project.count({ where: { status: 'in_progress' } });
-    const completedProjects = await Project.count({ where: { status: 'completed' } });
-    const onHoldProjects = await Project.count({ where: { status: 'on_hold' } });
-    const cancelledProjects = await Project.count({ where: { status: 'cancelled' } });
+    const planningProjects = await Project.count({
+      where: { status: "planning" },
+    });
+    const inProgressProjects = await Project.count({
+      where: { status: "in_progress" },
+    });
+    const completedProjects = await Project.count({
+      where: { status: "completed" },
+    });
+    const onHoldProjects = await Project.count({
+      where: { status: "on_hold" },
+    });
+    const cancelledProjects = await Project.count({
+      where: { status: "cancelled" },
+    });
 
     // Get projects by status
     const statusStats = await Project.findAll({
       attributes: [
-        'status',
-        [Project.sequelize.fn('COUNT', Project.sequelize.col('status')), 'count']
+        "status",
+        [
+          Project.sequelize.fn("COUNT", Project.sequelize.col("status")),
+          "count",
+        ],
       ],
-      group: ['status'],
-      raw: true
+      group: ["status"],
+      raw: true,
     });
 
     // Get projects by priority
     const priorityStats = await Project.findAll({
       attributes: [
-        'priority',
-        [Project.sequelize.fn('COUNT', Project.sequelize.col('priority')), 'count']
+        "priority",
+        [
+          Project.sequelize.fn("COUNT", Project.sequelize.col("priority")),
+          "count",
+        ],
       ],
-      group: ['priority'],
-      raw: true
+      group: ["priority"],
+      raw: true,
     });
 
     // Get average progress
     const avgProgress = await Project.findOne({
       attributes: [
-        [Project.sequelize.fn('AVG', Project.sequelize.col('progress')), 'average_progress']
+        [
+          Project.sequelize.fn("AVG", Project.sequelize.col("progress")),
+          "average_progress",
+        ],
       ],
-      raw: true
+      raw: true,
     });
 
     res.json({
@@ -371,17 +405,17 @@ const getProjectStats = async (req, res) => {
           completedProjects,
           onHoldProjects,
           cancelledProjects,
-          averageProgress: Math.round(avgProgress.average_progress || 0)
+          averageProgress: Math.round(avgProgress.average_progress || 0),
         },
         statusStats,
-        priorityStats
-      }
+        priorityStats,
+      },
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to get project statistics',
-      error: error.message
+      message: "Failed to get project statistics",
+      error: error.message,
     });
   }
 };
@@ -392,5 +426,5 @@ module.exports = {
   createProject,
   updateProject,
   deleteProject,
-  getProjectStats
+  getProjectStats,
 };

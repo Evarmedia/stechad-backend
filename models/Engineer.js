@@ -15,10 +15,6 @@ Engineer.init(
       type: DataTypes.UUID,
       allowNull: false,
       unique: true,
-      references: {
-        model: User,
-        key: 'user_id',
-      }
     },
     date_of_birth: {
       type: DataTypes.DATEONLY,
@@ -31,7 +27,7 @@ Engineer.init(
       defaultValue: [],
     },
     language_proficiency: {
-      type: DataTypes.ENUM('basic', 'conversational', 'fluent', 'native'),
+      type: DataTypes.ENUM("basic", "conversational", "fluent", "native"),
     },
     has_drivers_license: {
       type: DataTypes.BOOLEAN,
@@ -50,7 +46,7 @@ Engineer.init(
       defaultValue: [],
     },
     skill_level: {
-      type: DataTypes.ENUM('beginner', 'intermediate', 'advanced', 'expert'), //Change these
+      type: DataTypes.ENUM("beginner", "intermediate", "advanced", "expert"), //Change these
     },
     years_of_experience: {
       type: DataTypes.FLOAT,
@@ -92,19 +88,19 @@ Engineer.init(
       type: DataTypes.UUID,
       references: {
         model: User,
-        key: 'user_id',
-      }
+        key: "user_id",
+      },
     },
     vetted_at: {
       type: DataTypes.DATE,
     },
     availability: {
-      type: DataTypes.ENUM('available', 'busy', 'unavailable'),
-      defaultValue: 'available',
+      type: DataTypes.ENUM("available", "busy", "unavailable"),
+      defaultValue: "available",
     },
     status: {
-      type: DataTypes.ENUM('active', 'inactive', 'suspended'),
-      defaultValue: 'active',
+      type: DataTypes.ENUM("active", "inactive", "suspended"),
+      defaultValue: "active",
     },
     is_onboarded: {
       type: DataTypes.BOOLEAN,
@@ -119,8 +115,8 @@ Engineer.init(
     modelName: "Engineer",
     tableName: "engineers",
     timestamps: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   }
 );
 
