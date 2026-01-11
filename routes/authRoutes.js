@@ -14,7 +14,7 @@ const {
   verifyEmail,
   resetPassword,
   editPassword,
-  acceptInvites,
+  acceptInvite,
   getMe
 } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
@@ -608,7 +608,7 @@ router.post('/edit-password', authenticate, editPassword);
  *                   type: string
  *                   example: Failed to accept invite
  */
-router.post('/accept-invite/:token', acceptInvites);
+router.post('/accept-invite/:token', acceptInvite);
 
 // Protected routes
 /**

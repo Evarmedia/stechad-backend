@@ -4,6 +4,7 @@ const sendEmail = require("../utils/sendEmail");
 const { generateOTP, generateOTPExpiry } = require("../utils/otpGenerator");
 const path = require("path");
 const Sequelize = require("sequelize");
+const sequelize = require("../config/database");
 const {
   createReferral,
   validateReferralCode,
@@ -11,15 +12,16 @@ const {
 
 const { Op } = require("sequelize");
 
-const { getV4ReadSignedUrl } = require('../config/gcpStorage');
+const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const passport = require("passport");
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+
 
 // Optionally control TTL via env (days). Default: 7 days
 const SIGNED_URL_TTL_SECONDS =
   Number(process.env.GCS_SIGNED_URL_TTL_SECONDS) ||
-  (Number(process.env.GCS_SIGNED_URL_TTL_DAYS || 7) * 24 * 3600);
+  Number(process.env.GCS_SIGNED_URL_TTL_DAYS || 7) * 24 * 3600;
 
 // Helper function to format user response with signed URLs
 const formatUserResponse = async (user) => {
@@ -62,39 +64,42 @@ const formatUserResponse = async (user) => {
   return data;
 };
 
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: 'http://localhost:5000/api/auth/google/callback'
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    // profile contains user information from Google
-    try {
-      const { email, first_name, last_name, id } = profile._json;
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: "http://localhost:5000/api/auth/google/callback",
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      // profile contains user information from Google
+      try {
+        const { email, first_name, last_name, id } = profile._json;
 
-      // Check if the user exists in the database
-      let user = await User.findOne({ where: { email } });
-      
-      if (!user) {
-        // Create a new user if they don't exist
-        user = await User.create({
-          email,
-          first_name,
-          last_name,
-          role: 'engineer',  // default role or make it dynamic if needed
-        });
+        // Check if the user exists in the database
+        let user = await User.findOne({ where: { email } });
 
-        // Create role-specific record (for engineers)
-        await Engineer.create({ user_id: user.user_id });
+        if (!user) {
+          // Create a new user if they don't exist
+          user = await User.create({
+            email,
+            first_name,
+            last_name,
+            role: "engineer", // default role or make it dynamic if needed
+          });
+
+          // Create role-specific record (for engineers)
+          await Engineer.create({ user_id: user.user_id });
+        }
+
+        // Returning user object
+        done(null, user);
+      } catch (error) {
+        done(error, null);
       }
-
-      // Returning user object
-      done(null, user);
-    } catch (error) {
-      done(error, null);
     }
-  }
-));
+  )
+);
 
 // Serialize user
 // passport.serializeUser((user, done) => {
@@ -117,7 +122,7 @@ const signup = async (req, res) => {
       last_name,
       role,
       referral_code,
-      googleSignIn,  // Add this field to differentiate normal signup vs Google login
+      googleSignIn, // Add this field to differentiate normal signup vs Google login
     } = req.body;
 
     // If Google sign-in is used, skip password check (no password needed for Google sign-in)
@@ -129,11 +134,11 @@ const signup = async (req, res) => {
           message: "Passwords do not match",
         });
       }
-      if (!email || !password || !confirm_password){
+      if (!email || !password || !confirm_password) {
         return res.status(400).json({
           success: false,
-          message: "Please fill required fields"
-        })
+          message: "Please fill required fields",
+        });
       }
     }
 
@@ -182,11 +187,11 @@ const signup = async (req, res) => {
     // Create a new user record if Google sign-in is not used, or new user for Google login
     const user = await User.create({
       email,
-      password: googleSignIn ? null : password,  // Skip password if Google sign-in
-      confirm_password: googleSignIn ? null : confirm_password,  // Skip confirm password if Google sign-in
+      password: googleSignIn ? null : password, // Skip password if Google sign-in
+      confirm_password: googleSignIn ? null : confirm_password, // Skip confirm password if Google sign-in
       first_name,
       last_name,
-      role: googleSignIn ? 'engineer' : role,  // Default to 'engineer' role for Google users
+      role: googleSignIn ? "engineer" : role, // Default to 'engineer' role for Google users
     });
 
     // Create role-specific records based on the role provided (for normal signup or Google login)
@@ -219,7 +224,9 @@ const signup = async (req, res) => {
     // Respond with success message and user data + token (matching login format)
     res.status(201).json({
       success: true,
-      message: googleSignIn ? "User logged in successfully" : "User registered successfully",
+      message: googleSignIn
+        ? "User logged in successfully"
+        : "User registered successfully",
       data: {
         user: formattedUser,
         token,
@@ -241,13 +248,14 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user
-    const user = await User.unscoped().findOne({ where: { email }, 
+    const user = await User.unscoped().findOne({
+      where: { email },
       include: [
-        { model: Engineer, as: 'engineer' },
-        { model: ProjectManager, as: 'project_manager' },
-        { model: Admin, as: 'admin' },
+        { model: Engineer, as: "engineer" },
+        { model: ProjectManager, as: "project_manager" },
+        { model: Admin, as: "admin" },
       ],
-     });
+    });
 
     if (!user) {
       return res.status(401).json({
@@ -302,7 +310,7 @@ const login = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log(error)
+    console.log(error);
     res.status(500).json({
       success: false,
       message: "Login failed",
@@ -505,7 +513,6 @@ const resetPassword = async (req, res) => {
   }
 };
 
-
 // Reset password using old password if from temp_password or password field
 const editPassword = async (req, res) => {
   const { old_password, new_password, confirm_password } = req.body;
@@ -548,7 +555,9 @@ const editPassword = async (req, res) => {
 };
 
 // accept invite
-const acceptInvites = async (req, res) => {
+const acceptInvite = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const {
       temp_password,
@@ -560,82 +569,106 @@ const acceptInvites = async (req, res) => {
 
     const { token } = req.params;
 
-    // Find invite
+    // 1️⃣ Find invite (outside transaction is fine)
     const invitedUser = await Invite.findOne({
       where: { token, status: "pending" },
     });
+
     if (!invitedUser) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Invalid or expired invite",
       });
     }
 
-    // compare temp password
+    if (new Date() > invitedUser.expires_at) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Invite has expired",
+      });
+    }
+
+    // 2️⃣ Validate temp password
     const isTempMatch = await invitedUser.compareTempPassword(temp_password);
     if (!isTempMatch) {
+      await transaction.rollback();
       return res.status(401).json({
         success: false,
         message: "Temporary password is incorrect",
       });
     }
 
+    // 3️⃣ Validate password confirmation
     if (new_password !== confirm_password) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: "Passwords do not match",
       });
     }
 
-    // Create user
-    const user = await User.create({
-      email: invitedUser.email,
-      password: new_password,
-      first_name: first_name || invitedUser.first_name,
-      last_name: last_name || invitedUser.last_name,
-      role: invitedUser.role,
+    // 4️⃣ Prevent duplicate user creation
+    const alreadyUser = await User.findOne({
+      where: { email: invitedUser.email },
     });
 
-    // Create role-specific record
-    if (invitedUser.role === "engineer") {
-      await Engineer.create({ user_id: user.user_id });
-    } else if (invitedUser.role === "project_manager") {
-      await ProjectManager.create({ user_id: user.user_id });
+    if (alreadyUser) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Account already created",
+      });
     }
-    // Update invite status
-    await invitedUser.update({
-      status: "accepted",
-      responded_at: new Date(),
-    });
 
-    // Reload user with associations
-    const userWithAssociations = await User.findByPk(user.user_id, {
-      include: [
-        { model: Engineer, as: 'engineer' },
-        { model: ProjectManager, as: 'project_manager' },
-        { model: Admin, as: 'admin' },
-      ],
-    });
+    // ================================
+    // 🔐 TRANSACTIONAL OPERATIONS START
+    // ================================
 
-    // Format user response with signed URLs
-    const formattedUser = await formatUserResponse(userWithAssociations);
+    // 5️⃣ Create user
+    const user = await User.create(
+      {
+        email: invitedUser.email,
+        password: new_password,
+        first_name: first_name || invitedUser.first_name,
+        last_name: last_name || invitedUser.last_name,
+        role: invitedUser.role,
+      },
+      { transaction }
+    );
 
-    // Generate tokens for user
-    const { refreshToken } = generateTokens({
-      user_id: user.user_id,
-      role: user.role,
-    });
+    // 6️⃣ Create role-specific record
+    if (invitedUser.role === "project_manager") {
+      await ProjectManager.create(
+        { user_id: user.user_id },
+        { transaction }
+      );
+    }
+
+    // 7️⃣ Invalidate invite
+    await invitedUser.update(
+      {
+        status: "accepted",
+        token: null,
+        temp_password: null,
+        responded_at: new Date(),
+      },
+      { transaction }
+    );
+
+    // 8️⃣ Commit transaction
+    await transaction.commit();
 
     res.status(201).json({
       success: true,
-      message: "Invite accepted and user registered successfully, Please Login",
-      data: {
-        user: formattedUser,
-        token,
-        refreshToken,
-      },
+      message:
+        "Invite accepted and user registered successfully. Please login with your new password.",
     });
   } catch (error) {
+    // ❌ Rollback EVERYTHING on failure
+    await transaction.rollback();
+
     res.status(500).json({
       success: false,
       message: "Failed to accept invite",
@@ -643,6 +676,7 @@ const acceptInvites = async (req, res) => {
     });
   }
 };
+
 
 // Get current user profile /auth/me
 const getMe = async (req, res) => {
@@ -676,7 +710,7 @@ const getMe = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to get user profile',
+      message: "Failed to get user profile",
       error: error.message,
     });
   }
@@ -690,7 +724,7 @@ module.exports = {
   verifyEmail,
   resetPassword,
   editPassword,
-  acceptInvites,
+  acceptInvite,
   getMe,
   formatUserResponse,
 };

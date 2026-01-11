@@ -562,41 +562,58 @@ const inviteProjectManager = async (req, res) => {
   try {
     const { email, first_name, role = "project_manager" } = req.body;
 
-    // Generate temporary password
-    const tempPassword = Math.random().toString(36).slice(-8);
-
-    // Generate token
-    const token = uuidv4();
-
-    // Check if user already exists
+    // 1️⃣ Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "User already exists with this email, Please Login",
-      });
-    }
-    const existingInvite = await Invite.findOne({
-      where: { email, status: "pending" },
-    });
-    if (existingInvite) {
-      return res.status(400).json({
-        success: false,
-        message: "An invitation has already been sent to this email.",
+        message: "User already exists with this email. Please login.",
       });
     }
 
-    // Create invited user
+    // 2️⃣ Check for existing pending invite
+    const existingInvite = await Invite.findOne({
+      where: { email, status: "pending" },
+      order: [["created_at", "DESC"]],
+    });
+
+    // 3️⃣ If pending invite exists AND is NOT expired → block
+    if (existingInvite && new Date() < existingInvite.expires_at) {
+      return res.status(400).json({
+        success: false,
+        message: "An active invitation has already been sent to this email.",
+      });
+    }
+
+    // 4️⃣ If pending invite exists BUT is expired → invalidate it
+    if (existingInvite && new Date() >= existingInvite.expires_at) {
+      await existingInvite.update({
+        status: "expired",
+        token: null,
+        temp_password: null,
+      });
+    }
+
+    // =========================
+    // ✅ CREATE NEW INVITE
+    // =========================
+
+    const tempPassword = Math.random().toString(36).slice(-8);
+    const token = uuidv4();
+    const expires_at = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour
+
     const invitedUser = await Invite.create({
       email,
-      temp_password: tempPassword, // set to temp_password Later
-      role: role,
-      // first_name,
+      temp_password: tempPassword,
+      role,
       token,
       invited_by_user_id: req.user.user_id,
       sent_at: new Date(),
+      expires_at,
+      status: "pending",
     });
 
+    // 5️⃣ Send email
     const htmlFilePath = path.join(
       __dirname,
       "../templates/projectManagerInvitation.html"
@@ -604,12 +621,11 @@ const inviteProjectManager = async (req, res) => {
 
     const replacements = {
       firstname: first_name,
-      tempPassword, // remember to embed token in link
+      tempPassword,
       year: new Date().getFullYear(),
-      token,
+      url: `${process.env.FRONTEND_URL}/set-password?token=${token}`,
     };
 
-    // Send invitation email
     await sendEmail({
       to: invitedUser.email,
       subject: "Invitation to Stechad Engineer Management Platform",
@@ -619,10 +635,10 @@ const inviteProjectManager = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Project manager invited successfully",
+      message: "Project manager invited successfully.",
     });
   } catch (error) {
-    console.log(error);
+    console.error(error);
     res.status(500).json({
       success: false,
       message: "Failed to invite project manager",

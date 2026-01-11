@@ -15,37 +15,40 @@ Invite.init(
     email: {
       type: DataTypes.TEXT,
       allowNull: false,
-      unique: true,
     },
     role: {
       type: DataTypes.TEXT,
       allowNull: false,
       validate: {
-        isIn: [['admin', 'project_manager', 'engineer']],
+        isIn: [["admin", "project_manager", "engineer"]],
       },
     },
-    temp_password:{
+    temp_password: {
       type: DataTypes.TEXT,
-      allowNull: false
+      allowNull: true,
     },
     token: {
       type: DataTypes.TEXT,
-      allowNull: false,
+      allowNull: true,
     },
     status: {
-      type: DataTypes.ENUM('pending', 'accepted', 'expired'),
-      defaultValue: 'pending',
+      type: DataTypes.ENUM("pending", "accepted", "expired"),
+      defaultValue: "pending",
     },
     sent_at: {
       type: DataTypes.DATE,
       allowNull: false,
+    },
+    expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     invited_by_user_id: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
         model: User,
-        key: 'user_id',
+        key: "user_id",
       },
     },
   },
@@ -55,8 +58,8 @@ Invite.init(
     tableName: "invites",
     timestamps: true,
     underscored: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   }
 );
 
