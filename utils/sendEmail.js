@@ -19,16 +19,17 @@ const transporter = nodemailer.createTransport({
 
 const sendEmail = async ({to, subject, htmlFilePath, replacements}) => {
   try {
-const html = fs.readFileSync(htmlFilePath, 'utf8')
-  .replace('{{firstname}}', replacements.firstname)
-  .replace('{{lastname}}', replacements.lastname)
-  .replace('{{resetCode}}', replacements.resetCode)
-  .replace('{{token}}', replacements.token)
-  .replace('{{device}}', replacements.device)
-  .replace('{{datetime}}', replacements.datetime)
-  .replace('{{header}}', replacements.header)
-  .replace('{{tempPassword}}', replacements.tempPassword)
-  .replace('{{year}}', replacements.year);
+const html = fs
+  .readFileSync(htmlFilePath, "utf8")
+  .replace("{{firstname}}", replacements.firstname)
+  .replace("{{lastname}}", replacements.lastname)
+  .replace("{{resetCode}}", replacements.resetCode)
+  .replace("{{url}}", replacements.url)
+  .replace("{{device}}", replacements.device)
+  .replace("{{datetime}}", replacements.datetime)
+  .replace("{{header}}", replacements.header)
+  .replace("{{tempPassword}}", replacements.tempPassword)
+  .replace("{{year}}", replacements.year);
     await transporter.sendMail({
       from: 'no_reply@stechad.com',
       to,

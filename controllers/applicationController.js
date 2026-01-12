@@ -22,7 +22,9 @@ const getApplications = async (req, res) => {
 
     const applications = await Application.findAndCountAll({
       where: Object.keys(where).length ? where : undefined,
+
       include: [
+        // 🔹 Job + poster
         {
           model: Job,
           as: "job",
@@ -35,44 +37,50 @@ const getApplications = async (req, res) => {
             },
           ],
         },
+
+        // 🔧 FIX: applicant is Engineer, NOT User
         {
-          model: User,
+          model: Engineer,
           as: "applicant",
-          attributes: ["first_name", "last_name", "email"],
-          include: [{ model: Engineer, as: "engineer" }],
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
+            },
+          ],
         },
       ],
+
       ...pagination,
       order: [["applied_at", "DESC"]],
       distinct: true,
     });
 
-    // 🔹 Attach cv_url (same logic as getJobApplicants)
+    // 🔹 Attach cv_url (same logic, adjusted path)
     const applicationsWithCv = await Promise.all(
       applications.rows.map(async (app) => {
         const data = app.toJSON();
 
-        const engineer = data?.applicant?.engineer;
-        if (engineer) {
-          if (engineer.cv_object_name) {
-            try {
-              engineer.cv_url = await getV4ReadSignedUrl(
-                engineer.cv_object_name,
-                SIGNED_URL_TTL_SECONDS
-              );
-            } catch (err) {
-              engineer.cv_url = null;
-            }
-          } else {
+        const engineer = data?.applicant;
+        if (engineer?.cv_object_name) {
+          try {
+            engineer.cv_url = await getV4ReadSignedUrl(
+              engineer.cv_object_name,
+              SIGNED_URL_TTL_SECONDS
+            );
+          } catch (err) {
             engineer.cv_url = null;
           }
+        } else if (engineer) {
+          engineer.cv_url = null;
         }
 
         return data;
       })
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         applications: applicationsWithCv,
@@ -87,7 +95,9 @@ const getApplications = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get applications:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get applications",
       error: error.message,
@@ -151,87 +161,109 @@ const updateApplicationStatus = async (req, res) => {
     const { applications_id } = req.params;
     const { status, feedback } = req.body;
 
-    if (status && !['pending', 'shortlisted', 'reviewed', 'accepted', 'rejected'].includes(status.toLowerCase())) {
+    if (
+      status &&
+      !["pending", "shortlisted", "reviewed", "accepted", "rejected"].includes(
+        status.toLowerCase()
+      )
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status value'
+        message: "Invalid status value",
       });
     }
 
     const application = await Application.findOne({
       where: { applications_id },
+
       include: [
         {
           model: Job,
-          as: 'job',
-          include: [{
-            model: User,
-            as: 'poster'
-          }]
+          as: "job",
+          include: [
+            {
+              model: User,
+              as: "poster",
+            },
+          ],
         },
+
+        // 🔧 FIX: applicant is Engineer, not User
         {
-          model: User,
-          as: 'applicant'
-        }
-      ]
+          model: Engineer,
+          as: "applicant",
+          include: [
+            {
+              model: User,
+              as: "user",
+            },
+          ],
+        },
+      ],
     });
 
     if (!application) {
       return res.status(404).json({
         success: false,
-        message: 'Application not found'
+        message: "Application not found",
       });
     }
 
-    // Check if user has permission to update this application
-    // if (req.user.role === 'project_manager') {
-    //   return res.status(403).json({
-    //     success: false,
-    //     message: 'Not authorized to update this application'
-    //   });
-    // }
-
     const oldStatus = application.status;
+
     await application.update({
       status: status.toLowerCase(),
       feedback,
       reviewed_at: new Date(),
-      reviewed_by: req.user.user_id
+      reviewed_by: req.user.user_id,
     });
 
-    // Create notification for status change
+    /* ===============================
+       🔔 CREATE NOTIFICATION
+       =============================== */
     if (oldStatus !== status) {
-      await createNotification({
-        user_id: application.engineer_id,
-        title: 'Application Status Updated',
-        message: `Your application for "${application.job.title}" has been ${status}`,
-        type: status === 'accepted' ? 'success' : status === 'rejected' ? 'warning' : 'info',
-        action_url: `/applications/${applications_id}`,
-        metadata: {
-          application_id: applications_id,
-          job_id: application.job_id,
-          old_status: oldStatus,
-          new_status: status
-        }
-      });
+      const applicantUserId = application.applicant?.user?.user_id;
+
+      if (applicantUserId) {
+        await createNotification({
+          user_id: applicantUserId, // 🔧 FIX: correct recipient
+          title: "Application Status Updated",
+          message: `Your application for "${application.job.title}" has been ${status}`,
+          type:
+            status === "accepted"
+              ? "success"
+              : status === "rejected"
+              ? "warning"
+              : "info",
+          action_url: `/applications/${applications_id}`,
+          metadata: {
+            application_id: applications_id,
+            job_id: application.job_id,
+            old_status: oldStatus,
+            new_status: status,
+          },
+        });
+      }
     }
 
-    res.json({
+    return res.json({
       success: true,
-      message: 'Application status updated successfully',
+      message: "Application status updated successfully",
       data: {
         applications_id: application.applications_id,
-        job_title: application.job_title,
+        job_title: application.job.title, // 🔧 FIXED
         status: application.status,
         reviewed_by: application.reviewed_by,
-        feedback: application.feedback
-      }
+        feedback: application.feedback,
+      },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to update application status:", error);
+
+    return res.status(500).json({
       success: false,
-      message: 'Failed to update application status',
-      error: error.message
+      message: "Failed to update application status",
+      error: error.message,
     });
   }
 };
@@ -240,37 +272,59 @@ const updateApplicationStatus = async (req, res) => {
 const getApplicationStats = async (req, res) => {
   try {
     const totalApplications = await Application.count();
-    const pendingApplications = await Application.count({ where: { status: 'pending' } });
-    const reviewedApplications = await Application.count({ where: { status: 'reviewed' } });
-    const acceptedApplications = await Application.count({ where: { status: 'accepted' } });
-    const rejectedApplications = await Application.count({ where: { status: 'rejected' } });
+    const pendingApplications = await Application.count({
+      where: { status: "pending" },
+    });
+    const reviewedApplications = await Application.count({
+      where: { status: "reviewed" },
+    });
+    const acceptedApplications = await Application.count({
+      where: { status: "accepted" },
+    });
+    const rejectedApplications = await Application.count({
+      where: { status: "rejected" },
+    });
 
     // Get applications by status
     const statusStats = await Application.findAll({
       attributes: [
-        'status',
-        [Application.sequelize.fn('COUNT', Application.sequelize.col('status')), 'count']
+        "status",
+        [
+          Application.sequelize.fn(
+            "COUNT",
+            Application.sequelize.col("status")
+          ),
+          "count",
+        ],
       ],
-      group: ['status'],
-      raw: true
+      group: ["status"],
+      raw: true,
     });
 
     // Get recent applications
     const recentApplications = await Application.findAll({
       limit: 10,
-      order: [['applied_at', 'DESC']],
+      order: [["applied_at", "DESC"]],
       include: [
         {
           model: Job,
-          as: 'job',
-          attributes: ['title']
+          as: "job",
+          attributes: ["title"],
         },
         {
-          model: User,
-          as: 'applicant',
-          attributes: ['first_name', 'last_name']
-        }
-      ]
+          // 🔧 FIX: applicant is Engineer, not User
+          model: Engineer,
+          as: "applicant",
+          attributes: ["engineer_id"], // keep light
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name"],
+            },
+          ],
+        },
+      ],
     });
 
     res.json({
@@ -281,20 +335,23 @@ const getApplicationStats = async (req, res) => {
           pendingApplications,
           reviewedApplications,
           acceptedApplications,
-          rejectedApplications
+          rejectededApplications: rejectedApplications,
         },
         statusStats,
-        recentApplications
-      }
+        recentApplications,
+      },
     });
   } catch (error) {
+    console.error("Failed to get application statistics:", error);
+
     res.status(500).json({
       success: false,
-      message: 'Failed to get application statistics',
-      error: error.message
+      message: "Failed to get application statistics",
+      error: error.message,
     });
   }
 };
+
 
 // Delete application (admin only)
 const deleteApplication = async (req, res) => {

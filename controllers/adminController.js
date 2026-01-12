@@ -18,6 +18,7 @@ const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toBool, toTextArray } = require("../utils/helpers");
 const { formatUserResponse, generateTokens } = require("./authController");
+const crypto = require("crypto");
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -593,20 +594,19 @@ const inviteProjectManager = async (req, res) => {
         temp_password: null,
       });
     }
-
-    // =========================
-    // ✅ CREATE NEW INVITE
-    // =========================
-
+    
     const tempPassword = Math.random().toString(36).slice(-8);
     const token = uuidv4();
+
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
     const expires_at = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour
 
     const invitedUser = await Invite.create({
       email,
       temp_password: tempPassword,
       role,
-      token,
+      token: hashedToken,
       invited_by_user_id: req.user.user_id,
       sent_at: new Date(),
       expires_at,

@@ -103,45 +103,61 @@ const getJobById = async (req, res) => {
     const job = await Job.findOne({
       where: { jobs_id },
       include: [
+        // 🔹 Job poster
         {
           model: User,
-          as: 'poster',
-          attributes: ['first_name', 'last_name', 'email'],
-          include: [{
-            model: ProjectManager,
-            as: 'project_manager',
-            attributes: ['company']
-          }]
+          as: "poster",
+          attributes: ["first_name", "last_name", "email"],
+          include: [
+            {
+              model: ProjectManager,
+              as: "project_manager",
+              attributes: ["company"],
+            },
+          ],
         },
+
+        // 🔹 Applications
         {
           model: Application,
-          as: 'applications',
-          attributes: ['applications_id', 'status', 'applied_at'],
-          include: [{
-            model: User,
-            as: 'applicant',
-            attributes: ['first_name', 'last_name']
-          }]
-        }
-      ]
+          as: "applications",
+          attributes: ["applications_id", "status", "applied_at"],
+          include: [
+            {
+              // 🔧 FIX: applicant is Engineer, not User
+              model: Engineer,
+              as: "applicant",
+              include: [
+                {
+                  model: User,
+                  as: "user",
+                  attributes: ["first_name", "last_name"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
     });
 
     if (!job) {
       return res.status(404).json({
         success: false,
-        message: 'Job not found'
+        message: "Job not found",
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      data: job
+      data: job,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get job details:", error);
+
+    return res.status(500).json({
       success: false,
-      message: 'Failed to get job details',
-      error: error.message
+      message: "Failed to get job details",
+      error: error.message,
     });
   }
 };
@@ -154,7 +170,10 @@ const getJobApplicants = async (req, res) => {
 
     const job = await Job.findOne({ where: { jobs_id } });
     if (!job) {
-      return res.status(404).json({ success: false, message: "Job not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Job not found",
+      });
     }
 
     const where = { job_id: jobs_id };
@@ -168,14 +187,22 @@ const getJobApplicants = async (req, res) => {
 
     const applications = await Application.findAndCountAll({
       where,
+
       include: [
         {
-          model: User,
+          // 🔧 FIX: applicant is Engineer, not User
+          model: Engineer,
           as: "applicant",
-          attributes: ["first_name", "last_name", "email"],
-          include: [{ model: Engineer, as: "engineer" }],
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
+            },
+          ],
         },
       ],
+
       ...pagination,
       order: [["created_at", "DESC"]],
       distinct: true,
@@ -184,7 +211,7 @@ const getJobApplicants = async (req, res) => {
     const applicationsWithUrls = await Promise.all(
       applications.rows.map(async (app) => {
         const data = app.toJSON();
-        const engineer = data?.applicant?.engineer;
+        const engineer = data?.applicant;
 
         if (engineer) {
           engineer.cv_url = engineer.cv_object_name
@@ -199,7 +226,7 @@ const getJobApplicants = async (req, res) => {
       })
     );
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         applications: applicationsWithUrls,
@@ -214,14 +241,15 @@ const getJobApplicants = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get applicants:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get applicants",
       error: error.message,
     });
   }
 };
-
 
 // Get job statistics
 const getJobStats = async (req, res) => {

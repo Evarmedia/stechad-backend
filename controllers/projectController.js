@@ -6,22 +6,41 @@ const { createNotification } = require("../utils/notificationUtil");
 const getProjects = async (req, res) => {
   try {
     const { page, limit, status, priority } = req.query;
-    const { user_id, role } = req.user; // 🔐 from auth middleware
+    const { user_id, role } = req.user; 
 
     let where = {};
+    let include = [];
 
-    /* ===============================
-       ROLE-BASED ACCESS CONTROL
-       =============================== */
     if (role === "project_manager") {
-      // Project managers can only see their own projects
-      where.project_managers_user_id = user_id;
+      // 🔧 FIX: filter via ProjectManager.user_id
+      include.push({
+        model: ProjectManager,
+        as: "project_manager",
+        where: { user_id },
+        attributes: [],
+        required: true,
+      });
     }
-    // Admin sees all → no restriction
 
-    /* ===============================
-       OPTIONAL FILTERS
-       =============================== */
+    if (role === "engineer") {
+      // 🔧 Engineers only see projects they are assigned to
+      include.push({
+        model: Engineer,
+        as: "engineers",
+        required: true,
+        include: [
+          {
+            model: User,
+            as: "user",
+            where: { user_id },
+            attributes: [],
+          },
+        ],
+      });
+    }
+
+    // Admin → no restriction
+
     if (status) {
       where.status = status;
     }
@@ -30,9 +49,6 @@ const getProjects = async (req, res) => {
       where.priority = priority;
     }
 
-    /* ===============================
-       PAGINATION (optional)
-       =============================== */
     const pagination = {};
     if (page && limit) {
       pagination.limit = parseInt(limit);
@@ -42,15 +58,31 @@ const getProjects = async (req, res) => {
     const projects = await Project.findAndCountAll({
       where,
       include: [
+        ...include,
+
         {
-          model: User,
-          as: "engineer",
-          attributes: ["first_name", "last_name", "email"],
+          model: Engineer,
+          as: "engineers",
+          required: false,
           include: [
             {
-              model: Engineer,
-              as: "engineer",
-              attributes: ["specialization", "years_of_experience"],
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
+            },
+          ],
+          through: { attributes: [] },
+        },
+
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
             },
           ],
         },
@@ -60,7 +92,7 @@ const getProjects = async (req, res) => {
       ...pagination,
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         projects: projects.rows,
@@ -76,7 +108,9 @@ const getProjects = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get projects:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get projects",
       error: error.message,
@@ -91,15 +125,38 @@ const getProjectById = async (req, res) => {
 
     const project = await Project.findOne({
       where: { projects_id },
+
       include: [
+        // 🔹 Project Manager
         {
-          model: User,
-          as: "engineer",
-          attributes: ["first_name", "last_name", "email", "phone_number"],
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
           include: [
             {
-              model: Engineer,
-              as: "engineer",
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email", "phone_number"],
+            },
+          ],
+        },
+
+        // 🔹 Engineers (Many-to-Many)
+        {
+          model: Engineer,
+          as: "engineers",
+          through: { attributes: [] },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: [
+                "first_name",
+                "last_name",
+                "email",
+                "phone_number",
+              ],
             },
           ],
         },
@@ -113,12 +170,14 @@ const getProjectById = async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: project,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get project details:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get project details",
       error: error.message,
@@ -132,8 +191,7 @@ const createProject = async (req, res) => {
     const {
       title,
       description,
-      engineer_user_id,
-      job_id,
+      engineer_ids = [], // 🔧 array of Engineer IDs (optional)
       status = "planning",
       priority = "medium",
       progress = 0,
@@ -144,24 +202,27 @@ const createProject = async (req, res) => {
       feedback,
     } = req.body;
 
-    // Verify job exists if provided
-    // if (job_id) {
-    //   const job = await Job.findByPk(job_id);
-    //   if (!job) {
-    //     console.warn("Job not included")
-    //   }
-    // }
-
+    /* ===============================
+       VERIFY PROJECT MANAGER
+       =============================== */
     const manager = await ProjectManager.findOne({
       where: { user_id: req.user.user_id },
     });
 
+    if (!manager) {
+      return res.status(403).json({
+        success: false,
+        message: "Only project managers can create projects",
+      });
+    }
+
+    /* ===============================
+       CREATE PROJECT
+       =============================== */
     const project = await Project.create({
-      project_managers_user_id: req.user.user_id,
-      project_managers_id: manager.project_managers_id,
+      project_managers_id: manager.project_managers_id, // ✅ correct
       title,
       description,
-      engineer_user_id,
       status,
       priority,
       progress,
@@ -172,28 +233,28 @@ const createProject = async (req, res) => {
       feedback,
     });
 
-    // Create notification for assigned engineer
-    // if (engineer_user_id) {
-    //   await createNotification({
-    //     user_id: engineer_user_id,
-    //     title: 'New Project Assignment',
-    //     message: `You have been assigned to project: ${title}`,
-    //     type: 'info',
-    //     action_url: `/projects/${project.projects_id}`,
-    //     metadata: {
-    //       project_id: project.projects_id,
-    //       project_manager_id: req.user.user_id
-    //     }
-    //   });
-    // }
+    /* ===============================
+       ASSIGN ENGINEERS (OPTIONAL)
+       =============================== */
+    if (Array.isArray(engineer_ids) && engineer_ids.length > 0) {
+      const engineers = await Engineer.findAll({
+        where: { engineer_id: engineer_ids },
+      });
 
-    res.status(201).json({
+      if (engineers.length) {
+        await project.addEngineers(engineers); // Sequelize M:N helper
+      }
+    }
+
+    return res.status(201).json({
       success: true,
       message: "Project created successfully",
       data: project,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Project creation failed:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Project creation failed",
       error: error.message,
@@ -211,9 +272,15 @@ const updateProject = async (req, res) => {
       where: { projects_id },
       include: [
         {
-          model: User,
-          as: "engineer",
-          attributes: ["first_name", "last_name"],
+          model: ProjectManager,
+          as: "project_manager",
+          include: [{ model: User, as: "user" }],
+        },
+        {
+          model: Engineer,
+          as: "engineers",
+          through: { attributes: [] },
+          include: [{ model: User, as: "user" }],
         },
       ],
     });
@@ -225,15 +292,19 @@ const updateProject = async (req, res) => {
       });
     }
 
-    // Check permissions
-    if (
-      req.user.role === "project_manager" &&
-      project.project_managers_user_id !== req.user.user_id
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized to update this project",
-      });
+    /* ===============================
+   PERMISSION CHECK
+   =============================== */
+    if (req.user.role === "project_manager") {
+      const projectManagerUserId = project.project_manager?.user?.user_id;
+
+      // ❌ Block only if project is assigned AND not owned by this PM
+      if (projectManagerUserId && projectManagerUserId !== req.user.user_id) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to update this project",
+        });
+      }
     }
 
     const oldStatus = project.status;
@@ -241,11 +312,17 @@ const updateProject = async (req, res) => {
 
     await project.update(updates);
 
-    // Create notifications for significant changes
-    if (project.engineer_user_id) {
-      if (oldStatus !== updates.status && updates.status) {
+    /* ===============================
+       NOTIFICATIONS (ENGINEERS)
+       =============================== */
+    const engineerUsers =
+      project.engineers?.map((e) => e.user?.user_id).filter(Boolean) || [];
+
+    for (const userId of engineerUsers) {
+      // Status change
+      if (updates.status && oldStatus !== updates.status) {
         await createNotification({
-          user_id: project.engineer_user_id,
+          user_id: userId,
           title: "Project Status Updated",
           message: `Project "${project.title}" status changed to ${updates.status}`,
           type: "info",
@@ -258,13 +335,14 @@ const updateProject = async (req, res) => {
         });
       }
 
+      // Milestone notification
       if (
-        updates.progress &&
+        typeof updates.progress === "number" &&
         updates.progress !== oldProgress &&
         updates.progress % 25 === 0
       ) {
         await createNotification({
-          user_id: project.engineer_user_id,
+          user_id: userId,
           title: "Project Milestone",
           message: `Project "${project.title}" is now ${updates.progress}% complete`,
           type: "success",
@@ -277,13 +355,15 @@ const updateProject = async (req, res) => {
       }
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: "Project updated successfully",
       data: project,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Project update failed:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Project update failed",
       error: error.message,
