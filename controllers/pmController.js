@@ -9,6 +9,7 @@ const {
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { formatUserResponse, generateTokens } = require("./authController");
+const { Op } = require("sequelize");
 
 // Get project manager dashboard
 const getDashboard = async (req, res) => {
@@ -25,47 +26,87 @@ const getDashboard = async (req, res) => {
       });
     }
 
-    // Get statistics
-    const totalJobsCount = await Job.count();
+    const pmId = projectManager.project_managers_id;
+
+    /* ===============================
+       JOB STATS (PM ONLY)
+       =============================== */
+    const totalJobsCount = await Job.count({
+      where: { posted_by: req.user.user_id },
+    });
 
     const activeJobsCount = await Job.count({
       where: {
+        posted_by: req.user.user_id,
         status: "active",
       },
     });
 
+    /* ===============================
+       APPLICATION STATS (PM JOBS)
+       =============================== */
     const totalApplicationsCount = await Application.count({
       include: [
         {
           model: Job,
           as: "job",
+          where: { posted_by: req.user.user_id },
+        },
+      ],
+      distinct: true,
+    });
+
+    /* ===============================
+       PROJECT STATS
+       =============================== */
+    const activeProjects = await Project.findAll({
+      where: {
+        status: ["planning", "in_progress"],
+      },
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          where: {
+            [Op.or]: [
+              { project_managers_id: pmId },
+              { project_managers_id: null },
+            ],
+          },
         },
       ],
     });
 
-    const activeProjects = await Project.findAll({
-      where: {
-        project_managers_user_id: req.user.user_id,
-        status: ["planning", "in_progress"],
-      },
-    });
-
     const totalProjectsCount = await Project.count({
-      where: {
-        project_managers_user_id: req.user.user_id,
-        status: "completed",
-      },
+      where: { status: "completed" },
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          where: {
+            [Op.or]: [
+              { project_managers_id: pmId },
+              { project_managers_id: null },
+            ],
+          },
+        },
+      ],
+      distinct: true,
     });
 
-    const activeProjectsCount = activeProjects.length;
-    
-    // Get recent applications
+    /* ===============================
+       RECENT APPLICATIONS
+       =============================== */
     const recentApplications = await Application.findAll({
+      limit: 5,
+      order: [["created_at", "DESC"]],
       include: [
         {
           model: Job,
           as: "job",
-          // where: { posted_by: req.user.user_id },
+          where: { posted_by: req.user.user_id },
           include: [
             {
               model: User,
@@ -75,39 +116,47 @@ const getDashboard = async (req, res) => {
           ],
         },
         {
-          model: User,
+          model: Engineer,
           as: "applicant",
-          attributes: ["first_name", "last_name", "email"], // Might need more later
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
+            },
+          ],
         },
       ],
-      limit: 5,
-      order: [["created_at", "DESC"]],
     });
 
+    /* ===============================
+       RECENT JOBS
+       =============================== */
     const recentJobs = await Job.findAll({
+      where: { posted_by: req.user.user_id },
       limit: 3,
       order: [["created_at", "DESC"]],
-    })
-
-    const dashboardData = {
-      projectManager,
-      statistics: {
-        activeProjectsCount,
-        totalApplicationsCount,
-        totalJobsCount,
-        activeJobsCount,
-        totalProjectsCount,
-      },
-      recentApplications,
-      recentJobs,
-      activeProjects,
-    };
+    });
 
     res.json({
       success: true,
-      data: dashboardData,
+      data: {
+        projectManager,
+        statistics: {
+          activeProjectsCount: activeProjects.length,
+          totalApplicationsCount,
+          totalJobsCount,
+          activeJobsCount,
+          totalProjectsCount,
+        },
+        recentApplications,
+        recentJobs,
+        activeProjects,
+      },
     });
   } catch (error) {
+    console.error("Failed to get dashboard data:", error);
+
     res.status(500).json({
       success: false,
       message: "Failed to get dashboard data",
