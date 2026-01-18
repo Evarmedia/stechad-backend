@@ -141,47 +141,77 @@ router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
 
 /**
  * @swagger
- * /admin/engineers/{engineer_id}/vet:
+ * /admin/engineers/toggle-vet:
  *   put:
  *     summary: Vet an engineer
  *     tags: [Admin]
- *     parameters:
- *       - in: path
- *         name: engineer_id
- *         required: true
- *         schema:
- *           type: string
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               engineer_id:
+ *                 type: string
+ *                 example: enginer-id-ssishw
+ *                 description: ID of the engineer to vet
+ *               is_vetted:
+ *                 type: boolean
+ *                 example: true
+ *                 description: Vetting status of the engineer
  *     responses:
  *       200:
  *         description: Engineer vetted successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
- */
-router.put('/engineers/:engineer_id/vet', adminController.vetEngineer);
-
-/**
- * @swagger
- * /admin/engineers/{engineer_id}/vet:
- *   delete:
- *     summary: Remove engineer vetting
- *     tags: [Admin]
- *     parameters:
- *       - in: path
- *         name: engineer_id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Vetting removed successfully
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Engineer vetted successfully
+ *                 data:
+ *                   $ref: '#/components/schemas/Engineer'
+ *       404:
+ *         description: Engineer not found
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Engineer not found
+ *       500:
+ *         description: Failed to vet engineer
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Failed to vet engineer
+ *                 error:
+ *                   type: string
+ *                   example: Error message
  */
-router.delete('/engineers/:engineer_id/vet', adminController.removeVetting);
+router.put(
+  "/engineers/toggle-vet",
+  adminController.updateEngineerVetting
+);
 
 /**
  * @swagger

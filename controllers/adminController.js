@@ -361,12 +361,13 @@ const getEngineerDetails = async (req, res) => {
   }
 };
 
-// Vet an engineer
-const vetEngineer = async (req, res) => {
+// Vet / Unvet an engineer
+const updateEngineerVetting = async (req, res) => {
   try {
-    const { engineer_id } = req.params;
+    const { engineer_id, is_vetted } = req.body;
 
     const engineer = await Engineer.findByPk(engineer_id);
+
     if (!engineer) {
       return res.status(404).json({
         success: false,
@@ -375,57 +376,40 @@ const vetEngineer = async (req, res) => {
     }
 
     await engineer.update({
-      is_vetted: true,
-      vetted_at: new Date(),
-      vetted_by: req.user.user_id,
+      is_vetted,
+      vetted_at: is_vetted ? new Date() : null,
+      vetted_by: is_vetted ? req.user.user_id : null,
     });
 
+    // 🔧 Re-fetch with correct includes
     const updatedEngineer = await Engineer.findByPk(engineer_id, {
-      include: [{ model: User, as: "vettedBy" }],
+      include: [
+        {
+          model: User,
+          as: "user", // ✅ engineer's own user profile
+          attributes: ["first_name", "last_name", "email", "phone_number", "country"],
+        },
+        {
+          model: User,
+          as: "vettedBy", // ✅ admin / PM who vetted
+          attributes: ["first_name", "last_name", "email"],
+        },
+      ],
     });
 
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: "Engineer vetted successfully",
+      message: is_vetted
+        ? "Engineer vetted successfully"
+        : "Engineer vetting removed",
       data: updatedEngineer,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to update engineer vetting:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "Failed to vet engineer",
-      error: error.message,
-    });
-  }
-};
-
-// Remove engineer vetting
-const removeVetting = async (req, res) => {
-  try {
-    const { engineer_id } = req.params;
-
-    const engineer = await Engineer.findByPk(engineer_id);
-    if (!engineer) {
-      return res.status(404).json({
-        success: false,
-        message: "Engineer not found",
-      });
-    }
-
-    await engineer.update({
-      is_vetted: false,
-      vetted_at: null,
-      vetted_by: null,
-    });
-
-    res.json({
-      success: true,
-      message: "Engineer vetting removed successfully",
-      data: engineer,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to remove vetting",
+      message: "Failed to update engineer vetting status",
       error: error.message,
     });
   }
@@ -887,8 +871,7 @@ module.exports = {
   getStats,
   updateProfile,
   getEngineerDetails,
-  vetEngineer,
-  removeVetting,
+  updateEngineerVetting,
   deleteEngineer,
   getProjectManagers,
   inviteProjectManager,

@@ -285,7 +285,6 @@ const completeOnboarding = async (req, res) => {
 };
 
 // Get all engineers with pagination - list
-// Get all engineers with pagination - list
 const getEngineers = async (req, res) => {
   try {
     const { page, limit, is_onboarded, availability } = req.query;
