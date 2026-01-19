@@ -349,41 +349,30 @@ const getEngineers = async (req, res) => {
 // Get engineer dashboard
 const getDashboard = async (req, res) => {
   try {
+    /* ===============================
+       GET ENGINEER PROFILE
+       =============================== */
     const engineer = await Engineer.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: "user" }],
     });
 
-    // Get statistics
+    if (!engineer) {
+      return res.status(404).json({
+        success: false,
+        message: "Engineer profile not found",
+      });
+    }
+
+    /* ===============================
+       APPLICATION STATS
+       =============================== */
     const totalApplicationsCount = await Application.count({
-      where: { engineer_id: req.user.user_id },
+      where: { engineer_id: engineer.engineer_id },
     });
 
-    const totalProjectsCount = await Project.count({
-      where: {
-        engineer_user_id: req.user.user_id,
-      },
-    });
-
-    const activeProjects = await Project.findAll({
-      where: {
-        engineer_user_id: req.user.user_id,
-        status: ["planning", "in_progress"],
-      },
-    });
-
-    const activeProjectsCount = activeProjects.length;
-
-    const completedProjectsCount = await Project.count({
-      where: {
-        engineer_user_id: req.user.user_id,
-        status: "completed",
-      },
-    });
-
-    // Get recent applications
     const recentApplications = await Application.findAll({
-      where: { engineer_id: req.user.user_id },
+      where: { engineer_id: engineer.engineer_id },
       include: [{ model: Job, as: "job" }],
       limit: 5,
       order: [["created_at", "DESC"]],
@@ -391,11 +380,29 @@ const getDashboard = async (req, res) => {
 
     const recentApplicationsCount = recentApplications.length;
 
-    // get Interviews Count
+    /* ===============================
+       PROJECT STATS (M2M FIX)
+       =============================== */
+    const allProjects = await engineer.getEngineer_projects({
+      where: {},
+    });
+
+    const activeProjects = allProjects.filter((p) =>
+      ["planning", "in_progress"].includes(p.status)
+    );
+
+    const completedProjectsCount = allProjects.filter(
+      (p) => p.status === "completed"
+    ).length;
+
+    const totalProjectsCount = allProjects.length;
+    const activeProjectsCount = activeProjects.length;
+
+    /* ===============================
+       INTERVIEW STATS
+       =============================== */
     const interviewCount = await Interview.count({
-      where: {
-        candidate_id: engineer.engineer_id,
-      },
+      where: { candidate_id: engineer.engineer_id },
     });
 
     const scheduledInterviewCount = await Interview.count({
@@ -405,39 +412,36 @@ const getDashboard = async (req, res) => {
       },
     });
 
-    // Format user response with signed URLs
+    /* ===============================
+       FORMAT USER
+       =============================== */
     const formattedUser = await formatUserResponse(engineer.user);
 
-    // // Generate tokens
-    // const { token, refreshToken } = generateTokens({
-    //   user_id: req.user.user_id,
-    //   role: engineer.user.role,
-    // });
-
-    const dashboardData = {
-      user: formattedUser,
-      engineer,
-      statistics: {
-        totalApplicationsCount,
-        recentApplicationsCount,
-        interviewCount,
-        scheduledInterviewCount,
-        totalProjectsCount,
-        activeProjectsCount,
-        completedProjectsCount,
-      },
-      recentApplications,
-      activeProjects,
-      // token,
-      // refreshToken,
-    };
-
-    res.json({
+    /* ===============================
+       RESPONSE
+       =============================== */
+    return res.json({
       success: true,
-      data: dashboardData,
+      data: {
+        user: formattedUser,
+        engineer,
+        statistics: {
+          totalApplicationsCount,
+          recentApplicationsCount,
+          interviewCount,
+          scheduledInterviewCount,
+          totalProjectsCount,
+          activeProjectsCount,
+          completedProjectsCount,
+        },
+        recentApplications,
+        activeProjects,
+      },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Engineer dashboard error:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get dashboard data",
       error: error.message,
@@ -784,7 +788,21 @@ const getApplications = async (req, res) => {
   try {
     const { page, limit, status } = req.query;
 
-    const where = { engineer_id: req.user.user_id };
+    /* ===============================
+       GET ENGINEER PROFILE
+       =============================== */
+    const engineer = await Engineer.findOne({
+      where: { user_id: req.user.user_id },
+    });
+
+    if (!engineer) {
+      return res.status(404).json({
+        success: false,
+        message: "Engineer profile not found",
+      });
+    }
+
+    const where = { engineer_id: engineer.engineer_id };
     if (status) {
       where.status = status;
     }
@@ -797,27 +815,32 @@ const getApplications = async (req, res) => {
 
     const applications = await Application.findAndCountAll({
       where,
+
       include: [
         {
           model: Job,
           as: "job",
         },
         {
-          model: User,
+          // 🔧 FIX: applicant is Engineer, not User
+          model: Engineer,
           as: "applicant",
           include: [
             {
-              model: Engineer,
-              as: "engineer",
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
             },
           ],
         },
       ],
+
       ...pagination,
       order: [["created_at", "DESC"]],
+      distinct: true,
     });
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         applications: applications.rows,
@@ -832,7 +855,9 @@ const getApplications = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get engineer applications:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get applications",
       error: error.message,
@@ -845,46 +870,67 @@ const getProjects = async (req, res) => {
   try {
     const { page, limit, status } = req.query;
 
-    const where = { engineer_user_id: req.user.user_id };
-    if (status) {
-      where.status = status;
+    /* ===============================
+       GET ENGINEER
+       =============================== */
+    const engineer = await Engineer.findOne({
+      where: { user_id: req.user.user_id },
+    });
+
+    if (!engineer) {
+      return res.status(404).json({
+        success: false,
+        message: "Engineer profile not found",
+      });
     }
 
-    const pagination = {
-      limit: limit ? parseInt(limit) : undefined,
-      offset:
-        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
-    };
-
-    const projects = await Project.findAndCountAll({
-      where,
-      include: [
-        {
-          model: User,
-          as: "engineer",
-          attributes: ["first_name", "last_name"],
-        },
-      ],
-      ...pagination,
+    /* ===============================
+       FETCH PROJECTS VIA M2M
+       =============================== */
+    let projects = await engineer.getEngineer_projects({
       order: [["created_at", "DESC"]],
     });
 
-    res.json({
+    /* ===============================
+       OPTIONAL STATUS FILTER
+       =============================== */
+    if (status) {
+      projects = projects.filter((p) => p.status === status);
+    }
+
+    /* ===============================
+       PAGINATION (MANUAL)
+       =============================== */
+    const totalItems = projects.length;
+
+    let paginatedProjects = projects;
+    if (page && limit) {
+      const start = (parseInt(page) - 1) * parseInt(limit);
+      const end = start + parseInt(limit);
+      paginatedProjects = projects.slice(start, end);
+    }
+
+    /* ===============================
+       RESPONSE
+       =============================== */
+    return res.json({
       success: true,
       data: {
-        projects: projects.rows,
-        pagination: {
-          currentPage: page ? parseInt(page) : undefined,
-          totalPages: limit
-            ? Math.ceil(projects.count / parseInt(limit))
-            : undefined,
-          totalItems: projects.count,
-          itemsPerPage: limit ? parseInt(limit) : undefined,
-        },
+        projects: paginatedProjects,
+        pagination: page && limit
+          ? {
+              currentPage: parseInt(page),
+              totalPages: Math.ceil(totalItems / parseInt(limit)),
+              totalItems,
+              itemsPerPage: parseInt(limit),
+            }
+          : undefined,
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get engineer projects:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get projects",
       error: error.message,

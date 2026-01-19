@@ -12,7 +12,9 @@ const Message = require("./Message");
 const Notification = require("./Notification");
 const Setting = require("./Setting");
 const Invite = require("./Invite");
-const { Referral, Reward, UserReward } = require("./Referral");
+const { Referral } = require("./Referral");
+const { Reward } = require("./Reward");
+const { UserReward  } = require("./UserReward");
 
 /* =========================
    USER ↔ ROLE RELATIONSHIPS

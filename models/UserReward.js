@@ -1,17 +1,20 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const User = require("./User");
+const { Reward } = require("./Reward");
+const { Referral } = require("./Referral");
 
-class Referral extends Model {}
 
-Referral.init(
+class UserReward extends Model {}
+
+UserReward.init(
   {
-    referral_id: {
+    user_reward_id: {
       type: DataTypes.UUID,
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
     },
-    referrer_id: {
+    user_id: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
@@ -19,28 +22,33 @@ Referral.init(
         key: 'user_id',
       },
     },
-    referee_id: {
+    reward_id: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: User,
-        key: 'user_id',
+        model: Reward,
+        key: 'reward_id',
       },
     },
-    referral_code: {
-      type: DataTypes.STRING(10),
-      allowNull: false,
-      // unique: true,
+    referral_id: {
+      type: DataTypes.UUID,
+      references: {
+        model: Referral,
+        key: 'referral_id',
+      },
     },
-    status: {
-      type: DataTypes.ENUM('pending', 'completed', 'expired'),
+    reward_status: {
+      type: DataTypes.ENUM('pending', 'approved', 'claimed', 'expired'),
       defaultValue: 'pending',
     },
-    reward_claimed: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
+    reward_amount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
     },
-    completed_at: {
+    claimed_at: {
+      type: DataTypes.DATE,
+    },
+    expires_at: {
       type: DataTypes.DATE,
     },
     created_at: {
@@ -54,8 +62,8 @@ Referral.init(
   },
   {
     sequelize,
-    modelName: "Referral",
-    tableName: "referrals",
+    modelName: "UserReward",
+    tableName: "user_rewards",
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
@@ -63,5 +71,5 @@ Referral.init(
 );
 
 module.exports = {
-  Referral
+  UserReward
 };

@@ -32,19 +32,24 @@ const validateLogin = [
 
 // Job creation validation
 const validateJobCreation = [
-  body('title').notEmpty().trim(),
-  body('company').notEmpty().trim(),
-  body('location').notEmpty().trim(),
-  body('description').notEmpty().trim(),
-  body('employment_type').isIn(['full-time', 'contract', 'part-time']),
-  body('salary').optional().trim(),
-  body('duration').optional().trim(),
-  body('openings').isInt({ min: 1 }),
-  body('experience_level').isIn(['entry', 'intermediate', 'senior', 'expert']),
-  body('skills_required').isArray({ min: 1 }),
-  body('requirements').isArray({ min: 1 }),
-  body('responsibilities').isArray({ min: 1 }),
-  handleValidationErrors
+  body("title").notEmpty().trim(),
+  body("company").notEmpty().trim(),
+  body("location").notEmpty().trim(),
+  body("description").notEmpty().trim(),
+  body("employment_type").isIn(["full-time", "contract", "part-time"]),
+  body("salary").optional().trim(),
+  body("duration").optional().trim(),
+  body("openings").isInt({ min: 1 }),
+  body("experience_level").isIn([
+    "entry",
+    "intermediate",
+    "advanced",
+    "expert",
+  ]),
+  body("skills_required").isArray({ min: 1 }),
+  body("requirements").isArray({ min: 1 }),
+  body("responsibilities").isArray({ min: 1 }),
+  handleValidationErrors,
 ];
 
 // Application validation
