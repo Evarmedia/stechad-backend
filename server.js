@@ -292,7 +292,7 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connected successfully');
     
-    await sequelize.sync({ alter: true, force: false });
+    // await sequelize.sync({ alter: true, force: false });
     console.log('Database synchronized');
 
     // Create default rewards if they don't exist

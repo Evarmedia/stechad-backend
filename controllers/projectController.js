@@ -376,7 +376,17 @@ const deleteProject = async (req, res) => {
   try {
     const { projects_id } = req.params;
 
-    const project = await Project.findByPk(projects_id);
+    const project = await Project.findOne({
+      where: { projects_id },
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          include: [{ model: User, as: "user" }],
+        },
+      ],
+    });
+
     if (!project) {
       return res.status(404).json({
         success: false,
@@ -384,18 +394,26 @@ const deleteProject = async (req, res) => {
       });
     }
 
-    // Check permissions
-    if (
-      req.user.role === "project_manager" &&
-      project.project_managers_user_id !== req.user.user_id
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized to delete this project",
-      });
+    /* ===============================
+       PERMISSION CHECK
+       =============================== */
+    if (req.user.role === "project_manager") {
+      const ownerUserId = project.project_manager?.user?.user_id;
+
+      const isOwner = ownerUserId === req.user.user_id;
+      const isUnassigned = project.project_managers_id === null;
+
+      if (!isOwner && !isUnassigned) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to delete this project",
+        });
+      }
     }
 
-    // Only allow deletion if project is in planning or cancelled status
+    /* ===============================
+       STATUS CHECK
+       =============================== */
     if (!["planning", "cancelled"].includes(project.status)) {
       return res.status(400).json({
         success: false,
@@ -403,14 +421,19 @@ const deleteProject = async (req, res) => {
       });
     }
 
-    await project.destroy();
+    /* ===============================
+       DELETE PROJECT
+       =============================== */
+    await project.destroy(); // join-table rows auto-removed if FK is correct
 
-    res.json({
+    return res.json({
       success: true,
       message: "Project deleted successfully",
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Project deletion failed:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Project deletion failed",
       error: error.message,
