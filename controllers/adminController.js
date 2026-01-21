@@ -552,7 +552,7 @@ const inviteProjectManager = async (req, res) => {
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "User already exists with this email. Please login.",
+        message: "User already exists with this email. Please ask them to login.",
       });
     }
 
@@ -575,14 +575,14 @@ const inviteProjectManager = async (req, res) => {
       await existingInvite.update({
         status: "expired",
         token: null,
-        temp_password: null,
+        // temp_password: null,
       });
     }
     
     const tempPassword = Math.random().toString(36).slice(-8);
     const token = uuidv4();
 
-    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    // const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
     const expires_at = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour
 
@@ -590,7 +590,7 @@ const inviteProjectManager = async (req, res) => {
       email,
       temp_password: tempPassword,
       role,
-      token: hashedToken,
+      token,
       invited_by_user_id: req.user.user_id,
       sent_at: new Date(),
       expires_at,
@@ -607,7 +607,7 @@ const inviteProjectManager = async (req, res) => {
       firstname: first_name,
       tempPassword,
       year: new Date().getFullYear(),
-      url: `${process.env.FRONTEND_URL}/set-password?token=${token}`,
+      url: `${process.env.FRONTEND_URL}/accept-invite?token=${token}`,
     };
 
     await sendEmail({

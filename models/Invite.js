@@ -63,15 +63,19 @@ Invite.init(
   }
 );
 
-Invite.beforeCreate(async (user) => {
-  if (user.temp_password) {
-    user.temp_password = await bcrypt.hash(user.temp_password, 12);
+Invite.beforeCreate(async (invite) => {
+  if (invite.temp_password && typeof invite.temp_password === "string") {
+    invite.temp_password = await bcrypt.hash(invite.temp_password, 12);
   }
 });
 
-Invite.beforeUpdate(async (user) => {
-  if (user.changed('temp_password')) {
-    user.temp_password = await bcrypt.hash(user.temp_password, 12);
+Invite.beforeUpdate(async (invite) => {
+  if (
+    invite.changed("temp_password") &&
+    invite.temp_password &&
+    typeof invite.temp_password === "string"
+  ) {
+    invite.temp_password = await bcrypt.hash(invite.temp_password, 12);
   }
 });
 
