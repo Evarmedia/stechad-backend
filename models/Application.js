@@ -18,15 +18,15 @@ Application.init(
       allowNull: false,
       references: {
         model: Job,
-        key: 'jobs_id',
+        key: "jobs_id",
       },
     },
     engineer_id: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: User,
-        key: 'user_id',
+        model: Engineer,
+        key: "engineer_id",
       },
     },
     job_title: {
@@ -37,8 +37,14 @@ Application.init(
       type: DataTypes.TEXT,
     },
     status: {
-      type: DataTypes.ENUM('pending', 'reviewed', 'shortlisted', 'accepted', 'rejected'),
-      defaultValue: 'pending',
+      type: DataTypes.ENUM(
+        "pending",
+        "reviewed",
+        "shortlisted",
+        "accepted",
+        "rejected",
+      ),
+      defaultValue: "pending",
     },
     experience: {
       type: DataTypes.TEXT,
@@ -54,7 +60,7 @@ Application.init(
       type: DataTypes.UUID,
       references: {
         model: User,
-        key: 'user_id',
+        key: "user_id",
       },
     },
     feedback: {
@@ -78,9 +84,9 @@ Application.init(
     modelName: "Application",
     tableName: "applications",
     timestamps: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
-  }
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+  },
 );
 
 module.exports = Application;

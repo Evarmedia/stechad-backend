@@ -722,9 +722,10 @@ const getJobDetails = async (req, res) => {
 const applyForJob = async (req, res) => {
   try {
     const { jobs_id } = req.params;
-    // const { cover_letter, proposed_rate, availability } = req.body;
 
-    // Check if job exists and is open
+    /* ===============================
+       CHECK JOB
+       =============================== */
     const job = await Job.findOne({
       where: { jobs_id, status: "active" },
     });
@@ -736,19 +737,31 @@ const applyForJob = async (req, res) => {
       });
     }
 
-    // Fetch the full user data from the database
-    const user = await User.findByPk(req.user.user_id);
+    /* ===============================
+       GET ENGINEER PROFILE
+       =============================== */
+    const engineer = await Engineer.findOne({
+      where: { user_id: req.user.user_id },
+      include: [{ model: User, as: "user" }],
+    });
 
-    if (!user) {
-      return res.status(401).json({
+    // console.log("Engineer from job aplication bkend ==>", engineer);
+
+    if (!engineer) {
+      return res.status(403).json({
         success: false,
-        message: "User not found",
+        message: "Only engineers can apply for jobs",
       });
     }
 
-    // Check if engineer already applied
+    /* ===============================
+       PREVENT DUPLICATE APPLICATION
+       =============================== */
     const existingApplication = await Application.findOne({
-      where: { job_id: jobs_id, engineer_id: req.user.user_id },
+      where: {
+        job_id: jobs_id,
+        engineer_id: engineer.engineer_id,
+      },
     });
 
     if (existingApplication) {
@@ -758,24 +771,31 @@ const applyForJob = async (req, res) => {
       });
     }
 
-    // Create application
+    // console.log("engineer ID ==>", engineer.engineer_id);
+    /* ===============================
+       CREATE APPLICATION
+       =============================== */
     const application = await Application.create({
       job_id: jobs_id,
-      engineer_id: req.user.user_id,
+      engineer_id: engineer.engineer_id, // ✅ correct FK
       job_title: job.title,
-      engineer_name: `${user.first_name} ${user.last_name}`,
+      engineer_name: `${engineer.user?.first_name} ${engineer.user?.last_name}`,
     });
 
-    // Update job applications count
+    /* ===============================
+       UPDATE JOB COUNTER
+       =============================== */
     await job.increment("applications_count");
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Application submitted successfully",
       data: application,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Application failed:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Application failed",
       error: error.message,
@@ -788,12 +808,13 @@ const getApplications = async (req, res) => {
   try {
     const { page, limit, status } = req.query;
 
-    /* ===============================
-       GET ENGINEER PROFILE
-       =============================== */
     const engineer = await Engineer.findOne({
       where: { user_id: req.user.user_id },
     });
+
+    // console.log("Engineer Found ==>", engineer);
+    // console.log("Engineer ID ==>", engineer ? engineer.engineer_id : "N/A");
+    // console.log("User ID", req.user.user_id)
 
     if (!engineer) {
       return res.status(404).json({
@@ -803,28 +824,23 @@ const getApplications = async (req, res) => {
     }
 
     const where = { engineer_id: engineer.engineer_id };
-    if (status) {
-      where.status = status;
-    }
+    if (status) where.status = status;
 
     const pagination = {
       limit: limit ? parseInt(limit) : undefined,
-      offset:
-        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
     const applications = await Application.findAndCountAll({
       where,
-
       include: [
         {
           model: Job,
           as: "job",
         },
         {
-          // 🔧 FIX: applicant is Engineer, not User
           model: Engineer,
-          as: "applicant",
+          as: "applicant", // ✅ correct association
           include: [
             {
               model: User,
@@ -834,11 +850,12 @@ const getApplications = async (req, res) => {
           ],
         },
       ],
-
       ...pagination,
       order: [["created_at", "DESC"]],
       distinct: true,
     });
+
+    // console.log("Applications Retrieved ==>", applications);
 
     return res.json({
       success: true,

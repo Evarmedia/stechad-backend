@@ -3,15 +3,27 @@ const { body, validationResult } = require('express-validator');
 // Handle validation errors
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
+
   if (!errors.isEmpty()) {
+    const formattedErrors = {};
+
+    errors.array().forEach((err) => {
+      // Only record first error per field
+      if (!formattedErrors[err.param]) {
+        formattedErrors[err.param] = err.msg;
+      }
+    });
+
     return res.status(400).json({
       success: false,
-      message: 'Validation failed',
-      errors: errors.array()
+      message: "Validation failed",
+      errors: formattedErrors,
     });
   }
+
   next();
 };
+
 
 // User registration validation
 const validateRegistration = [
@@ -32,25 +44,36 @@ const validateLogin = [
 
 // Job creation validation
 const validateJobCreation = [
-  body("title").notEmpty().trim(),
-  body("company").notEmpty().trim(),
-  body("location").notEmpty().trim(),
-  body("description").notEmpty().trim(),
-  body("employment_type").isIn(["full-time", "contract", "part-time"]),
-  body("salary").optional().trim(),
-  body("duration").optional().trim(),
-  body("openings").isInt({ min: 1 }),
-  body("experience_level").isIn([
-    "entry",
-    "intermediate",
-    "advanced",
-    "expert",
-  ]),
-  body("skills_required").isArray({ min: 1 }),
-  body("requirements").isArray({ min: 1 }),
-  body("responsibilities").isArray({ min: 1 }),
+  body("title").notEmpty().withMessage("Job title is required").trim(),
+  body("company").notEmpty().withMessage("Company is required").trim(),
+  body("location").notEmpty().withMessage("Location is required").trim(),
+  body("description").notEmpty().withMessage("Description is required").trim(),
+
+  body("employment_type")
+    .isIn(["full-time", "contract", "part-time"])
+    .withMessage("Employment type is invalid"),
+
+  body("openings").isInt({ min: 1 }).withMessage("Openings must be at least 1"),
+
+  body("experience_level")
+    .isIn(["entry", "intermediate", "advanced", "expert"])
+    .withMessage("Experience level is invalid"),
+
+  body("skills_required")
+    .isArray({ min: 1 })
+    .withMessage("At least one skill is required"),
+
+  body("requirements")
+    .isArray({ min: 1 })
+    .withMessage("At least one requirement is required"),
+
+  body("responsibilities")
+    .isArray({ min: 1 })
+    .withMessage("At least one responsibility is required"),
+
   handleValidationErrors,
 ];
+
 
 // Application validation
 const validateApplication = [

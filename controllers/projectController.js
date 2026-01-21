@@ -414,7 +414,7 @@ const deleteProject = async (req, res) => {
     /* ===============================
        STATUS CHECK
        =============================== */
-    if (!["planning", "cancelled"].includes(project.status)) {
+    if (!["planning", "cancelled", "on_hold"].includes(project.status)) {
       return res.status(400).json({
         success: false,
         message: "Cannot delete project that is in progress or completed",

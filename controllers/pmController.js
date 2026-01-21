@@ -13,6 +13,12 @@ const { Op } = require("sequelize");
 
 // Get project manager dashboard
 const getDashboard = async (req, res) => {
+  const now = new Date();
+  const last30Days = new Date();
+  last30Days.setDate(now.getDate() - 30);
+
+  const previous30Days = new Date();
+  previous30Days.setDate(now.getDate() - 60);
   try {
     const projectManager = await ProjectManager.findOne({
       where: { user_id: req.user.user_id },
@@ -96,6 +102,104 @@ const getDashboard = async (req, res) => {
       distinct: true,
     });
 
+    const completedProjectsCount = await Project.count({
+      where: {
+        status: "completed",
+      },
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          where: {
+            [Op.or]: [
+              { project_managers_id: pmId },
+              { project_managers_id: null },
+            ],
+          },
+        },
+      ],
+      distinct: true,
+    });
+
+    const totalProjectsAllTime = await Project.count({
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          where: {
+            [Op.or]: [
+              { project_managers_id: pmId },
+              { project_managers_id: null },
+            ],
+          },
+        },
+      ],
+      distinct: true,
+    });
+
+    const successRate = totalProjectsAllTime
+      ? Math.round((completedProjectsCount / totalProjectsAllTime) * 100)
+      : 0;
+
+    const completedLast30Days = await Project.count({
+      where: {
+        status: "completed",
+        updated_at: {
+          [Op.gte]: last30Days,
+        },
+      },
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          where: {
+            [Op.or]: [
+              { project_managers_id: pmId },
+              { project_managers_id: null },
+            ],
+          },
+        },
+      ],
+      distinct: true,
+    });
+
+    const completedPrevious30Days = await Project.count({
+      where: {
+        status: "completed",
+        updated_at: {
+          [Op.between]: [previous30Days, last30Days],
+        },
+      },
+      include: [
+        {
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          where: {
+            [Op.or]: [
+              { project_managers_id: pmId },
+              { project_managers_id: null },
+            ],
+          },
+        },
+      ],
+      distinct: true,
+    });
+
+    let successRateChange = 0;
+
+    if (completedPrevious30Days > 0) {
+      successRateChange =
+        ((completedLast30Days - completedPrevious30Days) /
+          completedPrevious30Days) *
+        100;
+    }
+
+    successRateChange = Math.round(successRateChange);
+
     /* ===============================
        RECENT APPLICATIONS
        =============================== */
@@ -148,6 +252,8 @@ const getDashboard = async (req, res) => {
           totalJobsCount,
           activeJobsCount,
           totalProjectsCount,
+          successRate: `${successRate}%`,
+          successRateChange: `${successRateChange >= 0 ? "+" : "-"}${successRateChange}%`,
         },
         recentApplications,
         recentJobs,
@@ -231,7 +337,7 @@ const updateProfile = async (req, res) => {
       const { objectName } = await uploadToGCP(
         req.file,
         req.user.user_id,
-        "profile-images"
+        "profile-images",
       );
       newAvatarObjectName = objectName;
       userUpdates.avatar_object_name = objectName; // store ONLY the GCS path
@@ -268,9 +374,7 @@ const updateProfile = async (req, res) => {
 
     // Get full user with all associations
     const userWithAssociations = await User.findByPk(req.user.user_id, {
-      include: [
-        { model: ProjectManager, as: 'project_manager' },
-      ],
+      include: [{ model: ProjectManager, as: "project_manager" }],
     });
 
     // Format user response with signed URLs
@@ -402,7 +506,8 @@ const getProjects = async (req, res) => {
 
     const pagination = {
       limit: limit ? parseInt(limit) : undefined,
-      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+      offset:
+        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
     const projects = await Project.findAndCountAll({
@@ -425,7 +530,9 @@ const getProjects = async (req, res) => {
         projects: projects.rows,
         pagination: {
           currentPage: page ? parseInt(page) : undefined,
-          totalPages: limit ? Math.ceil(projects.count / parseInt(limit)) : undefined,
+          totalPages: limit
+            ? Math.ceil(projects.count / parseInt(limit))
+            : undefined,
           totalItems: projects.count,
           itemsPerPage: limit ? parseInt(limit) : undefined,
         },
