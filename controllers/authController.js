@@ -569,12 +569,12 @@ const acceptInvite = async (req, res) => {
 
     const { token } = req.params;
 
-    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    // const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
 
     // 1️⃣ Find invite (outside transaction is fine)
     const invitedUser = await Invite.findOne({
-      where: { token: hashedToken, status: "pending" },
+      where: { token, status: "pending" },
     });
 
     if (!invitedUser) {
@@ -679,7 +679,6 @@ const acceptInvite = async (req, res) => {
     });
   }
 };
-
 
 // Get current user profile /auth/me
 const getMe = async (req, res) => {
