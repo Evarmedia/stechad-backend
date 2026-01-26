@@ -3,99 +3,130 @@ const { Op } = require("sequelize");
 const { createNotification } = require("../utils/notificationUtil");
 
 // Get all projects with filtering and pagination - list
-const getProjects = async (req, res) => {
+const getAllProjects = async (req, res) => {
   try {
     const { page, limit, status, priority } = req.query;
-    const { user_id, role } = req.user; 
+    const { user_id, role } = req.user;
 
-    let where = {};
-    let include = [];
+    /* ===============================
+       BASE FILTERS (Project table)
+       =============================== */
+    const where = {};
+    if (status) where.status = status;
+    if (priority) where.priority = priority;
+
+    /* ===============================
+       ROLE-BASED RESTRICTIONS
+       =============================== */
+    const include = [];
 
     if (role === "project_manager") {
-      // 🔧 FIX: filter via ProjectManager.user_id
-      include.push({
-        model: ProjectManager,
-        as: "project_manager",
-        where: { user_id },
-        attributes: [],
-        required: true,
-      });
+      // ✅ safest approach: resolve PM then filter by Project.project_managers_id
+      const pm = await ProjectManager.findOne({ where: { user_id } });
+
+      if (!pm) {
+        return res.status(404).json({
+          success: false,
+          message: "Project manager profile not found",
+        });
+      }
+
+      // PM sees only their projects + unassigned
+      where[Op.or] = [
+        { project_managers_id: pm.project_managers_id },
+        { project_managers_id: null },
+      ];
     }
 
     if (role === "engineer") {
-      // 🔧 Engineers only see projects they are assigned to
+      // Engineers see only projects they are assigned to (M:N)
+      // ✅ Important: restrict via include with required: true
       include.push({
         model: Engineer,
         as: "engineers",
         required: true,
-        include: [
-          {
-            model: User,
-            as: "user",
-            where: { user_id },
-            attributes: [],
-          },
-        ],
+        through: { attributes: [] },
+        where: { user_id }, // since Engineer has user_id column
+        // If you prefer to go through User, use the nested include below instead:
+        // include: [{ model: User, as: "user", where: { user_id }, attributes: [] }],
       });
     }
 
     // Admin → no restriction
 
-    if (status) {
-      where.status = status;
-    }
-
-    if (priority) {
-      where.priority = priority;
-    }
-
+    /* ===============================
+       PAGINATION
+       =============================== */
     const pagination = {};
     if (page && limit) {
       pagination.limit = parseInt(limit);
       pagination.offset = (parseInt(page) - 1) * parseInt(limit);
     }
 
-    const projects = await Project.findAndCountAll({
-      where,
-      include: [
-        ...include,
+    /* ===============================
+       EAGER LOAD (for response)
+       Avoid duplicates: only add these if not already used for restriction
+       =============================== */
 
+    // If role !== engineer, we can safely include engineers for display
+    if (role !== "engineer") {
+      include.push({
+        model: Engineer,
+        as: "engineers",
+        required: false,
+        through: { attributes: [] },
+        include: [
+          {
+            model: User,
+            as: "user",
+            attributes: ["first_name", "last_name", "email"],
+          },
+        ],
+      });
+    } else {
+      // role === engineer: we already included engineers for restriction,
+      // but we still want the user fields in response:
+      include[0].include = [
         {
-          model: Engineer,
-          as: "engineers",
-          required: false,
-          include: [
-            {
-              model: User,
-              as: "user",
-              attributes: ["first_name", "last_name", "email"],
-            },
-          ],
-          through: { attributes: [] },
+          model: User,
+          as: "user",
+          attributes: ["first_name", "last_name", "email"],
         },
+      ];
+    }
 
+    // PM info for display (safe for all roles)
+    include.push({
+      model: ProjectManager,
+      as: "project_manager",
+      required: false,
+      include: [
         {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          include: [
-            {
-              model: User,
-              as: "user",
-              attributes: ["first_name", "last_name", "email"],
-            },
-          ],
+          model: User,
+          as: "user",
+          attributes: ["first_name", "last_name", "email"],
         },
       ],
+    });
+
+    const projects = await Project.findAndCountAll({
+      where,
+      include,
       order: [["created_at", "DESC"]],
       distinct: true,
       ...pagination,
     });
 
+    // Optional: flag unassigned for frontend
+    const rows = projects.rows.map((p) => ({
+      ...p.toJSON(),
+      is_unassigned: p.project_managers_id === null,
+    }));
+
     return res.json({
       success: true,
       data: {
-        projects: projects.rows,
+        projects: rows,
         pagination:
           page && limit
             ? {
@@ -524,7 +555,7 @@ const getProjectStats = async (req, res) => {
 };
 
 module.exports = {
-  getProjects,
+  getAllProjects,
   getProjectById,
   createProject,
   updateProject,

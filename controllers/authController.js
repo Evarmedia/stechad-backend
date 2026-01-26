@@ -560,7 +560,7 @@ const acceptInvite = async (req, res) => {
 
   try {
     const {
-      temp_password,
+      // temp_password,
       new_password,
       confirm_password,
       first_name,
@@ -594,14 +594,14 @@ const acceptInvite = async (req, res) => {
     }
 
     // 2️⃣ Validate temp password
-    const isTempMatch = await invitedUser.compareTempPassword(temp_password);
-    if (!isTempMatch) {
-      await transaction.rollback();
-      return res.status(401).json({
-        success: false,
-        message: "Temporary password is incorrect",
-      });
-    }
+    // const isTempMatch = await invitedUser.compareTempPassword(temp_password);
+    // if (!isTempMatch) {
+    //   await transaction.rollback();
+    //   return res.status(401).json({
+    //     success: false,
+    //     message: "Temporary password is incorrect",
+    //   });
+    // }
 
     // 3️⃣ Validate password confirmation
     if (new_password !== confirm_password) {
@@ -654,7 +654,7 @@ const acceptInvite = async (req, res) => {
       {
         status: "accepted",
         token: null,
-        temp_password: null,
+        // temp_password: null,
         responded_at: new Date(),
       },
       { transaction }

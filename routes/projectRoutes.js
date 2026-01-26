@@ -8,7 +8,7 @@ const express = require('express');
 
 const { authenticate, authorize } = require('../middleware/auth');
 const {
-  getProjects,
+  getAllProjects,
   getProjectById,
   createProject,
   updateProject,
@@ -91,7 +91,7 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', authorize('admin', 'project_manager'), getProjects);
+router.get('/', authorize('admin', 'project_manager'), getAllProjects);
 
 /**
  * @swagger

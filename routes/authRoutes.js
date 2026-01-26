@@ -60,7 +60,7 @@ router.get('/google', passport.authenticate('google', {
   session: false,
   // Force Google to show the account chooser / consent screen
   prompt: 'select_account',
-  accessType: 'offline',
+  accessType: 'online',
 }));
 
 /**

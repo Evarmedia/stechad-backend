@@ -495,61 +495,99 @@ const getJobs = async (req, res) => {
 };
 
 // Get project manager's projects - list
-const getProjects = async (req, res) => {
+const getPmProjects = async (req, res) => {
   try {
     const { page, limit, status } = req.query;
 
-    const where = { project_managers_user_id: req.user.user_id };
-    if (status) {
-      where.status = status;
+    // 1) Get PM profile
+    const pm = await ProjectManager.findOne({
+      where: { user_id: req.user.user_id },
+    });
+
+    if (!pm) {
+      return res.status(404).json({
+        success: false,
+        message: "Project manager profile not found",
+      });
     }
+
+    // 2) Build WHERE on Project (THIS is the real fix)
+    const where = {
+      [Op.or]: [
+        { project_managers_id: pm.project_managers_id }, // PM-owned
+        { project_managers_id: null },                   // unassigned
+      ],
+    };
+
+    if (status) where.status = status;
 
     const pagination = {
       limit: limit ? parseInt(limit) : undefined,
-      offset:
-        page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
+      offset: page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
     const projects = await Project.findAndCountAll({
-      where,
+      where, // ✅ filter applied to Project rows (no leakage)
       include: [
         {
-          model: User,
-          as: "engineer",
-          attributes: ["first_name", "last_name"],
+          model: ProjectManager,
+          as: "project_manager",
+          required: false,
+          include: [{ model: User, as: "user" }],
         },
-        { model: Job, as: "job", attributes: ["title"] },
+        {
+          model: Engineer,
+          as: "engineers",
+          through: { attributes: [] },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name"],
+            },
+          ],
+        },
       ],
       ...pagination,
       order: [["created_at", "DESC"]],
+      distinct: true,
     });
 
-    res.json({
+    // (Optional) flag unassigned projects for the frontend
+    const rows = projects.rows.map((p) => ({
+      ...p.toJSON(),
+      is_unassigned: p.project_managers_id === null,
+    }));
+
+    return res.json({
       success: true,
       data: {
-        projects: projects.rows,
+        projects: rows,
         pagination: {
           currentPage: page ? parseInt(page) : undefined,
-          totalPages: limit
-            ? Math.ceil(projects.count / parseInt(limit))
-            : undefined,
+          totalPages: limit ? Math.ceil(projects.count / parseInt(limit)) : undefined,
           totalItems: projects.count,
           itemsPerPage: limit ? parseInt(limit) : undefined,
         },
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Failed to get projects:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to get projects",
       error: error.message,
     });
   }
 };
+
+
 module.exports = {
   getDashboard,
   updateProfile,
   createJob,
   getJobs,
-  getProjects,
+  getPmProjects,
 };

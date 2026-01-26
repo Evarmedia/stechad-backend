@@ -579,7 +579,7 @@ const inviteProjectManager = async (req, res) => {
       });
     }
     
-    const tempPassword = Math.random().toString(36).slice(-8);
+    // const tempPassword = Math.random().toString(36).slice(-8);
     const token = uuidv4();
 
     // const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
@@ -588,7 +588,7 @@ const inviteProjectManager = async (req, res) => {
 
     const invitedUser = await Invite.create({
       email,
-      temp_password: tempPassword,
+      // temp_password: tempPassword,
       role,
       token,
       invited_by_user_id: req.user.user_id,
@@ -605,7 +605,7 @@ const inviteProjectManager = async (req, res) => {
 
     const replacements = {
       firstname: first_name,
-      tempPassword,
+      // tempPassword,
       year: new Date().getFullYear(),
       url: `${process.env.FRONTEND_URL}/accept-invite?token=${token}`,
     };

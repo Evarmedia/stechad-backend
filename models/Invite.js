@@ -23,10 +23,10 @@ Invite.init(
         isIn: [["admin", "project_manager", "engineer"]],
       },
     },
-    temp_password: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
+    // temp_password: {
+    //   type: DataTypes.TEXT,
+    //   allowNull: true,
+    // },
     token: {
       type: DataTypes.TEXT,
       allowNull: true,

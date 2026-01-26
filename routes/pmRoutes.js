@@ -311,6 +311,6 @@ router.get('/jobs', pmController.getJobs);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/projects', pmController.getProjects);
+router.get('/projects', pmController.getPmProjects);
 
 module.exports = router;
