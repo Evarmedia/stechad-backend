@@ -53,12 +53,9 @@ router.get('/dashboard', pmController.getDashboard);
  *           schema:
  *             type: object
  *             properties:
- *               company_name:
+ *               company:
  *                 type: string
  *                 example: "Acme Corp"
- *               company_size:
- *                 type: string
- *                 example: "11-50"
  *               industry:
  *                 type: string
  *                 example: "IT Services"
@@ -71,12 +68,6 @@ router.get('/dashboard', pmController.getDashboard);
  *               linkedin_url:
  *                 type: string
  *                 example: "https://linkedin.com/in/john-doe"
- *               location:
- *                 type: string
- *                 example: "London, UK"
- *               timezone:
- *                 type: string
- *                 example: "Europe/London"
  *               first_name:
  *                 type: string
  *                 example: "Jane"

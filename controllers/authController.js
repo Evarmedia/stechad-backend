@@ -35,7 +35,7 @@ const formatUserResponse = async (user) => {
         SIGNED_URL_TTL_SECONDS
       );
     } catch (e) {
-      data.avatar_url = undefined;
+      data.avatar_url = null;
     }
   }
 
@@ -100,17 +100,6 @@ passport.use(
     }
   )
 );
-
-// Serialize user
-// passport.serializeUser((user, done) => {
-//   done(null, user.user_id);
-// });
-
-// // Deserialize user
-// passport.deserializeUser(async (id, done) => {
-//   const user = await User.findOne({ where: { user_id: id } });
-//   done(null, user);
-// });
 
 const signup = async (req, res) => {
   try {

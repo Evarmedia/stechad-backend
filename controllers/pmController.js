@@ -299,14 +299,12 @@ const updateProfile = async (req, res) => {
     }
 
     const allowedProjectManagerUpdates = [
-      "company_name",
+      "company",
       "company_size",
       "industry",
       "bio",
       "website_url",
       "linkedin_url",
-      "location",
-      "timezone",
     ];
 
     const allowedUserUpdates = [
@@ -381,18 +379,18 @@ const updateProfile = async (req, res) => {
     const formattedUser = await formatUserResponse(userWithAssociations);
 
     // Generate tokens
-    const { token, refreshToken } = generateTokens({
-      user_id: req.user.user_id,
-      role: userWithAssociations.role,
-    });
+    // const { token, refreshToken } = generateTokens({
+    //   user_id: req.user.user_id,
+    //   role: userWithAssociations.role,
+    // });
 
     res.json({
       success: true,
       message: "Profile updated successfully",
       data: {
         user: formattedUser,
-        token,
-        refreshToken,
+        // token,
+        // refreshToken,
       },
     });
   } catch (error) {

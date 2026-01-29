@@ -300,18 +300,18 @@ const updateProfile = async (req, res) => {
     const formattedUser = await formatUserResponse(userWithAssociations);
 
     // Generate tokens
-    const { token, refreshToken } = generateTokens({
-      user_id: req.user.user_id,
-      role: userWithAssociations.role,
-    });
+    // const { token, refreshToken } = generateTokens({
+    //   user_id: req.user.user_id,
+    //   role: userWithAssociations.role,
+    // });
 
     res.json({
       success: true,
       message: "Profile updated successfully",
       data: {
         user: formattedUser,
-        token,
-        refreshToken,
+        // token,
+        // refreshToken,
       },
     });
   } catch (error) {
@@ -607,7 +607,11 @@ const inviteProjectManager = async (req, res) => {
       firstname: first_name,
       // tempPassword,
       year: new Date().getFullYear(),
-      url: `${process.env.FRONTEND_URL}/accept-invite?token=${token}`,
+      // url: `${process.env.FRONTEND_PROD_URL}/accept-invite?token=${token}`,
+      url: `${process.env.NODE_ENV === "production"
+        ? process.env.FRONTEND_PROD_URL
+        : process.env.FRONTEND_DEV_URL
+      }/accept-invite?token=${token}`,
     };
 
     await sendEmail({
