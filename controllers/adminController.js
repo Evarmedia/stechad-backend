@@ -19,6 +19,7 @@ const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toBool, toTextArray } = require("../utils/helpers");
 const { formatUserResponse, generateTokens } = require("./authController");
 const crypto = require("crypto");
+const sequelize = require("../config/database");
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -544,6 +545,7 @@ const getProjectManagers = async (req, res) => {
 
 // Invite new project manager
 const inviteProjectManager = async (req, res) => {
+  let transaction;
   try {
     const { email, first_name, role = "project_manager" } = req.body;
 
@@ -570,13 +572,16 @@ const inviteProjectManager = async (req, res) => {
       });
     }
 
+    // Use a transaction so the invite is persisted ONLY if the email is sent
+    transaction = await sequelize.transaction();
+
     // 4️⃣ If pending invite exists BUT is expired → invalidate it
     if (existingInvite && new Date() >= existingInvite.expires_at) {
       await existingInvite.update({
         status: "expired",
         token: null,
         // temp_password: null,
-      });
+      }, { transaction });
     }
     
     // const tempPassword = Math.random().toString(36).slice(-8);
@@ -595,7 +600,7 @@ const inviteProjectManager = async (req, res) => {
       sent_at: new Date(),
       expires_at,
       status: "pending",
-    });
+    }, { transaction });
 
     // 5️⃣ Send email
     const htmlFilePath = path.join(
@@ -610,7 +615,7 @@ const inviteProjectManager = async (req, res) => {
       // url: `${process.env.FRONTEND_PROD_URL}/accept-invite?token=${token}`,
       url: `${process.env.NODE_ENV === "production"
         ? process.env.FRONTEND_PROD_URL
-        : process.env.FRONTEND_DEV_URL
+        : process.env.FRONTEND_URL
       }/accept-invite?token=${token}`,
     };
 
@@ -621,11 +626,20 @@ const inviteProjectManager = async (req, res) => {
       replacements,
     });
 
+    // Commit only after email succeeds
+    await transaction.commit();
+
     res.status(201).json({
       success: true,
       message: "Project manager invited successfully.",
     });
   } catch (error) {
+    // If we created a transaction but didn't commit, roll back
+    if (typeof transaction !== "undefined") {
+      try {
+        await transaction.rollback();
+      } catch (_) {}
+    }
     console.error(error);
     res.status(500).json({
       success: false,
