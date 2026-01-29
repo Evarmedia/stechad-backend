@@ -638,7 +638,7 @@ const acceptInvite = async (req, res) => {
     // 6️⃣ Create role-specific record
     if (invitedUser.role === "project_manager") {
       await ProjectManager.create(
-        { user_id: user.user_id },
+        { user_id: user.user_id, status: "active" },
         { transaction }
       );
     }

@@ -17,7 +17,7 @@ ProjectManager.init(
       unique: true,
       references: {
         model: User,
-        key: 'user_id',
+        key: "user_id",
       },
     },
     company: {
@@ -28,8 +28,8 @@ ProjectManager.init(
       type: DataTypes.TEXT,
     },
     status: {
-      type: DataTypes.ENUM('active', 'inactive'),
-      defaultValue: 'active',
+      type: DataTypes.ENUM("active", "inactive"),
+      defaultValue: "active",
     },
     total_projects: {
       type: DataTypes.INTEGER,
@@ -53,9 +53,9 @@ ProjectManager.init(
     modelName: "ProjectManager",
     tableName: "project_managers",
     timestamps: true,
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
-  }
+    createdAt: "created_at",
+    updatedAt: "updated_at",
+  },
 );
 
 module.exports = ProjectManager;
