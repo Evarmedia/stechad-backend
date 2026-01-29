@@ -10,9 +10,10 @@ const rateLimit = require('express-rate-limit');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const createDefaultRewards = require('./seeders/referralRewards');
-const { Reward } = require('./models');
+const PORT = process.env.PORT || 5000;
 
 const sequelize = require('./config/database');
+const { Reward } = require('./models');
 const authRoutes = require('./routes/authRoutes');
 const engineerRoutes = require('./routes/engineerRoutes');
 const pmRoutes = require('./routes/pmRoutes');
@@ -284,7 +285,6 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
 
 // Database connection and server start
 const startServer = async () => {
