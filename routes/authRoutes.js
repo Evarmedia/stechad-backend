@@ -119,9 +119,6 @@ const frontendUrl =
     ? process.env.FRONTEND_URL
     : process.env.FRONTEND_PROD_URL;
 
-
-console.log(frontendUrl);
-
 router.get('/google/callback', 
   passport.authenticate('google', { failureRedirect: '/', session: false }),
   (req, res) => {

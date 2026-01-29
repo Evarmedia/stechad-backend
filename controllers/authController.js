@@ -64,12 +64,17 @@ const formatUserResponse = async (user) => {
   return data;
 };
 
+const frontendUrl =
+  process.env.NODE_ENV === "development"
+    ? process.env.FRONTEND_URL
+    : process.env.FRONTEND_PROD_URL;
+
 passport.use(
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "http://localhost:5000/api/auth/google/callback",
+      callbackURL: `${frontendUrl}/api/auth/google/callback`,
     },
     async (accessToken, refreshToken, profile, done) => {
       // profile contains user information from Google
