@@ -86,7 +86,7 @@ Engineer.hasMany(Application, {
 });
 Application.belongsTo(Engineer, {
   foreignKey: "engineer_id",
-  as: "applicant", // alias preserved
+  as: "applicant",
 });
 
 /* =========================
