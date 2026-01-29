@@ -64,17 +64,17 @@ const formatUserResponse = async (user) => {
   return data;
 };
 
-const frontendUrl =
+const backendUrl =
   process.env.NODE_ENV === "development"
-    ? process.env.FRONTEND_URL
-    : process.env.FRONTEND_PROD_URL;
-
+    ? process.env.BACKEND_URL
+    : process.env.BACKEND_PROD_URL;
+    
 passport.use(
   new GoogleStrategy(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: `${frontendUrl}/api/auth/google/callback`,
+      callbackURL: `${backendUrl}/api/auth/google/callback`,
     },
     async (accessToken, refreshToken, profile, done) => {
       // profile contains user information from Google
@@ -102,8 +102,8 @@ passport.use(
       } catch (error) {
         done(error, null);
       }
-    }
-  )
+    },
+  ),
 );
 
 const signup = async (req, res) => {
