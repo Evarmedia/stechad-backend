@@ -101,6 +101,11 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Server is running' });
 });
 
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'OK', message: 'Welcome to Stechad Base' });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -113,7 +118,7 @@ app.use((err, req, res, next) => {
 
 // 404 handler
 app.use('*', (req, res) => {
-  console.log("Route not found")
+  console.log("Route not found");
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
@@ -285,14 +290,13 @@ io.on('connection', (socket) => {
   });
 });
 
-
 // Database connection and server start
 const startServer = async () => {
   try {
     await sequelize.authenticate();
     console.log('Database connected successfully');
     
-    await sequelize.sync({ alter: true, force: false });
+    // await sequelize.sync({ alter: true, force: false }); Uncomment on initial db connection
     console.log('Database synchronized');
 
     // Create default rewards if they don't exist
