@@ -1,5 +1,17 @@
 const swaggerJSDoc = require('swagger-jsdoc');
 
+const sanitizeUrl = (url) => (url ? url.replace(/\/+$/, '') : url);
+const primaryServerUrl =
+  process.env.SWAGGER_SERVER_URL ||
+  (process.env.RENDER_EXTERNAL_URL
+    ? `${sanitizeUrl(process.env.RENDER_EXTERNAL_URL)}/api`
+    : null) ||
+  (process.env.BACKEND_PROD_URL
+    ? `${sanitizeUrl(process.env.BACKEND_PROD_URL)}/api`
+    : null) ||
+  (process.env.BACKEND_URL ? `${sanitizeUrl(process.env.BACKEND_URL)}/api` : null) ||
+  'http://localhost:5000/api';
+
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -13,10 +25,8 @@ const options = {
       }
     },
     servers: [
-      {
-        url: 'http://localhost:5000/api',
-        description: 'Development server'
-      }
+      { url: '/api', description: 'Same-origin (recommended)' },
+      { url: primaryServerUrl, description: 'Configured base URL' }
     ],
     components: {
       securitySchemes: {

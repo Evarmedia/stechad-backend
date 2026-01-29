@@ -42,14 +42,24 @@ const io = socketIo(server, {
   }
 });
 
-const origin =
-  process.env.NODE_ENV === "development"
-    ? process.env.FRONTEND_URL
-    : process.env.FRONTEND_PROD_URL;
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.FRONTEND_PROD_URL,
+  process.env.BACKEND_URL,
+  process.env.BACKEND_PROD_URL,
+  process.env.RENDER_EXTERNAL_URL, // Render injects this in production
+].filter(Boolean);
 
 const corsOptions = {
-  // origin: "https://stechad-talent-hub.onrender.com",
-  origin: origin,
+  // Allow same-origin, Postman (no origin), and any explicitly whitelisted origins
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed = allowedOrigins.some((allowedOrigin) => origin.startsWith(allowedOrigin));
+    return allowed
+      ? callback(null, true)
+      : callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
 };
 
 // Security middleware
