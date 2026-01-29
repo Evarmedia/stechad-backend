@@ -114,6 +114,14 @@ router.get('/google', passport.authenticate('google', {
  *               $ref: '#/components/schemas/Error'
  */
 // Google callback route
+const frontendUrl =
+  process.env.NODE_ENV === "development"
+    ? process.env.FRONTEND_URL
+    : process.env.FRONTEND_PROD_URL;
+
+
+console.log(frontendUrl);
+
 router.get('/google/callback', 
   passport.authenticate('google', { failureRedirect: '/', session: false }),
   (req, res) => {
@@ -122,7 +130,7 @@ router.get('/google/callback',
       user_id: req.user.user_id,
       role: req.user.role,
     });
-    res.redirect(`http://localhost:8080/dashboard/engineer?token=${token}`);
+    res.redirect(`${frontendUrl}/dashboard/engineer?token=${token}`);
   }
 );
 

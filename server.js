@@ -38,25 +38,37 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
   }
 });
 
+const origin =
+  process.env.NODE_ENV === "development"
+    ? process.env.FRONTEND_URL
+    : process.env.FRONTEND_PROD_URL;
+
+const corsOptions = {
+  // origin: "https://stechad-talent-hub.onrender.com",
+  origin: origin,
+};
+
 // Security middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(compression());
+// Trust the proxy to correctly handle X-Forwarded-For headers
+app.set('trust proxy', false);
 
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 2 * 60 * 1000, // 2 minutes
-  max: 10000, // limit each IP to 100 requests per windowMs
+  max: 1000, // limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Logging middleware
@@ -64,14 +76,7 @@ app.use(express.urlencoded({ extended: true }));
 //   app.use(morgan('dev'));
 // }
 
-// Session management
-// app.use(session({ secret: process.env.JWT_SECRET, resave: false, saveUninitialized: true }));
 app.use(passport.initialize());
-
-// app.use(passport.session());
-
-// Static files
-// app.use('/uploads', express.static('uploads'));
 
 // Swagger documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
