@@ -4,13 +4,13 @@ const fs = require("fs");
 const transporter = nodemailer.createTransport({
   host: "smtp.hostinger.com",
   port: 465,
-  secure: false,
+  secure: true,
   auth: {
     user: "no_reply@stechad.com",
     pass: "WBkc8:Zz9&",
   },
   tls: {
-    rejectUnauthorized: false,
+    rejectUnauthorized: true,
   },
   debug: true,
   connectionTimeout: 30000, // 30 seconds

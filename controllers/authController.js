@@ -192,7 +192,7 @@ const signup = async (req, res) => {
     if (role === "engineer" || googleSignIn) {
       await Engineer.create({ user_id: user.user_id });
     } else if (role === "project_manager") {
-      await ProjectManager.create({ user_id: user.user_id });
+      await ProjectManager.create({ user_id: user.user_id, status: "active" });
     } else if (role === "admin") {
       await Admin.create({ user_id: user.user_id });
     }
