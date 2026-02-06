@@ -300,19 +300,19 @@ const updateProfile = async (req, res) => {
 
     const allowedProjectManagerUpdates = [
       "company",
-      "company_size",
-      "industry",
+      "company_size", // not supported in DB yet
+      "industry", // not supported in DB yet
       "bio",
-      "website_url",
-      "linkedin_url",
     ];
-
+    
     const allowedUserUpdates = [
       "first_name",
       "last_name",
       "phone_number",
       "city",
       "country",
+      "website_url",
+      "linkedin_url",
       // avatar_object_name is set only by upload below
     ];
 

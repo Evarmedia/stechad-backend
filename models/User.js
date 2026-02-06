@@ -54,6 +54,12 @@ User.init(
     city: {
       type: DataTypes.TEXT,
     },
+    linkedin_url: {
+      type: DataTypes.TEXT
+    },
+    website_url: {
+      type: DataTypes.TEXT,
+    },
     last_login: {
       type: DataTypes.DATE,
     },

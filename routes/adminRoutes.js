@@ -161,6 +161,9 @@ router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
  *               is_vetted:
  *                 type: boolean
  *                 example: true
+ *               remark:
+ *                 type: string
+ *                 example: "Experienced but not Fluent in French"
  *                 description: Vetting status of the engineer
  *     responses:
  *       200:

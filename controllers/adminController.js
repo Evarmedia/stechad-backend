@@ -365,7 +365,7 @@ const getEngineerDetails = async (req, res) => {
 // Vet / Unvet an engineer
 const updateEngineerVetting = async (req, res) => {
   try {
-    const { engineer_id, is_vetted } = req.body;
+    const { engineer_id, is_vetted, remark } = req.body;
 
     const engineer = await Engineer.findByPk(engineer_id);
 
@@ -380,6 +380,7 @@ const updateEngineerVetting = async (req, res) => {
       is_vetted,
       vetted_at: is_vetted ? new Date() : null,
       vetted_by: is_vetted ? req.user.user_id : null,
+      remark: is_vetted ? remark : null,
     });
 
     // 🔧 Re-fetch with correct includes

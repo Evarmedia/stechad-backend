@@ -77,6 +77,9 @@ Engineer.init(
     special_preferences: {
       type: DataTypes.TEXT,
     },
+    remark: {
+      type: DataTypes.TEXT,
+    },
     cv_object_name: {
       type: DataTypes.TEXT,
     },

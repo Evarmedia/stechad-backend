@@ -780,6 +780,8 @@ const applyForJob = async (req, res) => {
       engineer_id: engineer.engineer_id, // ✅ correct FK
       job_title: job.title,
       engineer_name: `${engineer.user?.first_name} ${engineer.user?.last_name}`,
+      experience: engineer.years_of_experience,
+      skills: engineer.specialization,
     });
 
     /* ===============================
