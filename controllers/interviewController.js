@@ -38,6 +38,22 @@ async function scheduleInterview(req, res) {
     const job = await Job.findOne({ where: { jobs_id: job_id } });
     if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
 
+    // Prevent multiple active interviews for the same engineer & job
+    const existingInterview = await Interview.findOne({
+      where: {
+        candidate_id: engineer.engineer_id,
+        job_id,
+        status: { [Op.notIn]: ['cancelled', 'completed'] },
+      },
+    });
+    if (existingInterview) {
+      return res.status(409).json({
+        success: false,
+        message: 'An Interview Already exists for this candidate & Job, can you reschedule instead?',
+        data: existingInterview,
+      });
+    }
+
     const candidate_name  = `${engineer.user?.first_name ?? ''} ${engineer.user?.last_name ?? ''}`.trim();
     const candidate_email = engineer.user?.email;
     const interviewer_id  = pm ? pm.project_managers_id : null;
