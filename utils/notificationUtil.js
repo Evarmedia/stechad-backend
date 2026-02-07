@@ -1,4 +1,6 @@
+const path = require("path");
 const { Notification } = require("../models");
+const sendEmail = require("./sendEmail");
 
 /**
  * Create a new notification
@@ -308,6 +310,53 @@ const createProjectAssignmentNotification = async (project, engineer_id) => {
   });
 };
 
+/**
+ * Notify the job poster when a new application is submitted
+ * @param {Object} params
+ * @param {Object} params.job - Job instance with poster included
+ * @param {Object} params.application - Application instance
+ * @param {Object} params.engineer - Engineer instance with user included
+ */
+const notifyJobPosterOfApplication = async ({ job, application, engineer }) => {
+  try {
+    const pmUserId = job?.poster?.user_id;
+    const pmEmail = job?.poster?.email;
+
+    if (!pmUserId || !pmEmail) return;
+
+    const engineerName = `${engineer.user?.first_name || ""} ${engineer.user?.last_name || ""}`.trim() || "Engineer";
+    const pmName = job.poster?.first_name || "there";
+
+    await createNotification({
+      user_id: pmUserId,
+      title: "New Job Application",
+      message: `${engineerName} just applied for your job "${job.title}"`,
+      type: "info",
+      action_url: `/jobs/${job.jobs_id}/applicants`,
+      metadata: {
+        job_id: job.jobs_id,
+        application_id: application.applications_id,
+        engineer_id: engineer.engineer_id,
+      },
+    });
+
+    await sendEmail({
+      to: pmEmail,
+      subject: `New application for ${job.title}`,
+      htmlFilePath: path.join(__dirname, "../templates/jobApplicationReceived.html"),
+      replacements: {
+        pm_name: pmName,
+        job_title: job.title || "your job",
+        company: job.company || "",
+        engineer_name: engineerName,
+        application_url: `${process.env.APP_URL || "https://app.stechad.com"}/jobs/${job.jobs_id}/applicants`,
+      },
+    });
+  } catch (error) {
+    console.error("Error notifying job poster of application:", error);
+  }
+};
+
 module.exports = {
   createNotification,
   createBulkNotifications,
@@ -318,4 +367,5 @@ module.exports = {
   createApplicationStatusNotification,
   createNewJobNotification,
   createProjectAssignmentNotification,
+  notifyJobPosterOfApplication,
 };

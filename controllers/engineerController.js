@@ -12,6 +12,9 @@ const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toInt, toTextArray, toBool } = require("../utils/helpers");
 const { formatUserResponse } = require("./authController");
 const { generateTokens } = require("../utils/generateTokens");
+const {
+  notifyJobPosterOfApplication,
+} = require("../utils/notificationUtil");
 
 // Complete engineer onboarding (multipart/form-data)
 const completeOnboarding = async (req, res) => {
@@ -728,6 +731,13 @@ const applyForJob = async (req, res) => {
        =============================== */
     const job = await Job.findOne({
       where: { jobs_id, status: "active" },
+      include: [
+        {
+          model: User,
+          as: "poster",
+          attributes: ["user_id", "email", "first_name", "last_name"],
+        },
+      ],
     });
 
     if (!job) {
@@ -788,6 +798,9 @@ const applyForJob = async (req, res) => {
        UPDATE JOB COUNTER
        =============================== */
     await job.increment("applications_count");
+
+    // Notify the job poster via in-app notification + email
+    await notifyJobPosterOfApplication({ job, application, engineer });
 
     return res.status(201).json({
       success: true,
