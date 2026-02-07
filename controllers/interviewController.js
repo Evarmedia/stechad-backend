@@ -1,6 +1,8 @@
 const { Op } = require('sequelize');
+const path = require('path');
 const { Interview, Engineer, ProjectManager, Job, User } = require('../models');
 const notificationUtil = require('../utils/notificationUtil'); // assumes sendNotification()
+const sendEmail = require('../utils/sendEmail');
 
 // helpers
 function asJSON(modelInstance) {
@@ -41,6 +43,7 @@ async function scheduleInterview(req, res) {
     const interviewer_id  = pm ? pm.project_managers_id : null;
     const interviewer_email = pm?.user?.email || req.user.email || null;
     const job_title = job.title;
+    const pm_name = `${pm?.user?.first_name ?? ''} ${pm?.user?.last_name ?? ''}`.trim() || 'Hiring Team';
 
     const interview = await Interview.create({
       candidate_id: engineer.engineer_id,
@@ -65,8 +68,8 @@ async function scheduleInterview(req, res) {
         title: 'Interview Scheduled',
         message: `Your interview for "${job_title}" is scheduled on ${new Date(date_time).toLocaleString()}`,
         type: 'interview',
-        data: { interview_id: interview.interviews_id, job_id }
-      });
+      data: { interview_id: interview.interviews_id, job_id }
+    });
       if (pm) {
         await notificationUtil.sendNotification({
           user_id: pm.user_id,
@@ -79,6 +82,32 @@ async function scheduleInterview(req, res) {
     } catch (e) {
       // don’t fail the request on notification errors
       console.warn('Notification error(scheduleInterview):', e?.message || e);
+    }
+
+    // Email confirmation to engineer (best-effort)
+    if (candidate_email) {
+      try {
+        const htmlFilePath = path.join(__dirname, '../templates/interviewScheduled.html');
+        const replacements = {
+          engineerName: candidate_name || 'there',
+          jobTitle: job_title || 'your role',
+          interviewDateTime: new Date(date_time).toLocaleString(),
+          duration: `${duration} minutes`,
+          zoomLink: zoom_link || 'Will be shared separately',
+          phoneNumber: phone_number || 'N/A',
+          notes: notes || 'None',
+          pmName: pm_name,
+        };
+
+        await sendEmail({
+          to: candidate_email,
+          subject: `Interview Scheduled: ${job_title}`,
+          htmlFilePath,
+          replacements,
+        });
+      } catch (emailErr) {
+        console.warn('Email error(scheduleInterview):', emailErr?.message || emailErr);
+      }
     }
 
     return res.status(201).json({ success: true, message: 'Interview scheduled', data: interview });
