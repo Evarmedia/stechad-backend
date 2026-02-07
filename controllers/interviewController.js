@@ -242,7 +242,11 @@ async function updateInterview(req, res) {
     const { interviews_id } = req.params;
     const interview = await Interview.findOne({
       where: { interviews_id: interviews_id },
-      include: [{ model: Engineer, as: 'candidate' }, { model: ProjectManager, as: 'interviewer' }]
+      include: [
+        { model: Engineer, as: 'candidate', include: [{ model: User, as: 'user' }] },
+        { model: ProjectManager, as: 'interviewer', include: [{ model: User, as: 'user' }] },
+        { model: Job, as: 'job' },
+      ]
     });
     if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
@@ -254,6 +258,7 @@ async function updateInterview(req, res) {
     const isEngineer = req.user.role === 'engineer' && eng && interview.candidate_id === eng.engineer_id;
 
     const { status, date_time, duration, zoom_link, phone_number, notes } = req.body;
+    const wasRescheduled = date_time !== undefined || status === 'rescheduled';
 
     // Authorization matrix
     if (isEngineer) {
@@ -297,6 +302,28 @@ async function updateInterview(req, res) {
           message: `An interview was updated (status: ${interview.status}).`,
           type: 'interview',
           data: { interview_id: interview.interviews_id }
+        });
+      }
+
+      // Email on reschedule (best-effort)
+      if (wasRescheduled && interview.candidate?.user?.email) {
+        const htmlFilePath = path.join(__dirname, '../templates/interviewScheduled.html');
+        const pmName = `${interview.interviewer?.user?.first_name ?? ''} ${interview.interviewer?.user?.last_name ?? ''}`.trim() || 'Hiring Team';
+        const replacements = {
+          engineerName: `${interview.candidate?.user?.first_name ?? ''} ${interview.candidate?.user?.last_name ?? ''}`.trim() || 'there',
+          jobTitle: interview.job?.title || interview.job_title || 'your role',
+          interviewDateTime: new Date(interview.date_time).toLocaleString(),
+          duration: `${interview.duration ?? duration ?? 30} minutes`,
+          zoomLink: interview.zoom_link || zoom_link || 'Will be shared separately',
+          phoneNumber: interview.phone_number || phone_number || 'N/A',
+          notes: interview.notes || notes || 'None',
+          pmName,
+        };
+        await sendEmail({
+          to: interview.candidate.user.email,
+          subject: `Interview Rescheduled: ${replacements.jobTitle}`,
+          htmlFilePath,
+          replacements,
         });
       }
     } catch (e) {
