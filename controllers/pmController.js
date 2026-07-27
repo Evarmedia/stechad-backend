@@ -65,77 +65,33 @@ const getDashboard = async (req, res) => {
     /* ===============================
        PROJECT STATS
        =============================== */
+    const pmProjectFilter = { project_managers_id: pmId };
+
     const activeProjects = await Project.findAll({
       where: {
+        ...pmProjectFilter,
         status: ["planning", "in_progress"],
       },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          where: {
-            [Op.or]: [
-              { project_managers_id: pmId },
-              { project_managers_id: null },
-            ],
-          },
-        },
-      ],
     });
 
     const totalProjectsCount = await Project.count({
-      where: { status: "completed" },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          where: {
-            [Op.or]: [
-              { project_managers_id: pmId },
-              { project_managers_id: null },
-            ],
-          },
-        },
-      ],
+      where: {
+        ...pmProjectFilter,
+        status: "completed",
+      },
       distinct: true,
     });
 
     const completedProjectsCount = await Project.count({
       where: {
+        ...pmProjectFilter,
         status: "completed",
       },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          where: {
-            [Op.or]: [
-              { project_managers_id: pmId },
-              { project_managers_id: null },
-            ],
-          },
-        },
-      ],
       distinct: true,
     });
 
     const totalProjectsAllTime = await Project.count({
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          where: {
-            [Op.or]: [
-              { project_managers_id: pmId },
-              { project_managers_id: null },
-            ],
-          },
-        },
-      ],
+      where: pmProjectFilter,
       distinct: true,
     });
 
@@ -145,47 +101,23 @@ const getDashboard = async (req, res) => {
 
     const completedLast30Days = await Project.count({
       where: {
+        ...pmProjectFilter,
         status: "completed",
         updated_at: {
           [Op.gte]: last30Days,
         },
       },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          where: {
-            [Op.or]: [
-              { project_managers_id: pmId },
-              { project_managers_id: null },
-            ],
-          },
-        },
-      ],
       distinct: true,
     });
 
     const completedPrevious30Days = await Project.count({
       where: {
+        ...pmProjectFilter,
         status: "completed",
         updated_at: {
           [Op.between]: [previous30Days, last30Days],
         },
       },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          required: false,
-          where: {
-            [Op.or]: [
-              { project_managers_id: pmId },
-              { project_managers_id: null },
-            ],
-          },
-        },
-      ],
       distinct: true,
     });
 
