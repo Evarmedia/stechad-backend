@@ -149,6 +149,60 @@ const getAllProjects = async (req, res) => {
   }
 };
 
+
+// Get Project_manager's project only
+const getProjectManagerProjects = async (req, res) => {
+  try {
+    const { user_id } = req.user;
+
+    // Find the project manager record for the current user
+    const projectManager = await ProjectManager.findOne({
+      where: { user_id },
+    });
+
+    if (!projectManager) {
+      return res.status(404).json({
+        success: false,
+        message: "Project manager profile not found",
+      });
+    }
+
+    // Fetch projects assigned to this project manager
+    const projects = await Project.findAll({
+      where: { project_managers_id: projectManager.project_managers_id },
+      include: [
+        {
+          model: Engineer,
+          as: "engineers",
+          through: { attributes: [] },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["first_name", "last_name", "email"],
+            },
+          ],
+        },
+      ],
+      order: [["created_at", "DESC"]],
+    });
+
+    return res.json({
+      success: true,
+      data: projects,
+    });
+  } catch (error) {
+    console.error("Failed to get project manager's projects:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get project manager's projects",
+      error: error.message,
+    });
+  }
+};
+
 // Get project by ID
 const getProjectById = async (req, res) => {
   try {
@@ -556,6 +610,7 @@ const getProjectStats = async (req, res) => {
 
 module.exports = {
   getAllProjects,
+  getProjectManagerProjects,
   getProjectById,
   createProject,
   updateProject,

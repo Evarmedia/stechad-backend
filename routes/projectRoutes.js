@@ -9,6 +9,7 @@ const express = require('express');
 const { authenticate, authorize } = require('../middleware/auth');
 const {
   getAllProjects,
+  getProjectManagerProjects,
   getProjectById,
   createProject,
   updateProject,
@@ -92,6 +93,47 @@ router.use(authenticate);
  *               $ref: '#/components/schemas/Error'
  */
 router.get('/', authorize('admin', 'project_manager'), getAllProjects);
+
+
+/**
+ * @swagger
+ * /projects/my-projects:
+ *   get:
+ *     summary: Get projects assigned to the authenticated project manager
+ *     tags: [Projects]
+ *     responses:
+ *       200:
+ *         description: Projects retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Project'
+ *       403:
+ *         description: Not authorized to access this resource
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get(
+  "/my-projects",
+  authorize("project_manager"),
+  getProjectManagerProjects,
+);
 
 /**
  * @swagger
