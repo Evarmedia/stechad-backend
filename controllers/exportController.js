@@ -44,7 +44,7 @@ const exportEngineers = async (req, res) => {
     ];
 
     if (fields) {
-      const requestedFields = fields.split(',').map(field => field.trim());
+      const requestedFields = fields?.split(',').map(field => field.trim());
       engineerAttributes = engineerAttributes.filter(attr => 
         requestedFields.includes(attr) || requestedFields.includes('*')
       );
@@ -155,7 +155,7 @@ const exportJobs = async (req, res) => {
     ];
 
     if (fields) {
-      const requestedFields = fields.split(',').map(field => field.trim());
+      const requestedFields = fields?.split(',').map(field => field.trim());
       jobAttributes = jobAttributes.filter(attr => 
         requestedFields.includes(attr) || requestedFields.includes('*')
       );
@@ -268,7 +268,7 @@ const exportApplications = async (req, res) => {
     ];
 
     if (fields) {
-      const requestedFields = fields.split(',').map(field => field.trim());
+      const requestedFields = fields?.split(',').map(field => field.trim());
       applicationAttributes = applicationAttributes.filter(attr => 
         requestedFields.includes(attr) || requestedFields.includes('*')
       );

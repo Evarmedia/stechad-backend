@@ -24,7 +24,7 @@ const toTextArray = (v) => {
     } catch {}
     // fallback: comma-separated 'read,write'
     return v
-      .split(",")
+      ?.split(",")
       .map((s) => s.trim())
       .filter(Boolean);
   }

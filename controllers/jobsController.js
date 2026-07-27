@@ -38,7 +38,7 @@ const getJobs = async (req, res) => {
     }
     
     if (skills) {
-      const skillsArray = skills.split(',').map(skill => skill.trim());
+      const skillsArray = skills?.split(',').map(skill => skill.trim());
       where.skills_required = { [Op.overlap]: skillsArray };
     }
     
