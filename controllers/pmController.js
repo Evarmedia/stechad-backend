@@ -70,7 +70,7 @@ const getDashboard = async (req, res) => {
     const activeProjects = await Project.findAll({
       where: {
         ...pmProjectFilter,
-        status: ["planning", "in_progress"],
+        status: ["planning", "in_progress", "on_hold"],
       },
     });
 
