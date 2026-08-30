@@ -15,7 +15,7 @@ Attendance.init(
       type: DataTypes.TEXT,
       allowNull: false,
       defaultValue: "present",
-      validate: { isIn: [["present", "late", "completed"]] },
+      validate: { isIn: [["present", "late", "completed", "absent"]] },
     },
     latitude: { type: DataTypes.DECIMAL(10, 7), allowNull: true },
     longitude: { type: DataTypes.DECIMAL(10, 7), allowNull: true },

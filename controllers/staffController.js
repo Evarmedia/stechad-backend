@@ -18,6 +18,11 @@ const { uploadToGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { hasPermission } = require("../middleware/auth");
 const { notifyPermissionHolders } = require("../utils/workforceNotification");
+const {
+  getWorkforceMoment,
+  isAttendanceDayClosed,
+  reconcileUnclosedAttendance,
+} = require("../utils/attendanceScheduler");
 
 const titleCase = (value = "") => value
   .split("_")
@@ -25,16 +30,17 @@ const titleCase = (value = "") => value
   .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
   .join(" ");
 
-const formatTime = (value) => value ? moment(value).format("hh:mm A") : null;
+const formatTime = (value) => value ? getWorkforceMoment(value).format("hh:mm A") : null;
 
 const formatAttendance = (entry) => ({
   id: entry.attendance_id,
   date: entry.work_date,
   clockIn: formatTime(entry.clock_in),
+  clockInAt: entry.clock_in ? new Date(entry.clock_in).toISOString() : null,
   clockOut: formatTime(entry.clock_out),
   workLog: entry.work_log || "",
   status: titleCase(entry.status),
-  isOpen: !entry.clock_out,
+  isOpen: !entry.clock_out && entry.status !== "absent",
   location: entry.latitude && entry.longitude
     ? { latitude: Number(entry.latitude), longitude: Number(entry.longitude), accuracy: Number(entry.location_accuracy || 0) }
     : null,
@@ -96,26 +102,30 @@ const notifyAdmins = async ({ title, message, action_url, metadata }) => {
 };
 
 const getAttendanceData = async (userId) => {
-  const monthStart = moment().startOf("month").format("YYYY-MM-DD");
-  const monthEnd = moment().endOf("month").format("YYYY-MM-DD");
+  await reconcileUnclosedAttendance();
+  const now = getWorkforceMoment();
+  const monthStart = now.clone().startOf("month").format("YYYY-MM-DD");
+  const monthEnd = now.clone().endOf("month").format("YYYY-MM-DD");
   const entries = await Attendance.findAll({
     where: { user_id: userId },
     order: [["work_date", "DESC"]],
     limit: 60,
   });
   const monthEntries = entries.filter((entry) => entry.work_date >= monthStart && entry.work_date <= monthEnd);
+  const attendedEntries = monthEntries.filter((entry) => entry.status !== "absent");
   const completed = monthEntries.filter((entry) => entry.clock_out).length;
-  const expectedDaysToDate = Array.from({ length: moment().date() }, (_, index) => moment().startOf("month").add(index, "days"))
+  const expectedDaysToDate = Array.from({ length: now.date() }, (_, index) => now.clone().startOf("month").add(index, "days"))
     .filter((day) => day.isoWeekday() <= 5).length;
-  const today = entries.find((entry) => entry.work_date === moment().format("YYYY-MM-DD")) || null;
+  const today = entries.find((entry) => entry.work_date === now.format("YYYY-MM-DD")) || null;
 
   return {
     entries: entries.map(formatAttendance),
     summary: {
-      currentStatus: today ? (today.clock_out ? "Clocked out" : "Clocked in") : "Not clocked in",
-      attendanceRate: expectedDaysToDate ? Math.min(100, Math.round((monthEntries.length / expectedDaysToDate) * 100)) : 0,
-      daysLogged: monthEntries.length,
+      currentStatus: today ? (today.status === "absent" ? "Absent" : today.clock_out ? "Clocked out" : "Clocked in") : "Not clocked in",
+      attendanceRate: expectedDaysToDate ? Math.min(100, Math.round((attendedEntries.length / expectedDaysToDate) * 100)) : 0,
+      daysLogged: attendedEntries.length,
       completedDays: completed,
+      absentDays: monthEntries.filter((entry) => entry.status === "absent").length,
       expectedDays: expectedDaysToDate,
       today: today ? formatAttendance(today) : null,
     },
@@ -225,7 +235,10 @@ const getAttendance = async (req, res) => {
 
 const clockIn = async (req, res) => {
   try {
-    const workDate = moment().format("YYYY-MM-DD");
+    await reconcileUnclosedAttendance();
+    const now = getWorkforceMoment();
+    if (isAttendanceDayClosed(now)) return res.status(409).json({ success: false, message: "The attendance day has closed" });
+    const workDate = now.format("YYYY-MM-DD");
     const existing = await Attendance.findOne({ where: { user_id: req.user.user_id, work_date: workDate } });
     if (existing) return res.status(409).json({ success: false, message: "Attendance has already been started for today" });
     const { latitude, longitude, accuracy } = req.body;
@@ -233,7 +246,7 @@ const clockIn = async (req, res) => {
       user_id: req.user.user_id,
       work_date: workDate,
       clock_in: new Date(),
-      status: moment().hour() >= 9 ? "late" : "present",
+      status: now.hour() >= 9 ? "late" : "present",
       latitude: req.user.location_sharing_enabled ? latitude || null : null,
       longitude: req.user.location_sharing_enabled ? longitude || null : null,
       location_accuracy: req.user.location_sharing_enabled ? accuracy || null : null,
@@ -246,10 +259,12 @@ const clockIn = async (req, res) => {
 
 const clockOut = async (req, res) => {
   try {
+    await reconcileUnclosedAttendance();
     const { work_log, latitude, longitude, accuracy } = req.body;
     if (!work_log || !work_log.trim()) return res.status(400).json({ success: false, message: "A daily work summary is required before clocking out" });
-    const entry = await Attendance.findOne({ where: { user_id: req.user.user_id, work_date: moment().format("YYYY-MM-DD") } });
+    const entry = await Attendance.findOne({ where: { user_id: req.user.user_id, work_date: getWorkforceMoment().format("YYYY-MM-DD") } });
     if (!entry) return res.status(404).json({ success: false, message: "Clock in before attempting to clock out" });
+    if (entry.status === "absent") return res.status(409).json({ success: false, message: "This attendance day closed without a clock-out and was marked absent" });
     if (entry.clock_out) return res.status(409).json({ success: false, message: "You have already clocked out today" });
     await entry.update({
       clock_out: new Date(),

@@ -30,6 +30,7 @@ const chatRoutes = require('./routes/chatRoutes');
 const interviewRoutes = require('./routes/interviewRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const { startHolidayNotificationScheduler } = require('./utils/holidayNotifications');
+const { startAttendanceCloseScheduler } = require('./utils/attendanceScheduler');
 
 
 const passport = require('passport');
@@ -324,6 +325,7 @@ const startServer = async () => {
       await createDefaultRewards();
     }
     startHolidayNotificationScheduler();
+    startAttendanceCloseScheduler();
     
     server.listen(PORT, () => {
       console.log(`Running in ${process.env.NODE_ENV} mode`)
