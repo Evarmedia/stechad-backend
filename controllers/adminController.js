@@ -1247,6 +1247,7 @@ const inviteProjectManager = async (req, res) => {
     const replacements = {
       firstname: first_name,
       // tempPassword,
+      role: role.replace("_", " "),
       year: new Date().getFullYear(),
       // url: `${process.env.FRONTEND_PROD_URL}/accept-invite?token=${token}`,
       url: `${process.env.NODE_ENV === "production"
