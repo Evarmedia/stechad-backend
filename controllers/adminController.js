@@ -14,6 +14,7 @@ const {
   ExpenseClaim,
   Holiday,
   Kpi,
+  KpiAppraisal,
   Invoice,
   RolePermission,
   Notification,
@@ -31,6 +32,20 @@ const crypto = require("crypto");
 const sequelize = require("../config/database");
 const zohoService = require("../utils/zohoService");
 const { notifyPermissionHolders } = require("../utils/workforceNotification");
+const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
+
+const sanitizeKpiCriteria = (criteria) => {
+  if (!Array.isArray(criteria)) return [];
+  const usedIds = new Set();
+  return criteria
+    .filter((criterion) => criterion && String(criterion.title || "").trim())
+    .map((criterion) => {
+      let id = String(criterion.id || crypto.randomUUID());
+      if (usedIds.has(id)) id = crypto.randomUUID();
+      usedIds.add(id);
+      return { id, title: String(criterion.title).trim() };
+    });
+};
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -261,7 +276,10 @@ const getWorkforce = async (req, res) => {
       }),
       Holiday.findAll({ order: [["date", "ASC"]] }),
       Kpi.findAll({
-        include: [{ model: User, as: "assignee", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        include: [
+          { model: User, as: "assignee", attributes: ["user_id", "first_name", "last_name", "email"] },
+          { model: KpiAppraisal, as: "appraisals", separate: true, order: [["created_at", "DESC"]] },
+        ],
         order: [["created_at", "DESC"]],
       }),
       RolePermission.findAll({ order: [["name", "ASC"]] }),
@@ -316,7 +334,8 @@ const getWorkforce = async (req, res) => {
     ];
 
     const activeStaff = staffDirectory.filter((member) => member.status === "Active").length;
-    const avgKpi = kpis.length ? Math.round(kpis.reduce((sum, kpi) => sum + kpi.progress, 0) / kpis.length) : 0;
+    const latestKpiScores = kpis.map((kpi) => kpi.appraisals?.[0]?.overall_score).filter((score) => score !== undefined && score !== null).map(Number);
+    const avgKpi = latestKpiScores.length ? Math.round(latestKpiScores.reduce((sum, score) => sum + score, 0) / latestKpiScores.length) : 0;
     const presentWorkforce = staffDirectory.filter((member) => presentUserIds.has(member.id)).length;
     const attendanceRate = activeStaff ? Math.min(100, Math.round((presentWorkforce / activeStaff) * 100)) : 0;
     let zoho = { configured: false, organization: null };
@@ -336,7 +355,7 @@ const getWorkforce = async (req, res) => {
       { label: "Active workforce", value: String(activeStaff), delta: "Live platform data" },
       { label: "Attendance today", value: `${attendanceRate}%`, delta: `${presentWorkforce} clocked in` },
       { label: "Open approvals", value: String(approvalsQueue.length), delta: "Live workflow data" },
-      { label: "Average KPI progress", value: `${avgKpi}%`, delta: `${kpis.length} assignments` },
+      { label: "Average KPI score", value: `${avgKpi}%`, delta: `${latestKpiScores.length} scored assignments` },
     ];
 
     return res.json({
@@ -346,17 +365,24 @@ const getWorkforce = async (req, res) => {
         departments,
         approvalsQueue,
         holidays,
-        kpiLibrary: kpis.map((kpi) => ({
-          id: kpi.kpi_id,
-          title: kpi.title,
-          target: kpi.target,
-          owner: personName(kpi.assignee),
-          assignedToUserId: kpi.assigned_to_user_id,
-          review: kpi.review_cycle,
-          progress: kpi.progress,
-          score: kpi.appraisal_score ? Number(kpi.appraisal_score) : null,
-          status: kpi.status,
-        })),
+        kpiLibrary: kpis.map((kpi) => {
+          const appraisals = (kpi.appraisals || []).map(formatKpiAppraisal);
+          const currentPeriod = getKpiPeriod(kpi.review_cycle);
+          return {
+            id: kpi.kpi_id,
+            title: kpi.title,
+            description: kpi.description || "",
+            owner: personName(kpi.assignee),
+            assignedToUserId: kpi.assigned_to_user_id,
+            review: kpi.review_cycle,
+            criteria: getKpiCriteria(kpi),
+            currentPeriod,
+            currentAppraisal: appraisals.find((appraisal) => appraisal.periodKey === currentPeriod.key) || null,
+            appraisals,
+            latestScore: appraisals[0]?.overallScore ?? null,
+            status: kpi.status,
+          };
+        }),
         zohoMetrics,
         zoho,
         permissions: permissions.map((permission) => ({
@@ -678,11 +704,22 @@ const deleteHoliday = async (req, res) => {
 
 const createKpi = async (req, res) => {
   try {
-    const { assigned_to_user_id, title, target, description, review_cycle = "Quarterly", period_start, period_end, progress = 0, status = "active" } = req.body;
-    if (!assigned_to_user_id || !title || !target) return res.status(400).json({ success: false, message: "Assignee, title, and target are required" });
+    const { assigned_to_user_id, title, description, review_cycle = "Monthly", status = "active" } = req.body;
+    const criteria = sanitizeKpiCriteria(req.body.criteria);
+    if (!assigned_to_user_id || !title || !criteria.length) return res.status(400).json({ success: false, message: "Assignee, title, and at least one success criterion are required" });
     const assignee = await User.findByPk(assigned_to_user_id);
     if (!assignee || !["staff", "project_manager", "admin", "super_admin"].includes(assignee.role)) return res.status(404).json({ success: false, message: "Staff assignee not found" });
-    const kpi = await Kpi.create({ assigned_to_user_id, title, target, description: description || null, review_cycle, period_start: period_start || null, period_end: period_end || null, progress, status, created_by: req.user.user_id });
+    if (!["Monthly", "Quarterly", "Annual"].includes(review_cycle)) return res.status(400).json({ success: false, message: "Review cycle must be Monthly, Quarterly, or Annual" });
+    const kpi = await Kpi.create({
+      assigned_to_user_id,
+      title: String(title).trim(),
+      target: criteria.map((criterion) => criterion.title).join("\n"),
+      criteria,
+      description: description || null,
+      review_cycle,
+      status,
+      created_by: req.user.user_id,
+    });
     await Notification.create({ user_id: assigned_to_user_id, title: "New KPI assigned", message: `${title} has been assigned to you.`, type: "info", action_url: "/dashboard/staff/kpis", metadata: { kpi_id: kpi.kpi_id } });
     return res.status(201).json({ success: true, message: "KPI created successfully", data: kpi });
   } catch (error) {
@@ -694,13 +731,66 @@ const updateKpi = async (req, res) => {
   try {
     const kpi = await Kpi.findByPk(req.params.kpi_id);
     if (!kpi) return res.status(404).json({ success: false, message: "KPI not found" });
-    const fields = ["assigned_to_user_id", "title", "target", "description", "review_cycle", "period_start", "period_end", "progress", "appraisal_score", "appraisal_notes", "status"];
+    const fields = ["assigned_to_user_id", "title", "description", "review_cycle", "status"];
     const updates = Object.fromEntries(fields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+    if (req.body.criteria !== undefined) {
+      const criteria = sanitizeKpiCriteria(req.body.criteria);
+      if (!criteria.length) return res.status(400).json({ success: false, message: "At least one success criterion is required" });
+      updates.criteria = criteria;
+      updates.target = criteria.map((criterion) => criterion.title).join("\n");
+    }
+    if (updates.review_cycle && !["Monthly", "Quarterly", "Annual"].includes(updates.review_cycle)) return res.status(400).json({ success: false, message: "Review cycle must be Monthly, Quarterly, or Annual" });
     await kpi.update(updates);
     await Notification.create({ user_id: kpi.assigned_to_user_id, title: "KPI updated", message: `${kpi.title} has been updated.`, type: "info", action_url: "/dashboard/staff/kpis", metadata: { kpi_id: kpi.kpi_id } });
     return res.json({ success: true, message: "KPI updated successfully", data: kpi });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update KPI", error: error.message });
+  }
+};
+
+const recordKpiAppraisal = async (req, res) => {
+  try {
+    const kpi = await Kpi.findByPk(req.params.kpi_id);
+    if (!kpi) return res.status(404).json({ success: false, message: "KPI not found" });
+
+    const criteria = getKpiCriteria(kpi);
+    if (!criteria.length) return res.status(409).json({ success: false, message: "Add success criteria before recording an appraisal" });
+    const submittedScores = Array.isArray(req.body.criteria_scores) ? req.body.criteria_scores : [];
+    const scoreMap = new Map(submittedScores.map((item) => [String(item.criterion_id || item.criterionId), Number(item.score)]));
+    const invalid = criteria.some((criterion) => !scoreMap.has(criterion.id) || !Number.isFinite(scoreMap.get(criterion.id)) || scoreMap.get(criterion.id) < 0 || scoreMap.get(criterion.id) > 100);
+    if (invalid) return res.status(400).json({ success: false, message: "Every success criterion needs a score from 0 to 100" });
+
+    const criteriaScores = criteria.map((criterion) => ({
+      criterionId: criterion.id,
+      title: criterion.title,
+      score: scoreMap.get(criterion.id),
+    }));
+    const overallScore = Number((criteriaScores.reduce((sum, item) => sum + item.score, 0) / criteriaScores.length).toFixed(2));
+    const period = getKpiPeriod(kpi.review_cycle);
+    const payload = {
+      period_label: period.label,
+      criteria_scores: criteriaScores,
+      overall_score: overallScore,
+      notes: String(req.body.notes || "").trim() || null,
+      recorded_by: req.user.user_id,
+    };
+    const [appraisal, created] = await KpiAppraisal.findOrCreate({
+      where: { kpi_id: kpi.kpi_id, period_key: period.key },
+      defaults: { ...payload, kpi_id: kpi.kpi_id, period_key: period.key },
+    });
+    if (!created) await appraisal.update(payload);
+
+    await Notification.create({
+      user_id: kpi.assigned_to_user_id,
+      title: `${period.label} KPI appraisal recorded`,
+      message: `${kpi.title} was scored ${overallScore}%.`,
+      type: "info",
+      action_url: "/dashboard/staff/kpis",
+      metadata: { kpi_id: kpi.kpi_id, kpi_appraisal_id: appraisal.kpi_appraisal_id, period_key: period.key },
+    });
+    return res.status(created ? 201 : 200).json({ success: true, message: created ? "KPI appraisal recorded" : "KPI appraisal updated", data: formatKpiAppraisal(appraisal) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to record KPI appraisal", error: error.message });
   }
 };
 
@@ -717,7 +807,6 @@ const deleteKpi = async (req, res) => {
 
 const updateRolePermission = async (req, res) => {
   try {
-    if (req.user.role !== "super_admin") return res.status(403).json({ success: false, message: "Only a super admin can change the role permission matrix" });
     const permission = await RolePermission.findByPk(req.params.role_permission_id);
     if (!permission) return res.status(404).json({ success: false, message: "Permission not found" });
     const updates = { super_admin: true };
@@ -1447,6 +1536,7 @@ module.exports = {
   deleteHoliday,
   createKpi,
   updateKpi,
+  recordKpiAppraisal,
   deleteKpi,
   updateRolePermission,
   updateProfile,

@@ -413,6 +413,7 @@ router.delete('/holidays/:holiday_id', adminController.deleteHoliday);
 router.post('/kpis', adminController.createKpi);
 router.put('/kpis/:kpi_id', adminController.updateKpi);
 router.delete('/kpis/:kpi_id', adminController.deleteKpi);
+router.post('/kpis/:kpi_id/appraisals', adminController.recordKpiAppraisal);
 router.put('/role-permissions/:role_permission_id', adminController.updateRolePermission);
 
 router.get('/settings', adminController.getSettings);

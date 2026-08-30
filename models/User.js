@@ -81,6 +81,12 @@ User.init(
       allowNull: false,
       defaultValue: false,
     },
+    location_permission_status: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: "not_asked",
+      validate: { isIn: [["not_asked", "granted", "denied", "unavailable"]] },
+    },
     current_assignment: {
       type: DataTypes.TEXT,
       allowNull: true,

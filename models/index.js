@@ -18,6 +18,7 @@ const LeaveRequest = require("./LeaveRequest");
 const ExpenseClaim = require("./ExpenseClaim");
 const Holiday = require("./Holiday");
 const Kpi = require("./Kpi");
+const KpiAppraisal = require("./KpiAppraisal");
 const Invoice = require("./Invoice");
 const RolePermission = require("./RolePermission");
 const { Referral } = require("./Referral");
@@ -125,6 +126,10 @@ User.hasMany(Kpi, { foreignKey: "assigned_to_user_id", as: "assigned_kpis", onDe
 Kpi.belongsTo(User, { foreignKey: "assigned_to_user_id", as: "assignee" });
 User.hasMany(Kpi, { foreignKey: "created_by", as: "created_kpis" });
 Kpi.belongsTo(User, { foreignKey: "created_by", as: "creator" });
+Kpi.hasMany(KpiAppraisal, { foreignKey: "kpi_id", as: "appraisals", onDelete: "CASCADE" });
+KpiAppraisal.belongsTo(Kpi, { foreignKey: "kpi_id", as: "kpi" });
+User.hasMany(KpiAppraisal, { foreignKey: "recorded_by", as: "recorded_kpi_appraisals" });
+KpiAppraisal.belongsTo(User, { foreignKey: "recorded_by", as: "recorder" });
 
 User.hasMany(Invoice, { foreignKey: "submitted_by", as: "submitted_invoices", onDelete: "CASCADE" });
 Invoice.belongsTo(User, { foreignKey: "submitted_by", as: "submitter" });
@@ -350,6 +355,7 @@ module.exports = {
   ExpenseClaim,
   Holiday,
   Kpi,
+  KpiAppraisal,
   Invoice,
   RolePermission,
   Referral,

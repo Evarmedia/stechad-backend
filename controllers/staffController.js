@@ -8,6 +8,7 @@ const {
   ExpenseClaim,
   Holiday,
   Kpi,
+  KpiAppraisal,
   Invoice,
   Project,
   ProjectManager,
@@ -23,6 +24,7 @@ const {
   isAttendanceDayClosed,
   reconcileUnclosedAttendance,
 } = require("../utils/attendanceScheduler");
+const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
 
 const titleCase = (value = "") => value
   .split("_")
@@ -96,6 +98,23 @@ const formatInvoice = (invoice) => ({
   createdAt: invoice.created_at,
 });
 
+const formatKpi = (kpi) => {
+  const appraisals = (kpi.appraisals || []).map(formatKpiAppraisal);
+  const currentPeriod = getKpiPeriod(kpi.review_cycle);
+  return {
+    id: kpi.kpi_id,
+    title: kpi.title,
+    description: kpi.description,
+    review: kpi.review_cycle,
+    criteria: getKpiCriteria(kpi),
+    currentPeriod,
+    currentAppraisal: appraisals.find((appraisal) => appraisal.periodKey === currentPeriod.key) || null,
+    appraisals,
+    latestScore: appraisals[0]?.overallScore ?? null,
+    status: titleCase(kpi.status),
+  };
+};
+
 const notifyAdmins = async ({ title, message, action_url, metadata }) => {
   const permissionKey = metadata?.type === "leave" ? "approve_leave" : metadata?.type === "expense" ? "approve_expenses" : "approve_invoices";
   await notifyPermissionHolders({ permissionKey, title, message, actionUrl: action_url, metadata });
@@ -150,14 +169,20 @@ const getDashboard = async (req, res) => {
       LeaveRequest.findAll({ where: { user_id: req.user.user_id }, order: [["created_at", "DESC"]], limit: 5 }),
       ExpenseClaim.findAll({ where: { user_id: req.user.user_id }, order: [["created_at", "DESC"]], limit: 5 }),
       Invoice.findAll({ where: { submitted_by: req.user.user_id }, order: [["created_at", "DESC"]], limit: 5 }),
-      Kpi.findAll({ where: { assigned_to_user_id: req.user.user_id, status: { [Op.ne]: "archived" } }, order: [["created_at", "DESC"]], limit: 5 }),
+      Kpi.findAll({
+        where: { assigned_to_user_id: req.user.user_id, status: { [Op.ne]: "archived" } },
+        include: [{ model: KpiAppraisal, as: "appraisals", separate: true, order: [["created_at", "DESC"]] }],
+        order: [["created_at", "DESC"]],
+        limit: 5,
+      }),
       Holiday.findAll({ where: { date: { [Op.gte]: moment().format("YYYY-MM-DD") } }, order: [["date", "ASC"]], limit: 5 }),
       RolePermission.findAll({ order: [["name", "ASC"]] }),
       getLeaveBalance(req.user),
     ]);
     const expenses = await Promise.all(expenseRows.map(formatExpense));
     const expenseTotal = expenses.reduce((sum, claim) => sum + claim.amount, 0);
-    const kpiProgress = kpis.length ? Math.round(kpis.reduce((sum, kpi) => sum + kpi.progress, 0) / kpis.length) : 0;
+    const scoredKpis = kpis.map((kpi) => kpi.appraisals?.[0]?.overall_score).filter((score) => score !== undefined && score !== null).map(Number);
+    const kpiScore = scoredKpis.length ? Math.round(scoredKpis.reduce((sum, score) => sum + score, 0) / scoredKpis.length) : null;
 
     return res.json({
       success: true,
@@ -166,7 +191,7 @@ const getDashboard = async (req, res) => {
           attendance: `${attendance.summary.attendanceRate}%`,
           leaveBalance: `${leaveBalance.remaining} days`,
           expenseTotal,
-          kpiProgress: `${kpiProgress}%`,
+          kpiScore: kpiScore === null ? "Not scored" : `${kpiScore}%`,
         },
         attendance: attendance.entries.slice(0, 5),
         attendanceSummary: attendance.summary,
@@ -174,17 +199,7 @@ const getDashboard = async (req, res) => {
         leaveBalance,
         expenses,
         invoices: invoiceRows.map(formatInvoice),
-        kpis: kpis.map((kpi) => ({
-          id: kpi.kpi_id,
-          title: kpi.title,
-          target: kpi.target,
-          description: kpi.description,
-          review: kpi.review_cycle,
-          progress: kpi.progress,
-          score: kpi.appraisal_score ? Number(kpi.appraisal_score) : null,
-          notes: kpi.appraisal_notes,
-          status: titleCase(kpi.status),
-        })),
+        kpis: kpis.map(formatKpi),
         holidays,
         permissions: permissions.map((permission) => ({
           key: permission.permission_key,
@@ -197,6 +212,7 @@ const getDashboard = async (req, res) => {
           email: req.user.email,
           role: req.user.role,
           locationSharingEnabled: req.user.location_sharing_enabled,
+          locationPermissionStatus: req.user.location_permission_status,
           today: moment().format("YYYY-MM-DD"),
         },
       },
@@ -423,20 +439,12 @@ const submitProjectInvoice = async (req, res) => {
 
 const getKpis = async (req, res) => {
   try {
-    const kpis = await Kpi.findAll({ where: { assigned_to_user_id: req.user.user_id }, order: [["created_at", "DESC"]] });
-    return res.json({ success: true, data: kpis.map((kpi) => ({
-      id: kpi.kpi_id,
-      title: kpi.title,
-      target: kpi.target,
-      description: kpi.description,
-      review: kpi.review_cycle,
-      periodStart: kpi.period_start,
-      periodEnd: kpi.period_end,
-      progress: kpi.progress,
-      score: kpi.appraisal_score ? Number(kpi.appraisal_score) : null,
-      notes: kpi.appraisal_notes,
-      status: titleCase(kpi.status),
-    })) });
+    const kpis = await Kpi.findAll({
+      where: { assigned_to_user_id: req.user.user_id },
+      include: [{ model: KpiAppraisal, as: "appraisals", separate: true, order: [["created_at", "DESC"]] }],
+      order: [["created_at", "DESC"]],
+    });
+    return res.json({ success: true, data: kpis.map(formatKpi) });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load KPIs", error: error.message });
   }
@@ -499,8 +507,13 @@ const updateProfile = async (req, res) => {
 const updateLocationSharing = async (req, res) => {
   try {
     if (typeof req.body.enabled !== "boolean") return res.status(400).json({ success: false, message: "enabled must be a boolean" });
-    await req.user.update({ location_sharing_enabled: req.body.enabled });
-    return res.json({ success: true, message: req.body.enabled ? "Location sharing enabled" : "Location sharing disabled", data: { enabled: req.user.location_sharing_enabled } });
+    const allowedStatuses = ["not_asked", "granted", "denied", "unavailable"];
+    const permissionStatus = req.body.permission_status || req.user.location_permission_status || "not_asked";
+    if (!allowedStatuses.includes(permissionStatus)) return res.status(400).json({ success: false, message: "Invalid location permission status" });
+    if (req.body.enabled && permissionStatus !== "granted") return res.status(400).json({ success: false, message: "Browser location permission must be granted before enabling location sharing" });
+    const updates = { location_sharing_enabled: req.body.enabled, location_permission_status: permissionStatus };
+    await req.user.update(updates);
+    return res.json({ success: true, message: req.body.enabled ? "Location sharing enabled" : "Location sharing disabled", data: { enabled: req.user.location_sharing_enabled, permissionStatus: req.user.location_permission_status } });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update location consent", error: error.message });
   }
