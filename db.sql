@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(4)))),
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('admin', 'pm', 'engineer')) NOT NULL,
+    role TEXT CHECK(role IN ('admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
     full_name TEXT,
     phone_number TEXT,
     is_verified INTEGER DEFAULT 0,

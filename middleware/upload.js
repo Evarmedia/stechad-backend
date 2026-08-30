@@ -12,6 +12,11 @@ const fileFilter = (req, file, cb) => {
   } else if (file.fieldname === "avatar") {
     if (file.mimetype.startsWith("image/")) return cb(null, true);
     return cb(new Error("Only image files are allowed for avatars"), false);
+  } else if (file.fieldname === "receipt") {
+    if (file.mimetype.startsWith("image/") || file.mimetype === "application/pdf") {
+      return cb(null, true);
+    }
+    return cb(new Error("Only image or PDF files are allowed for receipts"), false);
   }
   return cb(new Error("Invalid file field"), false);
 };

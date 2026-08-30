@@ -28,6 +28,8 @@ const exportRoutes = require('./routes/exportRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const interviewRoutes = require('./routes/interviewRoutes');
+const staffRoutes = require('./routes/staffRoutes');
+const { startHolidayNotificationScheduler } = require('./utils/holidayNotifications');
 
 
 const passport = require('passport');
@@ -110,6 +112,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/staff', staffRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -311,7 +314,8 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connected successfully');
     
-    await sequelize.sync({ alter: true, force: false }); // Uncomment on initial db connection
+    const alterSchema = process.env.DB_SYNC_ALTER !== 'false';
+    await sequelize.sync({ alter: alterSchema, force: false });
     console.log('Database synchronized');
 
     // Create default rewards if they don't exist
@@ -319,6 +323,7 @@ const startServer = async () => {
     if (existingRewards === 0) {
       await createDefaultRewards();
     }
+    startHolidayNotificationScheduler();
     
     server.listen(PORT, () => {
       console.log(`Running in ${process.env.NODE_ENV} mode`)

@@ -31,7 +31,7 @@ const validateRegistration = [
   body('password').isLength({ min: 6 }),
   // body('first_name').notEmpty().trim(),
   // body('last_name').notEmpty().trim(),
-  body('role').isIn(['engineer', 'project_manager', 'admin']),
+  body('role').equals('engineer').withMessage('Only engineers can register directly; workforce roles require an invitation'),
   handleValidationErrors
 ];
 

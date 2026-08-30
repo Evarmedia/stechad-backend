@@ -276,7 +276,7 @@ const createProject = async (req, res) => {
     const {
       title,
       description,
-      engineer_ids = [], // 🔧 array of Engineer IDs (optional)
+      engineer_ids = [],
       status = "planning",
       priority = "medium",
       progress = 0,
@@ -285,27 +285,44 @@ const createProject = async (req, res) => {
       start_date,
       deadline,
       feedback,
+      project_manager_id,
+      project_managers_id,
     } = req.body;
 
-    /* ===============================
-       VERIFY PROJECT MANAGER
-       =============================== */
-    const manager = await ProjectManager.findOne({
-      where: { user_id: req.user.user_id },
-    });
+    let manager = null;
 
-    if (!manager) {
-      return res.status(403).json({
-        success: false,
-        message: "Only project managers can create projects",
+    if (["admin", "super_admin"].includes(req.user.role)) {
+      const assignedManagerId = project_manager_id || project_managers_id;
+
+      if (assignedManagerId) {
+        manager = await ProjectManager.findOne({
+          where: {
+            [Op.or]: [{ project_managers_id: assignedManagerId }, { user_id: assignedManagerId }],
+          },
+        });
+
+        if (!manager) {
+          return res.status(400).json({
+            success: false,
+            message: "Assigned project manager not found",
+          });
+        }
+      }
+    } else {
+      manager = await ProjectManager.findOne({
+        where: { user_id: req.user.user_id },
       });
+
+      if (!manager) {
+        return res.status(403).json({
+          success: false,
+          message: "Only project managers can create projects",
+        });
+      }
     }
 
-    /* ===============================
-       CREATE PROJECT
-       =============================== */
     const project = await Project.create({
-      project_managers_id: manager.project_managers_id, // ✅ correct
+      project_managers_id: manager ? manager.project_managers_id : null,
       title,
       description,
       status,

@@ -12,6 +12,14 @@ const Message = require("./Message");
 const Notification = require("./Notification");
 const Setting = require("./Setting");
 const Invite = require("./Invite");
+const Department = require("./Department");
+const Attendance = require("./Attendance");
+const LeaveRequest = require("./LeaveRequest");
+const ExpenseClaim = require("./ExpenseClaim");
+const Holiday = require("./Holiday");
+const Kpi = require("./Kpi");
+const Invoice = require("./Invoice");
+const RolePermission = require("./RolePermission");
 const { Referral } = require("./Referral");
 const { Reward } = require("./Reward");
 const { UserReward  } = require("./UserReward");
@@ -56,6 +64,74 @@ User.hasOne(Admin, {
   onDelete: "CASCADE",
 });
 Admin.belongsTo(User, { foreignKey: "user_id", as: "user" });
+
+// Department -> Manager (Staff / Admin user)
+Department.belongsTo(User, {
+  foreignKey: "manager_user_id",
+  as: "manager",
+  onDelete: "SET NULL",
+});
+User.hasMany(Department, {
+  foreignKey: "manager_user_id",
+  as: "managed_departments",
+  onDelete: "SET NULL",
+});
+
+Department.hasMany(User, {
+  foreignKey: "department_id",
+  as: "members",
+  onDelete: "SET NULL",
+});
+User.belongsTo(Department, {
+  foreignKey: "department_id",
+  as: "department",
+  onDelete: "SET NULL",
+});
+
+User.belongsTo(User, {
+  foreignKey: "reports_to_user_id",
+  as: "reporting_manager",
+  onDelete: "SET NULL",
+});
+User.hasMany(User, {
+  foreignKey: "reports_to_user_id",
+  as: "direct_reports",
+  onDelete: "SET NULL",
+});
+
+/* =========================
+   WORKFORCE OPERATIONS
+   ========================= */
+
+User.hasMany(Attendance, { foreignKey: "user_id", as: "attendance_entries", onDelete: "CASCADE" });
+Attendance.belongsTo(User, { foreignKey: "user_id", as: "user" });
+
+User.hasMany(LeaveRequest, { foreignKey: "user_id", as: "leave_requests", onDelete: "CASCADE" });
+LeaveRequest.belongsTo(User, { foreignKey: "user_id", as: "requester" });
+LeaveRequest.belongsTo(User, { foreignKey: "reviewed_by", as: "reviewer" });
+User.hasMany(LeaveRequest, { foreignKey: "reviewed_by", as: "reviewed_leave_requests" });
+
+User.hasMany(ExpenseClaim, { foreignKey: "user_id", as: "expense_claims", onDelete: "CASCADE" });
+ExpenseClaim.belongsTo(User, { foreignKey: "user_id", as: "claimant" });
+ExpenseClaim.belongsTo(User, { foreignKey: "reviewed_by", as: "reviewer" });
+ExpenseClaim.belongsTo(User, { foreignKey: "accounts_verified_by", as: "accounts_verifier" });
+User.hasMany(ExpenseClaim, { foreignKey: "reviewed_by", as: "reviewed_expense_claims" });
+User.hasMany(ExpenseClaim, { foreignKey: "accounts_verified_by", as: "verified_expense_claims" });
+
+User.hasMany(Holiday, { foreignKey: "created_by", as: "created_holidays" });
+Holiday.belongsTo(User, { foreignKey: "created_by", as: "creator" });
+
+User.hasMany(Kpi, { foreignKey: "assigned_to_user_id", as: "assigned_kpis", onDelete: "CASCADE" });
+Kpi.belongsTo(User, { foreignKey: "assigned_to_user_id", as: "assignee" });
+User.hasMany(Kpi, { foreignKey: "created_by", as: "created_kpis" });
+Kpi.belongsTo(User, { foreignKey: "created_by", as: "creator" });
+
+User.hasMany(Invoice, { foreignKey: "submitted_by", as: "submitted_invoices", onDelete: "CASCADE" });
+Invoice.belongsTo(User, { foreignKey: "submitted_by", as: "submitter" });
+Invoice.belongsTo(User, { foreignKey: "reviewed_by", as: "reviewer" });
+User.hasMany(Invoice, { foreignKey: "reviewed_by", as: "reviewed_invoices" });
+Project.hasMany(Invoice, { foreignKey: "project_id", as: "invoices", onDelete: "SET NULL" });
+Invoice.belongsTo(Project, { foreignKey: "project_id", as: "project" });
 
 /* =========================
    JOB & APPLICATION
@@ -268,6 +344,14 @@ module.exports = {
   Notification,
   Setting,
   Invite,
+  Department,
+  Attendance,
+  LeaveRequest,
+  ExpenseClaim,
+  Holiday,
+  Kpi,
+  Invoice,
+  RolePermission,
   Referral,
   Reward,
   UserReward,

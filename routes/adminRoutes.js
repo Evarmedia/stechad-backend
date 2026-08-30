@@ -13,7 +13,7 @@ const { upload } = require('../middleware/upload');
 const router = express.Router();
 
 // All routes require authentication and admin role
-router.use(authenticate, authorize('admin'));
+router.use(authenticate, authorize('super_admin', 'admin'));
 
 /**
  * @swagger
@@ -399,6 +399,22 @@ router.get('/engineer-vetting', adminController.getEngineerVetting);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
+router.get('/workforce', adminController.getWorkforce);
+router.post('/workforce/invite', adminController.inviteProjectManager);
+router.put('/workforce/users/:user_id', adminController.updateWorkforceUser);
+router.put('/workforce/approvals/:type/:request_id', adminController.reviewWorkforceApproval);
+router.get('/departments', adminController.getDepartments);
+router.post('/departments', adminController.createDepartment);
+router.put('/departments/:department_id', adminController.updateDepartment);
+router.delete('/departments/:department_id', adminController.deleteDepartment);
+router.post('/holidays', adminController.createHoliday);
+router.put('/holidays/:holiday_id', adminController.updateHoliday);
+router.delete('/holidays/:holiday_id', adminController.deleteHoliday);
+router.post('/kpis', adminController.createKpi);
+router.put('/kpis/:kpi_id', adminController.updateKpi);
+router.delete('/kpis/:kpi_id', adminController.deleteKpi);
+router.put('/role-permissions/:role_permission_id', adminController.updateRolePermission);
+
 router.get('/settings', adminController.getSettings);
 
 /**

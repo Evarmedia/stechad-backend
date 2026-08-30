@@ -8,6 +8,15 @@ const {
   Project,
   Setting,
   Invite,
+  Department,
+  Attendance,
+  LeaveRequest,
+  ExpenseClaim,
+  Holiday,
+  Kpi,
+  Invoice,
+  RolePermission,
+  Notification,
 } = require("../models");
 const { Op } = require("sequelize");
 const sendEmail = require("../utils/sendEmail");
@@ -20,6 +29,8 @@ const { toBool, toTextArray } = require("../utils/helpers");
 const { formatUserResponse, generateTokens } = require("./authController");
 const crypto = require("crypto");
 const sequelize = require("../config/database");
+const zohoService = require("../utils/zohoService");
+const { notifyPermissionHolders } = require("../utils/workforceNotification");
 
 // Get admin dashboard overview
 const getDashboard = async (req, res) => {
@@ -194,6 +205,527 @@ const getStats = async (req, res) => {
       message: "Failed to get statistics",
       error: error.message,
     });
+  }
+};
+
+const getWorkforce = async (req, res) => {
+  try {
+    const defaultPermissions = [
+      { permission_key: "view_dashboard", name: "View dashboard", admin: true, project_manager: true, staff: true },
+      { permission_key: "manage_departments", name: "Manage departments", admin: true, project_manager: false, staff: false },
+      { permission_key: "approve_leave", name: "Approve leave", admin: true, project_manager: true, staff: false },
+      { permission_key: "approve_expenses", name: "Approve expenses", admin: true, project_manager: false, staff: false },
+      { permission_key: "verify_receipts", name: "Verify expense receipts", admin: true, project_manager: false, staff: false },
+      { permission_key: "submit_expenses", name: "Submit expenses", admin: true, project_manager: true, staff: true },
+      { permission_key: "create_projects", name: "Create projects", admin: true, project_manager: true, staff: false },
+      { permission_key: "manage_staff", name: "Manage staff", admin: true, project_manager: false, staff: false },
+      { permission_key: "manage_kpis", name: "Manage KPIs and appraisals", admin: true, project_manager: true, staff: false },
+      { permission_key: "approve_invoices", name: "Approve invoices", admin: true, project_manager: false, staff: false },
+    ];
+    await Promise.all(defaultPermissions.map((permission) => RolePermission.findOrCreate({
+      where: { permission_key: permission.permission_key },
+      defaults: { ...permission, super_admin: true },
+    })));
+
+    const [allUsers, departments, leaveRequests, expenseClaims, invoices, holidays, kpis, permissions] = await Promise.all([
+      User.findAll({
+        order: [["created_at", "DESC"]],
+        where: { role: { [Op.in]: ["staff", "admin", "project_manager", "super_admin"] } },
+        attributes: ["user_id", "first_name", "last_name", "email", "role", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "created_at"],
+        include: [
+          { model: Department, as: "department", attributes: ["department_id", "name", "code"] },
+          { model: User, as: "reporting_manager", attributes: ["user_id", "first_name", "last_name", "email"] },
+        ],
+      }),
+      Department.findAll({
+        include: [
+          { model: User, as: "manager", attributes: ["user_id", "first_name", "last_name", "email"] },
+          { model: User, as: "members", attributes: ["user_id"] },
+        ],
+        order: [["name", "ASC"]],
+      }),
+      LeaveRequest.findAll({
+        where: { status: "pending" },
+        include: [{ model: User, as: "requester", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        order: [["created_at", "ASC"]],
+      }),
+      ExpenseClaim.findAll({
+        where: { status: { [Op.in]: ["pending", "approved"] } },
+        include: [{ model: User, as: "claimant", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        order: [["created_at", "ASC"]],
+      }),
+      Invoice.findAll({
+        where: { status: { [Op.in]: ["pending", "approved", "accounts_approved"] } },
+        include: [{ model: User, as: "submitter", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        order: [["created_at", "ASC"]],
+      }),
+      Holiday.findAll({ order: [["date", "ASC"]] }),
+      Kpi.findAll({
+        include: [{ model: User, as: "assignee", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        order: [["created_at", "DESC"]],
+      }),
+      RolePermission.findAll({ order: [["name", "ASC"]] }),
+    ]);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const attendanceToday = await Attendance.findAll({ where: { work_date: today }, attributes: ["user_id"] });
+    const presentUserIds = new Set(attendanceToday.map((entry) => entry.user_id));
+    const staffDirectory = allUsers.map((user) => ({
+        id: user.user_id,
+        name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email,
+        email: user.email,
+        employeeId: user.employee_id,
+        departmentId: user.department_id,
+        department: user.department?.name || "Unassigned",
+        jobTitle: user.job_title || "Not set",
+        roleKey: user.role,
+        role: user.role === "project_manager" ? "Project Manager" : user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : user.role === "staff" ? "Staff" : user.role,
+        manager: user.reporting_manager ? `${user.reporting_manager.first_name || ""} ${user.reporting_manager.last_name || ""}`.trim() || user.reporting_manager.email : "Unassigned",
+        managerId: user.reports_to_user_id,
+        status: user.is_active ? "Active" : "Inactive",
+        employmentType: user.employment_type,
+        permissions: user.workforce_permissions || [],
+        location: user.city || user.country || "Remote",
+        attendance: presentUserIds.has(user.user_id) ? "Present" : "Not clocked in",
+        joinedAt: user.created_at,
+      }));
+
+    const personName = (person) => person ? `${person.first_name || ""} ${person.last_name || ""}`.trim() || person.email : "Unknown";
+    const approvalsQueue = [
+      ...leaveRequests.map((request) => ({
+        id: request.leave_request_id,
+        item: `${request.leave_type}: ${request.start_date} – ${request.end_date}`,
+        owner: personName(request.requester),
+        type: "leave",
+        status: "Pending",
+      })),
+      ...expenseClaims.map((claim) => ({
+        id: claim.expense_claim_id,
+        item: `${claim.category}: ${claim.currency} ${Number(claim.amount).toFixed(2)}`,
+        owner: personName(claim.claimant),
+        type: "expense",
+        status: claim.status === "approved" ? "Approved – receipt verification" : "Pending",
+      })),
+      ...invoices.map((invoice) => ({
+        id: invoice.invoice_id,
+        item: `${invoice.invoice_number}: ${invoice.currency} ${Number(invoice.amount).toFixed(2)}`,
+        owner: personName(invoice.submitter),
+        type: "invoice",
+        status: invoice.status.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "),
+      })),
+    ];
+
+    const activeStaff = staffDirectory.filter((member) => member.status === "Active").length;
+    const avgKpi = kpis.length ? Math.round(kpis.reduce((sum, kpi) => sum + kpi.progress, 0) / kpis.length) : 0;
+    const presentWorkforce = staffDirectory.filter((member) => presentUserIds.has(member.id)).length;
+    const attendanceRate = activeStaff ? Math.min(100, Math.round((presentWorkforce / activeStaff) * 100)) : 0;
+    let zoho = { configured: false, organization: null };
+    if (zohoService.isConfigured()) {
+      try {
+        zoho = await zohoService.getOrganizationMetrics();
+      } catch (error) {
+        zoho = { configured: true, organization: null, error: error.message };
+      }
+    }
+    const zohoMetrics = zoho.organization ? [
+      { label: "Zoho organization", value: zoho.organization.name, delta: zoho.organization.currency_code || "Connected" },
+      { label: "Zoho invoices", value: String(zoho.invoiceCount || 0), delta: "First 200 current records" },
+      { label: "Zoho invoiced total", value: `${zoho.organization.currency_code || ""} ${Number(zoho.invoicedTotal || 0).toLocaleString()}`.trim(), delta: "Synced from Zoho Books" },
+      { label: "Zoho receivables", value: `${zoho.organization.currency_code || ""} ${Number(zoho.outstandingReceivables || 0).toLocaleString()}`.trim(), delta: "Outstanding balance" },
+    ] : [
+      { label: "Active workforce", value: String(activeStaff), delta: "Live platform data" },
+      { label: "Attendance today", value: `${attendanceRate}%`, delta: `${presentWorkforce} clocked in` },
+      { label: "Open approvals", value: String(approvalsQueue.length), delta: "Live workflow data" },
+      { label: "Average KPI progress", value: `${avgKpi}%`, delta: `${kpis.length} assignments` },
+    ];
+
+    return res.json({
+      success: true,
+      data: {
+        staff: staffDirectory,
+        departments,
+        approvalsQueue,
+        holidays,
+        kpiLibrary: kpis.map((kpi) => ({
+          id: kpi.kpi_id,
+          title: kpi.title,
+          target: kpi.target,
+          owner: personName(kpi.assignee),
+          assignedToUserId: kpi.assigned_to_user_id,
+          review: kpi.review_cycle,
+          progress: kpi.progress,
+          score: kpi.appraisal_score ? Number(kpi.appraisal_score) : null,
+          status: kpi.status,
+        })),
+        zohoMetrics,
+        zoho,
+        permissions: permissions.map((permission) => ({
+          id: permission.role_permission_id,
+          key: permission.permission_key,
+          name: permission.name,
+          super_admin: true,
+          admin: permission.admin,
+          project_manager: permission.project_manager,
+          staff: permission.staff,
+        })),
+        stats: {
+          activeStaff: staffDirectory.length,
+          departments: departments.length,
+          approvals: approvalsQueue.filter((item) => item.status === "Pending").length,
+        },
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get workforce data",
+      error: error.message,
+    });
+  }
+};
+
+const getDepartments = async (req, res) => {
+  try {
+    const departments = await Department.findAll({
+      include: [{
+        model: User,
+        as: "manager",
+        attributes: ["user_id", "first_name", "last_name", "email"],
+      }],
+      order: [["name", "ASC"]],
+    });
+
+    return res.json({
+      success: true,
+      data: departments,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get departments",
+      error: error.message,
+    });
+  }
+};
+
+const createDepartment = async (req, res) => {
+  try {
+    const { name, code, description, manager_user_id, location } = req.body;
+
+    if (!name || !code) {
+      return res.status(400).json({
+        success: false,
+        message: "Department name and code are required",
+      });
+    }
+
+    const existingDepartment = await Department.findOne({
+      where: {
+        [Op.or]: [{ name }, { code }],
+      },
+    });
+
+    if (existingDepartment) {
+      return res.status(400).json({
+        success: false,
+        message: "A department with this name or code already exists",
+      });
+    }
+
+    if (manager_user_id) {
+      const manager = await User.findByPk(manager_user_id);
+      if (!manager) {
+        return res.status(404).json({
+          success: false,
+          message: "Assigned manager user not found",
+        });
+      }
+    }
+
+    const department = await Department.create({
+      name,
+      code,
+      description,
+      manager_user_id: manager_user_id || null,
+      location,
+      status: "active",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Department created successfully",
+      data: department,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create department",
+      error: error.message,
+    });
+  }
+};
+
+const updateDepartment = async (req, res) => {
+  try {
+    const { department_id } = req.params;
+    const updates = req.body;
+
+    const department = await Department.findByPk(department_id);
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: "Department not found",
+      });
+    }
+
+    if (updates.manager_user_id) {
+      const manager = await User.findByPk(updates.manager_user_id);
+      if (!manager) {
+        return res.status(404).json({
+          success: false,
+          message: "Assigned manager user not found",
+        });
+      }
+    }
+
+    await department.update(updates);
+
+    return res.json({
+      success: true,
+      message: "Department updated successfully",
+      data: department,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update department",
+      error: error.message,
+    });
+  }
+};
+
+const deleteDepartment = async (req, res) => {
+  try {
+    const { department_id } = req.params;
+    const department = await Department.findByPk(department_id);
+
+    if (!department) {
+      return res.status(404).json({
+        success: false,
+        message: "Department not found",
+      });
+    }
+
+    await department.destroy();
+
+    return res.json({
+      success: true,
+      message: "Department deleted successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete department",
+      error: error.message,
+    });
+  }
+};
+
+const updateWorkforceUser = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const user = await User.findByPk(req.params.user_id, { transaction });
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Workforce user not found" });
+    }
+    const allowedRoles = ["super_admin", "admin", "project_manager", "staff"];
+    const nextRole = req.body.role || user.role;
+    if (!allowedRoles.includes(nextRole)) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: "Role must be super_admin, admin, project_manager, or staff" });
+    }
+    if ((nextRole === "super_admin" || user.role === "super_admin") && req.user.role !== "super_admin") {
+      await transaction.rollback();
+      return res.status(403).json({ success: false, message: "Only a super admin can manage super admin access" });
+    }
+    if (req.body.department_id && !(await Department.findByPk(req.body.department_id, { transaction }))) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
+    if (req.body.reports_to_user_id) {
+      const manager = await User.findByPk(req.body.reports_to_user_id, { transaction });
+      if (!manager || !allowedRoles.includes(manager.role)) {
+        await transaction.rollback();
+        return res.status(404).json({ success: false, message: "Reporting manager not found" });
+      }
+    }
+
+    const fields = ["first_name", "last_name", "phone_number", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "hire_date", "leave_allowance_days", "country", "city", "current_assignment", "work_region"];
+    const updates = Object.fromEntries(fields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field] || null]));
+    if (req.body.workforce_permissions !== undefined) {
+      const knownPermissions = await RolePermission.findAll({ attributes: ["permission_key"], transaction });
+      const knownKeys = new Set(knownPermissions.map((permission) => permission.permission_key));
+      const requested = Array.isArray(req.body.workforce_permissions) ? req.body.workforce_permissions : [];
+      updates.workforce_permissions = requested.filter((permission) => knownKeys.has(permission));
+    }
+    updates.role = nextRole;
+    if (req.body.is_active !== undefined) updates.is_active = Boolean(req.body.is_active);
+    await user.update(updates, { transaction });
+    if (nextRole === "project_manager") {
+      await ProjectManager.findOrCreate({ where: { user_id: user.user_id }, defaults: { user_id: user.user_id, status: "active" }, transaction });
+    }
+    if (["admin", "super_admin"].includes(nextRole)) {
+      const [admin] = await Admin.findOrCreate({ where: { user_id: user.user_id }, defaults: { user_id: user.user_id, is_super_admin: nextRole === "super_admin" }, transaction });
+      await admin.update({ is_super_admin: nextRole === "super_admin" }, { transaction });
+    }
+    await transaction.commit();
+    return res.json({ success: true, message: "Workforce user updated successfully", data: user });
+  } catch (error) {
+    await transaction.rollback();
+    return res.status(500).json({ success: false, message: "Failed to update workforce user", error: error.message });
+  }
+};
+
+const reviewWorkforceApproval = async (req, res) => {
+  try {
+    const { type, request_id } = req.params;
+    const { action, notes = "" } = req.body;
+    const models = { leave: LeaveRequest, expense: ExpenseClaim, invoice: Invoice };
+    const idFields = { leave: "leave_request_id", expense: "expense_claim_id", invoice: "invoice_id" };
+    const allowedActions = {
+      leave: ["approved", "rejected"],
+      expense: ["approved", "rejected", "receipt_verified", "paid"],
+      invoice: ["approved", "disputed", "accounts_approved", "paid"],
+    };
+    if (!models[type] || !allowedActions[type].includes(action)) return res.status(400).json({ success: false, message: "Invalid approval type or action" });
+    const record = await models[type].findOne({ where: { [idFields[type]]: request_id } });
+    if (!record) return res.status(404).json({ success: false, message: "Approval request not found" });
+    const updates = { status: action };
+    if (type === "invoice" && action === "accounts_approved" && record.invoice_type === "project") {
+      try {
+        const zohoInvoice = await zohoService.syncProjectInvoice(record);
+        updates.zoho_invoice_id = String(zohoInvoice.invoice_id);
+        updates.zoho_synced_at = new Date();
+      } catch (zohoError) {
+        const status = zohoError.code === "ZOHO_NOT_CONFIGURED" ? 409 : 502;
+        return res.status(status).json({ success: false, message: "Zoho invoice sync failed; the accounts approval was not finalized", error: zohoError.message });
+      }
+    }
+    if (["approved", "rejected", "disputed"].includes(action)) Object.assign(updates, { reviewed_by: req.user.user_id, reviewed_at: new Date(), review_notes: notes || null });
+    if (type === "expense" && action === "receipt_verified") Object.assign(updates, { accounts_verified_by: req.user.user_id, accounts_verified_at: new Date() });
+    await record.update(updates);
+    if (type === "expense" && action === "approved") {
+      await notifyPermissionHolders({
+        permissionKey: "verify_receipts",
+        title: "Expense approved for receipt verification",
+        message: `Expense claim ${record.expense_claim_id} is ready for accounts verification.`,
+        actionUrl: "/dashboard/staff/approvals",
+        metadata: { type, id: request_id, action },
+      });
+    }
+    const ownerId = type === "invoice" ? record.submitted_by : record.user_id;
+    await Notification.create({
+      user_id: ownerId,
+      title: `${type.charAt(0).toUpperCase() + type.slice(1)} update`,
+      message: `Your ${type} request is now ${action.replace("_", " ")}.${notes ? ` ${notes}` : ""}`,
+      type: ["approved", "receipt_verified", "accounts_approved", "paid"].includes(action) ? "success" : "warning",
+      action_url: type === "leave" ? "/dashboard/staff/leave" : type === "expense" ? "/dashboard/staff/expenses" : "/dashboard/staff/invoices",
+      metadata: { type, id: request_id, action },
+    });
+    return res.json({ success: true, message: "Approval updated successfully", data: record });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to update approval", error: error.message });
+  }
+};
+
+const createHoliday = async (req, res) => {
+  try {
+    const { name, date, type = "Public holiday", region, description } = req.body;
+    if (!name || !date) return res.status(400).json({ success: false, message: "Holiday name and date are required" });
+    const holiday = await Holiday.create({ name, date, type, region: region || null, description: description || null, created_by: req.user.user_id });
+    const recipients = await User.findAll({ where: { role: { [Op.in]: ["staff", "project_manager", "engineer", "admin", "super_admin"] }, is_active: true }, attributes: ["user_id"] });
+    await Notification.bulkCreate(recipients.map((user) => ({ user_id: user.user_id, title: "Holiday calendar updated", message: `${name} has been added for ${date}.`, type: "info", action_url: "/dashboard/staff/holidays", metadata: { holiday_id: holiday.holiday_id } })));
+    return res.status(201).json({ success: true, message: "Holiday created successfully", data: holiday });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to create holiday", error: error.message });
+  }
+};
+
+const updateHoliday = async (req, res) => {
+  try {
+    const holiday = await Holiday.findByPk(req.params.holiday_id);
+    if (!holiday) return res.status(404).json({ success: false, message: "Holiday not found" });
+    const fields = ["name", "date", "type", "region", "description"];
+    const updates = Object.fromEntries(fields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field] || null]));
+    await holiday.update(updates);
+    return res.json({ success: true, message: "Holiday updated successfully", data: holiday });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to update holiday", error: error.message });
+  }
+};
+
+const deleteHoliday = async (req, res) => {
+  try {
+    const holiday = await Holiday.findByPk(req.params.holiday_id);
+    if (!holiday) return res.status(404).json({ success: false, message: "Holiday not found" });
+    await holiday.destroy();
+    return res.json({ success: true, message: "Holiday deleted successfully" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to delete holiday", error: error.message });
+  }
+};
+
+const createKpi = async (req, res) => {
+  try {
+    const { assigned_to_user_id, title, target, description, review_cycle = "Quarterly", period_start, period_end, progress = 0, status = "active" } = req.body;
+    if (!assigned_to_user_id || !title || !target) return res.status(400).json({ success: false, message: "Assignee, title, and target are required" });
+    const assignee = await User.findByPk(assigned_to_user_id);
+    if (!assignee || !["staff", "project_manager", "admin", "super_admin"].includes(assignee.role)) return res.status(404).json({ success: false, message: "Staff assignee not found" });
+    const kpi = await Kpi.create({ assigned_to_user_id, title, target, description: description || null, review_cycle, period_start: period_start || null, period_end: period_end || null, progress, status, created_by: req.user.user_id });
+    await Notification.create({ user_id: assigned_to_user_id, title: "New KPI assigned", message: `${title} has been assigned to you.`, type: "info", action_url: "/dashboard/staff/kpis", metadata: { kpi_id: kpi.kpi_id } });
+    return res.status(201).json({ success: true, message: "KPI created successfully", data: kpi });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to create KPI", error: error.message });
+  }
+};
+
+const updateKpi = async (req, res) => {
+  try {
+    const kpi = await Kpi.findByPk(req.params.kpi_id);
+    if (!kpi) return res.status(404).json({ success: false, message: "KPI not found" });
+    const fields = ["assigned_to_user_id", "title", "target", "description", "review_cycle", "period_start", "period_end", "progress", "appraisal_score", "appraisal_notes", "status"];
+    const updates = Object.fromEntries(fields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+    await kpi.update(updates);
+    await Notification.create({ user_id: kpi.assigned_to_user_id, title: "KPI updated", message: `${kpi.title} has been updated.`, type: "info", action_url: "/dashboard/staff/kpis", metadata: { kpi_id: kpi.kpi_id } });
+    return res.json({ success: true, message: "KPI updated successfully", data: kpi });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to update KPI", error: error.message });
+  }
+};
+
+const deleteKpi = async (req, res) => {
+  try {
+    const kpi = await Kpi.findByPk(req.params.kpi_id);
+    if (!kpi) return res.status(404).json({ success: false, message: "KPI not found" });
+    await kpi.destroy();
+    return res.json({ success: true, message: "KPI deleted successfully" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to delete KPI", error: error.message });
+  }
+};
+
+const updateRolePermission = async (req, res) => {
+  try {
+    if (req.user.role !== "super_admin") return res.status(403).json({ success: false, message: "Only a super admin can change the role permission matrix" });
+    const permission = await RolePermission.findByPk(req.params.role_permission_id);
+    if (!permission) return res.status(404).json({ success: false, message: "Permission not found" });
+    const updates = { super_admin: true };
+    ["admin", "project_manager", "staff"].forEach((role) => { if (typeof req.body[role] === "boolean") updates[role] = req.body[role]; });
+    await permission.update(updates);
+    return res.json({ success: true, message: "Role permission updated successfully", data: permission });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to update role permission", error: error.message });
   }
 };
 
@@ -544,11 +1076,21 @@ const getProjectManagers = async (req, res) => {
   }
 };
 
-// Invite new project manager
+// Invite a project manager, staff member, admin, or super admin.
 const inviteProjectManager = async (req, res) => {
   let transaction;
   try {
-    const { email, first_name, role = "project_manager" } = req.body;
+    const { email, first_name, last_name, department_id, job_title, role = "project_manager" } = req.body;
+    const allowedRoles = ["super_admin", "admin", "project_manager", "staff"];
+    if (!email || !allowedRoles.includes(role)) {
+      return res.status(400).json({ success: false, message: "A valid email and workforce role are required" });
+    }
+    if (role === "super_admin" && req.user.role !== "super_admin") {
+      return res.status(403).json({ success: false, message: "Only a super admin can invite another super admin" });
+    }
+    if (department_id && !(await Department.findByPk(department_id))) {
+      return res.status(404).json({ success: false, message: "Department not found" });
+    }
 
     // 1️⃣ Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
@@ -594,6 +1136,10 @@ const inviteProjectManager = async (req, res) => {
 
     const invitedUser = await Invite.create({
       email,
+      first_name: first_name || null,
+      last_name: last_name || null,
+      department_id: department_id || null,
+      job_title: job_title || null,
       // temp_password: tempPassword,
       role,
       token,
@@ -622,7 +1168,7 @@ const inviteProjectManager = async (req, res) => {
 
     await sendEmail({
       to: invitedUser.email,
-      subject: "Invitation to Stechad Engineer Management Platform",
+      subject: "Invitation to STECHAD Hub",
       htmlFilePath,
       replacements,
     });
@@ -632,7 +1178,8 @@ const inviteProjectManager = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Project manager invited successfully.",
+      message: `${role.replace("_", " ")} invited successfully.`,
+      data: invitedUser,
     });
   } catch (error) {
     // If we created a transaction but didn't commit, roll back
@@ -644,7 +1191,7 @@ const inviteProjectManager = async (req, res) => {
     console.error(error);
     res.status(500).json({
       success: false,
-      message: "Failed to invite project manager",
+      message: "Failed to send workforce invitation",
       error: error.message,
     });
   }
@@ -888,6 +1435,20 @@ const updateSettings = async (req, res) => {
 module.exports = {
   getDashboard,
   getStats,
+  getWorkforce,
+  getDepartments,
+  createDepartment,
+  updateDepartment,
+  deleteDepartment,
+  updateWorkforceUser,
+  reviewWorkforceApproval,
+  createHoliday,
+  updateHoliday,
+  deleteHoliday,
+  createKpi,
+  updateKpi,
+  deleteKpi,
+  updateRolePermission,
   updateProfile,
   getEngineerDetails,
   updateEngineerVetting,

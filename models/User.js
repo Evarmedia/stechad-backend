@@ -24,7 +24,7 @@ User.init(
       type: DataTypes.TEXT,
       allowNull: false,
       validate: {
-        isIn: [['admin', 'project_manager', 'engineer']],
+        isIn: [['super_admin', 'admin', 'project_manager', 'engineer', 'staff']],
       }
     },
     first_name: {
@@ -35,6 +35,59 @@ User.init(
     },
     phone_number: {
       type: DataTypes.TEXT,
+    },
+    employee_id: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
+    department_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    job_title: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    reports_to_user_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    employment_type: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "full_time",
+    },
+    hire_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    date_of_birth: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    leave_allowance_days: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 20,
+    },
+    workforce_permissions: {
+      type: DataTypes.ARRAY(DataTypes.TEXT),
+      allowNull: false,
+      defaultValue: [],
+    },
+    location_sharing_enabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    current_assignment: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    work_region: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
     is_verified: {
       type: DataTypes.BOOLEAN,

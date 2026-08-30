@@ -42,7 +42,7 @@ const options = {
           properties: {
             user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
             email: { type: 'string', format: 'email', example: 'mosimishak@gmail.com' },
-            role: { type: 'string', enum: ['engineer', 'project_manager', 'admin'], example: 'engineer' },
+            role: { type: 'string', enum: ['engineer', 'project_manager', 'super_admin', 'admin', 'staff'], example: 'engineer' },
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },
             phone_number: { type: 'string', example: '+1234567890' },

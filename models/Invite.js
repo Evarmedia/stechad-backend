@@ -16,11 +16,27 @@ Invite.init(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+    first_name: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    last_name: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    department_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+    },
+    job_title: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     role: {
       type: DataTypes.TEXT,
       allowNull: false,
       validate: {
-        isIn: [["admin", "project_manager", "engineer"]],
+        isIn: [["super_admin", "admin", "project_manager", "engineer", "staff"]],
       },
     },
     // temp_password: {
@@ -38,6 +54,10 @@ Invite.init(
     sent_at: {
       type: DataTypes.DATE,
       allowNull: false,
+    },
+    responded_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     expires_at: {
       type: DataTypes.DATE,

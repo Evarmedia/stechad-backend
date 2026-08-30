@@ -1,4 +1,4 @@
-const { User, Engineer, ProjectManager, Admin, Invite } = require("../models");
+const { User, Engineer, ProjectManager, Admin, Invite, RolePermission } = require("../models");
 const { generateTokens } = require("../utils/generateTokens");
 const sendEmail = require("../utils/sendEmail");
 const { generateOTP, generateOTPExpiry } = require("../utils/otpGenerator");
@@ -26,6 +26,24 @@ const SIGNED_URL_TTL_SECONDS =
 // Helper function to format user response with signed URLs
 const formatUserResponse = async (user) => {
   const data = user.toJSON();
+
+  if (data.role === "super_admin") {
+    data.effective_permissions = ["*"];
+  } else if (["admin", "project_manager", "staff"].includes(data.role)) {
+    const roleColumn = data.role === "project_manager" ? "project_manager" : data.role;
+    const configured = await RolePermission.findAll({ order: [["permission_key", "ASC"]] });
+    const defaults = {
+      admin: ["view_dashboard", "manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
+      project_manager: ["view_dashboard", "approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
+      staff: ["view_dashboard", "submit_expenses"],
+    };
+    const rolePermissions = configured.length
+      ? configured.filter((permission) => Boolean(permission[roleColumn])).map((permission) => permission.permission_key)
+      : defaults[data.role];
+    data.effective_permissions = [...new Set([...(rolePermissions || []), ...(data.workforce_permissions || [])])];
+  } else {
+    data.effective_permissions = [];
+  }
 
   // Add avatar URL if exists
   if (data.avatar_object_name) {
@@ -631,6 +649,9 @@ const acceptInvite = async (req, res) => {
         first_name: first_name || invitedUser.first_name,
         last_name: last_name || invitedUser.last_name,
         role: invitedUser.role,
+        department_id: invitedUser.department_id || null,
+        job_title: invitedUser.job_title || null,
+        employee_id: invitedUser.role === "staff" ? `STECH-${Date.now().toString().slice(-6)}` : null,
       },
       { transaction }
     );
@@ -639,6 +660,11 @@ const acceptInvite = async (req, res) => {
     if (invitedUser.role === "project_manager") {
       await ProjectManager.create(
         { user_id: user.user_id, status: "active" },
+        { transaction }
+      );
+    } else if (["admin", "super_admin"].includes(invitedUser.role)) {
+      await Admin.create(
+        { user_id: user.user_id, is_super_admin: invitedUser.role === "super_admin" },
         { transaction }
       );
     }
