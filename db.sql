@@ -20,13 +20,19 @@ CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(4)))),
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
+    role TEXT CHECK(role IN ('super_admin', 'admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
     full_name TEXT,
     phone_number TEXT,
     is_verified INTEGER DEFAULT 0,
     avatar_object_name TEXT,
     country TEXT,
     city TEXT,
+    location_sharing_enabled INTEGER NOT NULL DEFAULT 0,
+    location_permission_status TEXT NOT NULL DEFAULT 'not_asked' CHECK(location_permission_status IN ('not_asked', 'granted', 'denied', 'unavailable')),
+    browser_latitude REAL,
+    browser_longitude REAL,
+    browser_location_accuracy REAL,
+    browser_location_updated_at DATETIME,
     last_login DATETIME,
     reset_password_token TEXT,
     reset_password_expires DATETIME,
@@ -36,6 +42,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
+CREATE UNIQUE INDEX users_single_super_admin ON users(role) WHERE role = 'super_admin';
 
 
 -- ============================================================================
@@ -117,7 +124,7 @@ CREATE TABLE IF NOT EXISTS admins (
     admin_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(4)))),
     user_id INTEGER NOT NULL REFERENCES users (user_id) ON DELETE NO ACTION ON UPDATE CASCADE,
     permissions TEXT,
-    is_super_admin INTEGER DEFAULT 1,
+    is_super_admin INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL
 );

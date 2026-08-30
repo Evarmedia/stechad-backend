@@ -64,8 +64,6 @@ router.get('/stats', adminController.getStats);
  *                 type: array
  *                 items:
  *                   type: string
- *               is_super_admin:
- *                 type: boolean
  *               first_name:
  *                 type: string
  *               last_name:

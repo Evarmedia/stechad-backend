@@ -87,6 +87,22 @@ User.init(
       defaultValue: "not_asked",
       validate: { isIn: [["not_asked", "granted", "denied", "unavailable"]] },
     },
+    browser_latitude: {
+      type: DataTypes.DECIMAL(10, 7),
+      allowNull: true,
+    },
+    browser_longitude: {
+      type: DataTypes.DECIMAL(10, 7),
+      allowNull: true,
+    },
+    browser_location_accuracy: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
+    browser_location_updated_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     current_assignment: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -159,6 +175,14 @@ User.init(
     timestamps: true, // Sequelize will now handle the timestamps automatically
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    indexes: [
+      {
+        name: "users_single_super_admin",
+        unique: true,
+        fields: ["role"],
+        where: { role: "super_admin" },
+      },
+    ],
   }
 );
 

@@ -26,7 +26,7 @@ const { v4: uuidv4, validate: uuidValidate } = require("uuid");
 
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
-const { toBool, toTextArray } = require("../utils/helpers");
+const { toTextArray } = require("../utils/helpers");
 const { formatUserResponse, generateTokens } = require("./authController");
 const crypto = require("crypto");
 const sequelize = require("../config/database");
@@ -246,7 +246,7 @@ const getWorkforce = async (req, res) => {
       User.findAll({
         order: [["created_at", "DESC"]],
         where: { role: { [Op.in]: ["staff", "admin", "project_manager", "super_admin"] } },
-        attributes: ["user_id", "first_name", "last_name", "email", "role", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "created_at"],
+        attributes: ["user_id", "first_name", "last_name", "email", "role", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "created_at"],
         include: [
           { model: Department, as: "department", attributes: ["department_id", "name", "code"] },
           { model: User, as: "reporting_manager", attributes: ["user_id", "first_name", "last_name", "email"] },
@@ -288,7 +288,19 @@ const getWorkforce = async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const attendanceToday = await Attendance.findAll({ where: { work_date: today }, attributes: ["user_id"] });
     const presentUserIds = new Set(attendanceToday.map((entry) => entry.user_id));
-    const staffDirectory = allUsers.map((user) => ({
+    const staffDirectory = allUsers.map((user) => {
+      const browserLocation = user.location_sharing_enabled
+        && user.location_permission_status === "granted"
+        && user.browser_latitude !== null
+        && user.browser_longitude !== null
+        ? {
+          latitude: Number(user.browser_latitude),
+          longitude: Number(user.browser_longitude),
+          accuracy: user.browser_location_accuracy === null ? null : Number(user.browser_location_accuracy),
+          updatedAt: user.browser_location_updated_at,
+        }
+        : null;
+      return ({
         id: user.user_id,
         name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email,
         email: user.email,
@@ -303,10 +315,12 @@ const getWorkforce = async (req, res) => {
         status: user.is_active ? "Active" : "Inactive",
         employmentType: user.employment_type,
         permissions: user.workforce_permissions || [],
-        location: user.city || user.country || "Remote",
+        location: browserLocation ? `${browserLocation.latitude.toFixed(6)}, ${browserLocation.longitude.toFixed(6)}` : user.city || user.country || "Not shared",
+        browserLocation,
         attendance: presentUserIds.has(user.user_id) ? "Present" : "Not clocked in",
         joinedAt: user.created_at,
-      }));
+      });
+    });
 
     const personName = (person) => person ? `${person.first_name || ""} ${person.last_name || ""}`.trim() || person.email : "Unknown";
     const approvalsQueue = [
@@ -575,6 +589,18 @@ const updateWorkforceUser = async (req, res) => {
       await transaction.rollback();
       return res.status(403).json({ success: false, message: "Only a super admin can manage super admin access" });
     }
+    if (nextRole === "super_admin" && user.role !== "super_admin") {
+      await transaction.rollback();
+      return res.status(409).json({ success: false, message: "Only one Super Admin may exist. Create the account with the manual Super Admin seed command." });
+    }
+    if (user.role === "super_admin" && nextRole !== "super_admin") {
+      await transaction.rollback();
+      return res.status(409).json({ success: false, message: "The sole Super Admin cannot be assigned a different role" });
+    }
+    if (user.role === "super_admin" && req.body.is_active !== undefined && !Boolean(req.body.is_active)) {
+      await transaction.rollback();
+      return res.status(409).json({ success: false, message: "The sole Super Admin cannot be deactivated" });
+    }
     if (req.body.department_id && !(await Department.findByPk(req.body.department_id, { transaction }))) {
       await transaction.rollback();
       return res.status(404).json({ success: false, message: "Department not found" });
@@ -627,6 +653,12 @@ const reviewWorkforceApproval = async (req, res) => {
     if (!models[type] || !allowedActions[type].includes(action)) return res.status(400).json({ success: false, message: "Invalid approval type or action" });
     const record = await models[type].findOne({ where: { [idFields[type]]: request_id } });
     if (!record) return res.status(404).json({ success: false, message: "Approval request not found" });
+    if (type === "invoice" && (record.status === "paid" || (record.status === "accounts_approved" && action !== "paid"))) {
+      return res.status(409).json({ success: false, message: "This invoice has already completed accounts approval" });
+    }
+    if (type === "invoice" && action === "accounts_approved" && record.status !== "approved") {
+      return res.status(409).json({ success: false, message: "An invoice must be approved before accounts approval" });
+    }
     const updates = { status: action };
     if (type === "invoice" && action === "accounts_approved" && record.invoice_type === "project") {
       try {
@@ -845,7 +877,6 @@ const updateProfile = async (req, res) => {
 
     const {
       permissions,
-      is_super_admin,
       first_name,
       last_name,
       phone_number,
@@ -874,9 +905,6 @@ const updateProfile = async (req, res) => {
     // 2) Coerce/assign other fields
     const permArray = toTextArray(permissions);
     if (permArray !== undefined) adminUpdates.permissions = permArray;
-
-    const superAdmin = toBool(is_super_admin);
-    if (superAdmin !== undefined) adminUpdates.is_super_admin = superAdmin;
 
     if (first_name !== undefined) userUpdates.first_name = first_name;
     if (last_name !== undefined) userUpdates.last_name = last_name;
@@ -1165,17 +1193,14 @@ const getProjectManagers = async (req, res) => {
   }
 };
 
-// Invite a project manager, staff member, admin, or super admin.
+// Invite a project manager, staff member, or admin. Super Admin is seeded manually.
 const inviteProjectManager = async (req, res) => {
   let transaction;
   try {
     const { email, first_name, last_name, department_id, job_title, role = "project_manager" } = req.body;
-    const allowedRoles = ["super_admin", "admin", "project_manager", "staff"];
+    const allowedRoles = ["admin", "project_manager", "staff"];
     if (!email || !allowedRoles.includes(role)) {
       return res.status(400).json({ success: false, message: "A valid email and workforce role are required" });
-    }
-    if (role === "super_admin" && req.user.role !== "super_admin") {
-      return res.status(403).json({ success: false, message: "Only a super admin can invite another super admin" });
     }
     if (department_id && !(await Department.findByPk(department_id))) {
       return res.status(404).json({ success: false, message: "Department not found" });

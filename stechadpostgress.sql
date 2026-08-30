@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
+    role TEXT CHECK(role IN ('super_admin', 'admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
     first_name TEXT,
     last_name TEXT,
     phone_number TEXT,
@@ -27,6 +27,12 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_object_name TEXT,
     country TEXT,
     city TEXT,
+    location_sharing_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    location_permission_status TEXT NOT NULL DEFAULT 'not_asked' CHECK(location_permission_status IN ('not_asked', 'granted', 'denied', 'unavailable')),
+    browser_latitude DECIMAL(10, 7),
+    browser_longitude DECIMAL(10, 7),
+    browser_location_accuracy DECIMAL(10, 2),
+    browser_location_updated_at TIMESTAMPTZ,
     last_login TIMESTAMPTZ,
     reset_password_token TEXT,
     reset_password_expires TIMESTAMPTZ,
@@ -37,6 +43,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
+CREATE UNIQUE INDEX users_single_super_admin ON users(role) WHERE role = 'super_admin';
 
 -- ============================================================================
 -- 2. ENGINEERS TABLE (Engineer-specific data)
@@ -118,7 +125,7 @@ CREATE TABLE IF NOT EXISTS admins (
     admin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
     permissions TEXT[] DEFAULT '{}',
-    is_super_admin BOOLEAN DEFAULT TRUE,
+    is_super_admin BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -481,4 +488,3 @@ FOR EACH ROW EXECUTE FUNCTION update_chat_last_message();
 -- DISPLAY SCHEMA VERSION INFO (optional)
 -- ============================================================================
 SELECT 'STECHAD PostgreSQL Database Schema v1.0 - Ready for Production' AS status;
-

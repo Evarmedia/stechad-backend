@@ -34,6 +34,35 @@ const titleCase = (value = "") => value
 
 const formatTime = (value) => value ? getWorkforceMoment(value).format("hh:mm A") : null;
 
+const formatBrowserLocation = (user) => {
+  if (user.browser_latitude === null || user.browser_latitude === undefined || user.browser_longitude === null || user.browser_longitude === undefined) return null;
+  return {
+    latitude: Number(user.browser_latitude),
+    longitude: Number(user.browser_longitude),
+    accuracy: user.browser_location_accuracy === null || user.browser_location_accuracy === undefined ? null : Number(user.browser_location_accuracy),
+    updatedAt: user.browser_location_updated_at,
+  };
+};
+
+const normalizeBrowserLocation = ({ latitude, longitude, accuracy }) => {
+  if (latitude === undefined && longitude === undefined) return { value: null };
+  if (latitude === undefined || longitude === undefined) return { error: "Latitude and longitude must be provided together" };
+  const parsedLatitude = Number(latitude);
+  const parsedLongitude = Number(longitude);
+  const parsedAccuracy = accuracy === undefined || accuracy === null ? null : Number(accuracy);
+  if (!Number.isFinite(parsedLatitude) || parsedLatitude < -90 || parsedLatitude > 90) return { error: "Latitude must be between -90 and 90" };
+  if (!Number.isFinite(parsedLongitude) || parsedLongitude < -180 || parsedLongitude > 180) return { error: "Longitude must be between -180 and 180" };
+  if (parsedAccuracy !== null && (!Number.isFinite(parsedAccuracy) || parsedAccuracy < 0)) return { error: "Location accuracy must be a positive number" };
+  return {
+    value: {
+      browser_latitude: parsedLatitude,
+      browser_longitude: parsedLongitude,
+      browser_location_accuracy: parsedAccuracy,
+      browser_location_updated_at: new Date(),
+    },
+  };
+};
+
 const formatAttendance = (entry) => ({
   id: entry.attendance_id,
   date: entry.work_date,
@@ -213,6 +242,7 @@ const getDashboard = async (req, res) => {
           role: req.user.role,
           locationSharingEnabled: req.user.location_sharing_enabled,
           locationPermissionStatus: req.user.location_permission_status,
+          browserLocation: req.user.location_sharing_enabled && req.user.location_permission_status === "granted" ? formatBrowserLocation(req.user) : null,
           today: moment().format("YYYY-MM-DD"),
         },
       },
@@ -258,15 +288,18 @@ const clockIn = async (req, res) => {
     const existing = await Attendance.findOne({ where: { user_id: req.user.user_id, work_date: workDate } });
     if (existing) return res.status(409).json({ success: false, message: "Attendance has already been started for today" });
     const { latitude, longitude, accuracy } = req.body;
+    const normalizedLocation = req.user.location_sharing_enabled ? normalizeBrowserLocation(req.body) : { value: null };
+    if (normalizedLocation.error) return res.status(400).json({ success: false, message: normalizedLocation.error });
     const entry = await Attendance.create({
       user_id: req.user.user_id,
       work_date: workDate,
       clock_in: new Date(),
       status: now.hour() >= 9 ? "late" : "present",
-      latitude: req.user.location_sharing_enabled ? latitude || null : null,
-      longitude: req.user.location_sharing_enabled ? longitude || null : null,
-      location_accuracy: req.user.location_sharing_enabled ? accuracy || null : null,
+      latitude: req.user.location_sharing_enabled ? latitude ?? null : null,
+      longitude: req.user.location_sharing_enabled ? longitude ?? null : null,
+      location_accuracy: req.user.location_sharing_enabled ? accuracy ?? null : null,
     });
+    if (normalizedLocation.value) await req.user.update(normalizedLocation.value);
     return res.status(201).json({ success: true, message: "Clocked in successfully", data: formatAttendance(entry) });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to clock in", error: error.message });
@@ -282,14 +315,17 @@ const clockOut = async (req, res) => {
     if (!entry) return res.status(404).json({ success: false, message: "Clock in before attempting to clock out" });
     if (entry.status === "absent") return res.status(409).json({ success: false, message: "This attendance day closed without a clock-out and was marked absent" });
     if (entry.clock_out) return res.status(409).json({ success: false, message: "You have already clocked out today" });
+    const normalizedLocation = req.user.location_sharing_enabled ? normalizeBrowserLocation(req.body) : { value: null };
+    if (normalizedLocation.error) return res.status(400).json({ success: false, message: normalizedLocation.error });
     await entry.update({
       clock_out: new Date(),
       work_log: work_log.trim(),
       status: "completed",
-      latitude: req.user.location_sharing_enabled ? latitude || entry.latitude : entry.latitude,
-      longitude: req.user.location_sharing_enabled ? longitude || entry.longitude : entry.longitude,
-      location_accuracy: req.user.location_sharing_enabled ? accuracy || entry.location_accuracy : entry.location_accuracy,
+      latitude: req.user.location_sharing_enabled ? latitude ?? entry.latitude : entry.latitude,
+      longitude: req.user.location_sharing_enabled ? longitude ?? entry.longitude : entry.longitude,
+      location_accuracy: req.user.location_sharing_enabled ? accuracy ?? entry.location_accuracy : entry.location_accuracy,
     });
+    if (normalizedLocation.value) await req.user.update(normalizedLocation.value);
     return res.json({ success: true, message: "Clocked out successfully", data: formatAttendance(entry) });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to clock out", error: error.message });
@@ -511,9 +547,21 @@ const updateLocationSharing = async (req, res) => {
     const permissionStatus = req.body.permission_status || req.user.location_permission_status || "not_asked";
     if (!allowedStatuses.includes(permissionStatus)) return res.status(400).json({ success: false, message: "Invalid location permission status" });
     if (req.body.enabled && permissionStatus !== "granted") return res.status(400).json({ success: false, message: "Browser location permission must be granted before enabling location sharing" });
+    const normalizedLocation = normalizeBrowserLocation(req.body);
+    if (normalizedLocation.error) return res.status(400).json({ success: false, message: normalizedLocation.error });
+    if (normalizedLocation.value && permissionStatus !== "granted") return res.status(400).json({ success: false, message: "Location coordinates require granted browser permission" });
     const updates = { location_sharing_enabled: req.body.enabled, location_permission_status: permissionStatus };
+    if (normalizedLocation.value) Object.assign(updates, normalizedLocation.value);
     await req.user.update(updates);
-    return res.json({ success: true, message: req.body.enabled ? "Location sharing enabled" : "Location sharing disabled", data: { enabled: req.user.location_sharing_enabled, permissionStatus: req.user.location_permission_status } });
+    return res.json({
+      success: true,
+      message: req.body.enabled ? "Location sharing enabled" : "Location sharing disabled",
+      data: {
+        enabled: req.user.location_sharing_enabled,
+        permissionStatus: req.user.location_permission_status,
+        browserLocation: req.user.location_sharing_enabled && req.user.location_permission_status === "granted" ? formatBrowserLocation(req.user) : null,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update location consent", error: error.message });
   }
@@ -524,9 +572,12 @@ const updateLiveLocation = async (req, res) => {
     if (!req.user.location_sharing_enabled) return res.status(403).json({ success: false, message: "Enable location sharing before sending a location" });
     const { latitude, longitude, accuracy } = req.body;
     if (latitude === undefined || longitude === undefined) return res.status(400).json({ success: false, message: "Latitude and longitude are required" });
+    const normalizedLocation = normalizeBrowserLocation(req.body);
+    if (normalizedLocation.error) return res.status(400).json({ success: false, message: normalizedLocation.error });
     const entry = await Attendance.findOne({ where: { user_id: req.user.user_id, work_date: moment().format("YYYY-MM-DD"), clock_out: null } });
     if (!entry) return res.status(409).json({ success: false, message: "Location is only captured during an active work session" });
     await entry.update({ latitude, longitude, location_accuracy: accuracy || null });
+    await req.user.update(normalizedLocation.value);
     return res.json({ success: true, message: "Live work location updated" });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update location", error: error.message });

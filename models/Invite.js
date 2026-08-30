@@ -36,7 +36,7 @@ Invite.init(
       type: DataTypes.TEXT,
       allowNull: false,
       validate: {
-        isIn: [["super_admin", "admin", "project_manager", "engineer", "staff"]],
+        isIn: [["admin", "project_manager", "engineer", "staff"]],
       },
     },
     // temp_password: {

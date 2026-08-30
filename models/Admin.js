@@ -26,7 +26,7 @@ Admin.init(
     },
     is_super_admin: {
       type: DataTypes.BOOLEAN,
-      defaultValue: true,
+      defaultValue: false,
     },
     created_at: {
       type: DataTypes.DATE,

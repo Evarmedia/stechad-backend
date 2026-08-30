@@ -26,6 +26,7 @@ const SIGNED_URL_TTL_SECONDS =
 // Helper function to format user response with signed URLs
 const formatUserResponse = async (user) => {
   const data = user.toJSON();
+  if (data.admin) data.admin.is_super_admin = data.role === "super_admin";
 
   if (data.role === "super_admin") {
     data.effective_permissions = ["*"];
@@ -136,6 +137,13 @@ const signup = async (req, res) => {
       referral_code,
       googleSignIn, // Add this field to differentiate normal signup vs Google login
     } = req.body;
+
+    if (!googleSignIn && role === "super_admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Super Admin accounts can only be created with the manual seed command",
+      });
+    }
 
     // If Google sign-in is used, skip password check (no password needed for Google sign-in)
     if (!googleSignIn) {
@@ -594,6 +602,14 @@ const acceptInvite = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid or expired invite",
+      });
+    }
+
+    if (invitedUser.role === "super_admin") {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        message: "Super Admin invitations are no longer accepted. Use the manual seed command.",
       });
     }
 
