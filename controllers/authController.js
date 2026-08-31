@@ -25,6 +25,12 @@ const SIGNED_URL_TTL_SECONDS =
   Number(process.env.GCS_SIGNED_URL_TTL_SECONDS) ||
   Number(process.env.GCS_SIGNED_URL_TTL_DAYS || 7) * 24 * 3600;
 
+const associationToPlainObject = (association) => (
+  association && typeof association.toJSON === "function"
+    ? association.toJSON()
+    : { ...association }
+);
+
 // Helper function to format user response with signed URLs
 const formatUserResponse = async (user) => {
   const data = user.toJSON();
@@ -62,7 +68,7 @@ const formatUserResponse = async (user) => {
 
   // Add Engineer CV URL if exists
   if (data.engineer) {
-    data.engineer = { ...data.engineer.toJSON() };
+    data.engineer = associationToPlainObject(data.engineer);
     if (data.engineer.cv_object_name) {
       try {
         data.engineer.cv_url = await getV4ReadSignedUrl(
@@ -79,7 +85,7 @@ const formatUserResponse = async (user) => {
 
   // Add ProjectManager docs URL if exists (future use)
   if (data.project_manager) {
-    data.project_manager = { ...data.project_manager.toJSON() };
+    data.project_manager = associationToPlainObject(data.project_manager);
   }
 
   return data;
