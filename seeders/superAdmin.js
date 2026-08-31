@@ -2,6 +2,8 @@ require("dotenv").config();
 
 const sequelize = require("../config/database");
 const { User, Admin } = require("../models");
+const { migrateRoleStorage } = require("../utils/roleMigration");
+const { ROLE_INCLUDE, findRoleByKey } = require("../utils/roleUtils");
 
 const email = String(process.env.SUPER_ADMIN_EMAIL || "").trim().toLowerCase();
 const password = String(process.env.SUPER_ADMIN_PASSWORD || "");
@@ -16,10 +18,14 @@ const validateInput = () => {
 const seedSuperAdmin = async () => {
   validateInput();
   await sequelize.authenticate();
+  await migrateRoleStorage();
 
   const result = await sequelize.transaction(async (transaction) => {
+    const superAdminRole = await findRoleByKey("super_admin", { transaction });
+    if (!superAdminRole) throw new Error("Super Admin system role is not seeded");
     const existingSuperAdmin = await User.findOne({
-      where: { role: "super_admin" },
+      where: { "$role.role_key$": "super_admin" },
+      include: [ROLE_INCLUDE],
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
@@ -45,7 +51,7 @@ const seedSuperAdmin = async () => {
       password,
       first_name: firstName || "Super",
       last_name: lastName || "Admin",
-      role: "super_admin",
+      role_id: superAdminRole.role_id,
       is_verified: true,
       is_active: true,
     }, { transaction });

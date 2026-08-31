@@ -17,9 +17,10 @@ const {
   KpiAppraisal,
   Invoice,
   RolePermission,
+  Role,
   Notification,
 } = require("../models");
-const { Op } = require("sequelize");
+const { Op, fn, col, where } = require("sequelize");
 const sendEmail = require("../utils/sendEmail");
 const path = require("path");
 const { v4: uuidv4, validate: uuidValidate } = require("uuid");
@@ -35,6 +36,7 @@ const { notifyPermissionHolders } = require("../utils/workforceNotification");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
 const { buildLocationLabel } = require("../utils/geoapify");
 const { generateUniqueEmployeeId } = require("../utils/employeeId");
+const { ROLE_INCLUDE, getRoleKey, findRoleByIdentifier, findRoleByKey } = require("../utils/roleUtils");
 
 const sanitizeKpiCriteria = (criteria) => {
   if (!Array.isArray(criteria)) return [];
@@ -76,7 +78,7 @@ const getDashboard = async (req, res) => {
         {
           model: User,
           as: "user",
-          attributes: ["first_name", "last_name", "role", "country"],
+          attributes: ["first_name", "last_name", "country"],
         },
       ],
     });
@@ -88,7 +90,7 @@ const getDashboard = async (req, res) => {
         {
           model: User,
           as: "poster",
-          attributes: ["first_name", "last_name", "role"],
+          attributes: ["first_name", "last_name"],
         },
       ],
     });
@@ -247,9 +249,10 @@ const getWorkforce = async (req, res) => {
     const [allUsers, departments, leaveRequests, expenseClaims, invoices, holidays, kpis, permissions] = await Promise.all([
       User.findAll({
         order: [["created_at", "DESC"]],
-        where: { role: { [Op.in]: ["staff", "admin", "project_manager", "super_admin"] } },
-        attributes: ["user_id", "first_name", "last_name", "email", "role", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "browser_location_address", "browser_location_city", "browser_location_state", "browser_location_country", "browser_location_country_code", "created_at"],
+        where: { "$role.role_key$": { [Op.in]: ["staff", "admin", "project_manager", "super_admin"] } },
+        attributes: ["user_id", "first_name", "last_name", "email", "role_id", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "browser_location_address", "browser_location_city", "browser_location_state", "browser_location_country", "browser_location_country_code", "created_at"],
         include: [
+          ROLE_INCLUDE,
           { model: Department, as: "department", attributes: ["department_id", "name", "code"] },
           { model: User, as: "reporting_manager", attributes: ["user_id", "first_name", "last_name", "email"] },
         ],
@@ -291,6 +294,7 @@ const getWorkforce = async (req, res) => {
     const attendanceToday = await Attendance.findAll({ where: { work_date: today }, attributes: ["user_id"] });
     const presentUserIds = new Set(attendanceToday.map((entry) => entry.user_id));
     const staffDirectory = allUsers.map((user) => {
+      const roleKey = getRoleKey(user);
       const browserLocation = user.location_sharing_enabled
         && user.location_permission_status === "granted"
         && user.browser_latitude !== null
@@ -312,8 +316,9 @@ const getWorkforce = async (req, res) => {
         departmentId: user.department_id,
         department: user.department?.name || "Unassigned",
         jobTitle: user.job_title || "Not set",
-        roleKey: user.role,
-        role: user.role === "project_manager" ? "Project Manager" : user.role === "super_admin" ? "Super Admin" : user.role === "admin" ? "Admin" : user.role === "staff" ? "Staff" : user.role,
+        roleId: user.role_id,
+        roleKey,
+        role: user.role?.name || roleKey,
         manager: user.reporting_manager ? `${user.reporting_manager.first_name || ""} ${user.reporting_manager.last_name || ""}`.trim() || user.reporting_manager.email : "Unassigned",
         managerId: user.reports_to_user_id,
         status: user.is_active ? "Active" : "Inactive",
@@ -583,25 +588,28 @@ const updateWorkforceUser = async (req, res) => {
       await transaction.rollback();
       return res.status(404).json({ success: false, message: "Workforce user not found" });
     }
-    const allowedRoles = ["super_admin", "admin", "project_manager", "staff"];
-    const nextRole = req.body.role || user.role;
-    if (!allowedRoles.includes(nextRole)) {
+    const allowedRoleKeys = ["super_admin", "admin", "project_manager", "staff"];
+    const currentRoleKey = getRoleKey(user);
+    const requestedRoleIdentifier = req.body.role_id ?? req.body.role ?? user.role_id;
+    const nextRole = await findRoleByIdentifier(requestedRoleIdentifier, { transaction });
+    const nextRoleKey = nextRole?.role_key;
+    if (!nextRole || !allowedRoleKeys.includes(nextRoleKey)) {
       await transaction.rollback();
-      return res.status(400).json({ success: false, message: "Role must be super_admin, admin, project_manager, or staff" });
+      return res.status(400).json({ success: false, message: "Role must reference the seeded super_admin, admin, project_manager, or staff role" });
     }
-    if ((nextRole === "super_admin" || user.role === "super_admin") && req.user.role !== "super_admin") {
+    if ((nextRoleKey === "super_admin" || currentRoleKey === "super_admin") && getRoleKey(req.user) !== "super_admin") {
       await transaction.rollback();
       return res.status(403).json({ success: false, message: "Only a super admin can manage super admin access" });
     }
-    if (nextRole === "super_admin" && user.role !== "super_admin") {
+    if (nextRoleKey === "super_admin" && currentRoleKey !== "super_admin") {
       await transaction.rollback();
       return res.status(409).json({ success: false, message: "Only one Super Admin may exist. Create the account with the manual Super Admin seed command." });
     }
-    if (user.role === "super_admin" && nextRole !== "super_admin") {
+    if (currentRoleKey === "super_admin" && nextRoleKey !== "super_admin") {
       await transaction.rollback();
       return res.status(409).json({ success: false, message: "The sole Super Admin cannot be assigned a different role" });
     }
-    if (user.role === "super_admin" && req.body.is_active !== undefined && !Boolean(req.body.is_active)) {
+    if (currentRoleKey === "super_admin" && req.body.is_active !== undefined && !Boolean(req.body.is_active)) {
       await transaction.rollback();
       return res.status(409).json({ success: false, message: "The sole Super Admin cannot be deactivated" });
     }
@@ -611,7 +619,7 @@ const updateWorkforceUser = async (req, res) => {
     }
     if (req.body.reports_to_user_id) {
       const manager = await User.findByPk(req.body.reports_to_user_id, { transaction });
-      if (!manager || !allowedRoles.includes(manager.role)) {
+      if (!manager || !allowedRoleKeys.includes(getRoleKey(manager))) {
         await transaction.rollback();
         return res.status(404).json({ success: false, message: "Reporting manager not found" });
       }
@@ -625,16 +633,17 @@ const updateWorkforceUser = async (req, res) => {
       const requested = Array.isArray(req.body.workforce_permissions) ? req.body.workforce_permissions : [];
       updates.workforce_permissions = requested.filter((permission) => knownKeys.has(permission));
     }
-    updates.role = nextRole;
+    updates.role_id = nextRole.role_id;
     if (req.body.is_active !== undefined) updates.is_active = Boolean(req.body.is_active);
     await user.update(updates, { transaction });
-    if (nextRole === "project_manager") {
+    if (nextRoleKey === "project_manager") {
       await ProjectManager.findOrCreate({ where: { user_id: user.user_id }, defaults: { user_id: user.user_id, status: "active" }, transaction });
     }
-    if (["admin", "super_admin"].includes(nextRole)) {
-      const [admin] = await Admin.findOrCreate({ where: { user_id: user.user_id }, defaults: { user_id: user.user_id, is_super_admin: nextRole === "super_admin" }, transaction });
-      await admin.update({ is_super_admin: nextRole === "super_admin" }, { transaction });
+    if (["admin", "super_admin"].includes(nextRoleKey)) {
+      const [admin] = await Admin.findOrCreate({ where: { user_id: user.user_id }, defaults: { user_id: user.user_id, is_super_admin: nextRoleKey === "super_admin" }, transaction });
+      await admin.update({ is_super_admin: nextRoleKey === "super_admin" }, { transaction });
     }
+    await user.reload({ transaction, include: [ROLE_INCLUDE] });
     await transaction.commit();
     return res.json({ success: true, message: "Workforce user updated successfully", data: user });
   } catch (error) {
@@ -706,7 +715,7 @@ const createHoliday = async (req, res) => {
     const { name, date, type = "Public holiday", region, description } = req.body;
     if (!name || !date) return res.status(400).json({ success: false, message: "Holiday name and date are required" });
     const holiday = await Holiday.create({ name, date, type, region: region || null, description: description || null, created_by: req.user.user_id });
-    const recipients = await User.findAll({ where: { role: { [Op.in]: ["staff", "project_manager", "engineer", "admin", "super_admin"] }, is_active: true }, attributes: ["user_id"] });
+    const recipients = await User.findAll({ where: { "$role.role_key$": { [Op.in]: ["staff", "project_manager", "engineer", "admin", "super_admin"] }, is_active: true }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
     await Notification.bulkCreate(recipients.map((user) => ({ user_id: user.user_id, title: "Holiday calendar updated", message: `${name} has been added for ${date}.`, type: "info", action_url: "/dashboard/staff/holidays", metadata: { holiday_id: holiday.holiday_id } })));
     return res.status(201).json({ success: true, message: "Holiday created successfully", data: holiday });
   } catch (error) {
@@ -744,7 +753,7 @@ const createKpi = async (req, res) => {
     const criteria = sanitizeKpiCriteria(req.body.criteria);
     if (!assigned_to_user_id || !title || !criteria.length) return res.status(400).json({ success: false, message: "Assignee, title, and at least one success criterion are required" });
     const assignee = await User.findByPk(assigned_to_user_id);
-    if (!assignee || !["staff", "project_manager", "admin", "super_admin"].includes(assignee.role)) return res.status(404).json({ success: false, message: "Staff assignee not found" });
+    if (!assignee || !["staff", "project_manager", "admin", "super_admin"].includes(getRoleKey(assignee))) return res.status(404).json({ success: false, message: "Staff assignee not found" });
     if (!["Monthly", "Quarterly", "Annual"].includes(review_cycle)) return res.status(400).json({ success: false, message: "Review cycle must be Monthly, Quarterly, or Annual" });
     const kpi = await Kpi.create({
       assigned_to_user_id,
@@ -851,6 +860,114 @@ const updateRolePermission = async (req, res) => {
     return res.json({ success: true, message: "Role permission updated successfully", data: permission });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update role permission", error: error.message });
+  }
+};
+
+const normalizeRoleKey = (value) => String(value || "")
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "_")
+  .replace(/^_+|_+$/g, "");
+
+const isValidRoleKey = (value) => /^[a-z][a-z0-9_]*$/.test(value);
+
+const getRoles = async (req, res) => {
+  try {
+    const roles = await Role.findAll({
+      order: [["is_system", "DESC"], ["name", "ASC"]],
+      attributes: ["role_id", "role_key", "name", "description", "is_system", "created_at", "updated_at"],
+    });
+    return res.json({ success: true, data: roles });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to get roles", error: error.message });
+  }
+};
+
+const createRole = async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const roleKey = normalizeRoleKey(req.body.role_key || name);
+    const description = String(req.body.description || "").trim() || null;
+    if (!name || !roleKey) return res.status(400).json({ success: false, message: "Role name and role key are required" });
+    if (!isValidRoleKey(roleKey)) return res.status(400).json({ success: false, message: "Role key must start with a letter and contain only lowercase letters, numbers, and underscores" });
+
+    const duplicate = await Role.findOne({
+      where: {
+        [Op.or]: [
+          where(fn("lower", col("role_key")), roleKey.toLowerCase()),
+          where(fn("lower", col("name")), name.toLowerCase()),
+        ],
+      },
+    });
+    if (duplicate) return res.status(409).json({ success: false, message: "A role with this name or key already exists" });
+
+    const role = await Role.create({ role_key: roleKey, name, description, is_system: false });
+    return res.status(201).json({ success: true, message: "Role created successfully", data: role });
+  } catch (error) {
+    const status = error.name === "SequelizeUniqueConstraintError" ? 409 : error.name === "SequelizeValidationError" ? 400 : 500;
+    const message = status === 409 ? "A role with this name or key already exists" : status === 400 ? "Role payload is invalid" : "Failed to create role";
+    return res.status(status).json({ success: false, message, error: error.message });
+  }
+};
+
+const updateRole = async (req, res) => {
+  try {
+    const role = await Role.findByPk(req.params.role_id);
+    if (!role) return res.status(404).json({ success: false, message: "Role not found" });
+    if (role.is_system) return res.status(409).json({ success: false, message: "System roles cannot be edited" });
+
+    const updates = {};
+    if (req.body.name !== undefined) updates.name = String(req.body.name || "").trim();
+    if (req.body.role_key !== undefined) updates.role_key = normalizeRoleKey(req.body.role_key);
+    if (req.body.description !== undefined) updates.description = String(req.body.description || "").trim() || null;
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ success: false, message: "At least one of name, role_key, or description is required" });
+    }
+    if ((updates.name !== undefined && !updates.name) || (updates.role_key !== undefined && !updates.role_key)) {
+      return res.status(400).json({ success: false, message: "Role name and role key cannot be empty" });
+    }
+    if (updates.role_key !== undefined && !isValidRoleKey(updates.role_key)) {
+      return res.status(400).json({ success: false, message: "Role key must start with a letter and contain only lowercase letters, numbers, and underscores" });
+    }
+
+    if (updates.name !== undefined || updates.role_key !== undefined) {
+      const duplicateConditions = [];
+      if (updates.role_key !== undefined) duplicateConditions.push(where(fn("lower", col("role_key")), updates.role_key.toLowerCase()));
+      if (updates.name !== undefined) duplicateConditions.push(where(fn("lower", col("name")), updates.name.toLowerCase()));
+      const duplicate = await Role.findOne({ where: { role_id: { [Op.ne]: role.role_id }, [Op.or]: duplicateConditions } });
+      if (duplicate) return res.status(409).json({ success: false, message: "A role with this name or key already exists" });
+    }
+
+    await role.update(updates);
+    return res.json({ success: true, message: "Role updated successfully", data: role });
+  } catch (error) {
+    const status = error.name === "SequelizeUniqueConstraintError" ? 409 : error.name === "SequelizeValidationError" ? 400 : 500;
+    const message = status === 409 ? "A role with this name or key already exists" : status === 400 ? "Role payload is invalid" : "Failed to update role";
+    return res.status(status).json({ success: false, message, error: error.message });
+  }
+};
+
+const deleteRole = async (req, res) => {
+  try {
+    const role = await Role.findByPk(req.params.role_id);
+    if (!role) return res.status(404).json({ success: false, message: "Role not found" });
+    if (role.is_system) return res.status(409).json({ success: false, message: "System roles cannot be deleted" });
+
+    const [userCount, inviteCount] = await Promise.all([
+      User.unscoped().count({ where: { role_id: role.role_id } }),
+      Invite.unscoped().count({ where: { role_id: role.role_id } }),
+    ]);
+    if (userCount || inviteCount) {
+      return res.status(409).json({ success: false, message: "Role cannot be deleted while assigned to users or invitations", data: { users: userCount, invitations: inviteCount } });
+    }
+
+    await role.destroy();
+    return res.json({ success: true, message: "Role deleted successfully" });
+  } catch (error) {
+    if (error.name === "SequelizeForeignKeyConstraintError") {
+      return res.status(409).json({ success: false, message: "Role cannot be deleted while it is in use" });
+    }
+    return res.status(500).json({ success: false, message: "Failed to delete role", error: error.message });
   }
 };
 
@@ -1201,9 +1318,11 @@ const getProjectManagers = async (req, res) => {
 const inviteProjectManager = async (req, res) => {
   let transaction;
   try {
-    const { email, first_name, last_name, department_id, job_title, role = "project_manager" } = req.body;
+    const { email, first_name, last_name, department_id, job_title, role = "project_manager", role_id } = req.body;
     const allowedRoles = ["admin", "project_manager", "staff"];
-    if (!email || !allowedRoles.includes(role)) {
+    const assignedRole = await findRoleByIdentifier(role_id || role);
+    const roleKey = assignedRole?.role_key;
+    if (!email || !assignedRole || !assignedRole.is_system || !allowedRoles.includes(roleKey)) {
       return res.status(400).json({ success: false, message: "A valid email and workforce role are required" });
     }
     if (department_id && !(await Department.findByPk(department_id))) {
@@ -1261,7 +1380,7 @@ const inviteProjectManager = async (req, res) => {
       job_title: job_title || null,
       employee_id,
       // temp_password: tempPassword,
-      role,
+      role_id: assignedRole.role_id,
       token,
       invited_by_user_id: req.user.user_id,
       sent_at: new Date(),
@@ -1278,7 +1397,7 @@ const inviteProjectManager = async (req, res) => {
     const replacements = {
       firstname: first_name,
       // tempPassword,
-      role: role.replace("_", " "),
+      role: roleKey.replace("_", " "),
       employeeId: employee_id,
       year: new Date().getFullYear(),
       // url: `${process.env.FRONTEND_PROD_URL}/accept-invite?token=${token}`,
@@ -1297,11 +1416,12 @@ const inviteProjectManager = async (req, res) => {
 
     // Commit only after email succeeds
     await transaction.commit();
+    const invitationResponse = await Invite.findByPk(invitedUser.invite_id);
 
     res.status(201).json({
       success: true,
-      message: `${role.replace("_", " ")} invited successfully.`,
-      data: invitedUser,
+      message: `${roleKey.replace("_", " ")} invited successfully.`,
+      data: invitationResponse,
     });
   } catch (error) {
     // If we created a transaction but didn't commit, roll back
@@ -1572,6 +1692,10 @@ module.exports = {
   recordKpiAppraisal,
   deleteKpi,
   updateRolePermission,
+  getRoles,
+  createRole,
+  updateRole,
+  deleteRole,
   updateProfile,
   getEngineerDetails,
   updateEngineerVetting,

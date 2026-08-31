@@ -1,6 +1,7 @@
 const { User, Job, Application, ProjectManager, Engineer } = require('../models');
 const { Op } = require('sequelize');
 const { getV4ReadSignedUrl } = require('../config/gcpStorage');
+const { getRoleKey } = require('../utils/roleUtils');
 
 const SIGNED_URL_TTL_SECONDS = 3600; // 1 hour
 
@@ -361,7 +362,7 @@ const deleteJob = async (req, res) => {
   try {
     const { jobs_id } = req.params;
     const userId = req.user.user_id;
-    const userRole = req.user.role;
+    const userRole = getRoleKey(req.user);
 
     const job = await Job.findByPk(jobs_id, {
       include: [{ model: User, as: 'poster' }]
@@ -375,7 +376,7 @@ const deleteJob = async (req, res) => {
     }
 
     // Check if user is admin or the job poster
-    const isAdmin = userRole === 'admin';
+    const isAdmin = ['admin', 'super_admin'].includes(userRole);
     const isJobPoster = job.poster_id === userId;
 
     if (!isAdmin && !isJobPoster) {

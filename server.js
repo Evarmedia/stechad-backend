@@ -31,6 +31,7 @@ const interviewRoutes = require('./routes/interviewRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const { startHolidayNotificationScheduler } = require('./utils/holidayNotifications');
 const { startAttendanceCloseScheduler } = require('./utils/attendanceScheduler');
+const { migrateRoleStorage } = require('./utils/roleMigration');
 
 
 const passport = require('passport');
@@ -314,10 +315,17 @@ const startServer = async () => {
   try {
     await sequelize.authenticate();
     console.log('Database connected successfully');
+
+    await migrateRoleStorage();
+    console.log('Role storage migrated');
     
     const alterSchema = process.env.DB_SYNC_ALTER !== 'false';
     await sequelize.sync({ alter: alterSchema, force: false });
     console.log('Database synchronized');
+    // Reconcile once more so fresh databases created by sync receive the same
+    // role foreign keys, indexes, and system-role seed as upgraded databases.
+    await migrateRoleStorage();
+    console.log('Role storage verified');
 
     // Create default rewards if they don't exist
     const existingRewards = await Reward.count();

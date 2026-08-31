@@ -1,5 +1,6 @@
 const { Chat, Message, User } = require('../models');
 const { Op } = require('sequelize');
+const { ROLE_INCLUDE } = require('./roleUtils');
 
 /**
  * Create a new chat between users
@@ -112,7 +113,8 @@ const getUserChats = async (userId, options = {}) => {
               [Op.in]: chat.participants
             }
           },
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name', 'role']
+          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name', 'role_id'],
+          include: [ROLE_INCLUDE],
         });
 
         const chatData = chat.toJSON();

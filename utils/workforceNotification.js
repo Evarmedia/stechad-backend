@@ -3,11 +3,13 @@ const { Op } = require("sequelize");
 const { User, Notification } = require("../models");
 const { hasPermission } = require("../middleware/auth");
 const sendEmail = require("./sendEmail");
+const { ROLE_INCLUDE } = require("./roleUtils");
 
 const notifyPermissionHolders = async ({ permissionKey, title, message, actionUrl = "/", metadata = {} }) => {
   const users = await User.findAll({
-    where: { is_active: true, role: { [Op.in]: ["staff", "project_manager", "admin", "super_admin"] } },
-    attributes: ["user_id", "email", "role", "workforce_permissions"],
+    where: { is_active: true, "$role.role_key$": { [Op.in]: ["staff", "project_manager", "admin", "super_admin"] } },
+    attributes: ["user_id", "email", "role_id", "workforce_permissions"],
+    include: [ROLE_INCLUDE],
   });
   const checks = await Promise.all(users.map(async (user) => ({ user, allowed: await hasPermission(user, permissionKey) })));
   const recipients = checks.filter((entry) => entry.allowed).map((entry) => entry.user);

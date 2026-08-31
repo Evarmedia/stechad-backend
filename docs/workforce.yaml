@@ -6,9 +6,50 @@ tags:
 
 components:
   schemas:
+    Role:
+      type: object
+      required: [role_id, role_key, name, is_system]
+      properties:
+        role_id: { type: string, format: uuid }
+        role_key: { type: string, pattern: '^[a-z][a-z0-9_]*$', example: project_manager }
+        name: { type: string, example: Project Manager }
+        description: { type: string, nullable: true }
+        is_system:
+          type: boolean
+          description: System roles are idempotently seeded and cannot be edited or deleted.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    RoleCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        role_key:
+          type: string
+          maxLength: 64
+          pattern: '^[a-z][a-z0-9_]*$'
+          description: Optional unique key. When omitted, it is generated from name.
+          example: finance_reviewer
+        name: { type: string, minLength: 1, maxLength: 100, example: Finance Reviewer }
+        description: { type: string, nullable: true }
+    RoleUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        role_key: { type: string, maxLength: 64, pattern: '^[a-z][a-z0-9_]*$' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, nullable: true }
+    RoleMutationResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, example: true }
+        message: { type: string, example: Role updated successfully }
+        data: { $ref: '#/components/schemas/Role' }
     WorkforceInviteRequest:
       type: object
-      required: [email, role]
+      required: [email]
       properties:
         email:
           type: string
@@ -30,7 +71,13 @@ components:
         role:
           type: string
           enum: [admin, project_manager, staff]
+          default: project_manager
+          description: Seeded role key. Defaults to project_manager when role and role_id are omitted.
           example: staff
+        role_id:
+          type: string
+          format: uuid
+          description: Optional alternative to role; must identify an allowed seeded workforce role.
     WorkforceInvite:
       type: object
       properties:
@@ -48,6 +95,10 @@ components:
         role:
           type: string
           enum: [admin, project_manager, staff]
+        role_id:
+          type: string
+          format: uuid
+          description: Role table identifier assigned to the invitation.
         status:
           type: string
           enum: [pending, accepted, expired]
@@ -77,7 +128,12 @@ components:
           items: { type: string }
         role:
           type: string
-          enum: [admin, project_manager, staff]
+          enum: [super_admin, admin, project_manager, staff]
+          description: Seeded role key alternative to role_id.
+        role_id:
+          type: string
+          format: uuid
+          description: Seeded role table identifier. When both are supplied, role_id takes precedence.
         is_active: { type: boolean }
     DepartmentRequest:
       type: object
@@ -200,7 +256,7 @@ components:
           properties:
             latitude: { type: number, example: 6.5244 }
             longitude: { type: number, example: 3.3792 }
-            formattedAddress: { type: string, nullable: true, example: Marina Road, Lagos Island, Lagos, Nigeria }
+            formattedAddress: { type: string, nullable: true, example: 'Marina Road, Lagos Island, Lagos, Nigeria' }
             city: { type: string, nullable: true, example: Lagos }
             state: { type: string, nullable: true, example: Lagos }
             country: { type: string, nullable: true, example: Nigeria }
@@ -269,6 +325,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Success' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
   /admin/workforce/invite:
@@ -317,6 +374,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Success' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /admin/workforce/approvals/{type}/{request_id}:
@@ -556,6 +614,85 @@ paths:
       responses:
         '200': { description: Role permission updated successfully. }
         '404': { $ref: '#/components/responses/NotFound' }
+  /admin/roles:
+    get:
+      tags: [Workforce Admin]
+      summary: List roles
+      description: Super Admin only. Returns seeded system roles and custom roles, with system records clearly marked as immutable.
+      responses:
+        '200':
+          description: Roles retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Role' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Workforce Admin]
+      summary: Create a custom role
+      description: Super Admin only. Creates a unique non-system role; is_system cannot be supplied by clients.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleCreateRequest' }
+      responses:
+        '201':
+          description: Custom role created successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleMutationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: A role with the same case-insensitive name or normalized key already exists. }
+  /admin/roles/{role_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Update a custom role
+      description: Super Admin only. System roles return 409 and cannot be changed.
+      parameters:
+        - in: path
+          name: role_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleUpdateRequest' }
+      responses:
+        '200':
+          description: Custom role updated successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleMutationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The role is a system role or the new name/key is already used. }
+    delete:
+      tags: [Workforce Admin]
+      summary: Delete a custom role
+      description: Super Admin only. System roles and roles assigned to a user or invitation cannot be deleted.
+      parameters:
+        - in: path
+          name: role_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Custom role deleted successfully. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The role is system-owned or currently in use. }
 
   /staff/dashboard:
     get:
@@ -696,7 +833,7 @@ paths:
                 currency: { type: string, minLength: 3, maxLength: 3, default: USD }
                 description: { type: string, nullable: true }
                 expense_date: { type: string, format: date }
-                receipt: { type: string, format: binary, description: Image or PDF receipt, maximum 2MB. }
+                receipt: { type: string, format: binary, description: 'Image or PDF receipt, maximum 2MB.' }
       responses:
         '201': { description: Expense claim and receipt submitted successfully. }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -844,7 +981,7 @@ paths:
                 current_assignment: { type: string }
                 work_region: { type: string }
                 date_of_birth: { type: string, format: date }
-                avatar: { type: string, format: binary, description: Optional image file, maximum 2MB. }
+                avatar: { type: string, format: binary, description: 'Optional image file, maximum 2MB.' }
       responses:
         '200':
           description: Profile updated; response contains the fresh profile and signed avatar_url.

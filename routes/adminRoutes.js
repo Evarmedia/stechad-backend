@@ -413,6 +413,10 @@ router.put('/kpis/:kpi_id', adminController.updateKpi);
 router.delete('/kpis/:kpi_id', adminController.deleteKpi);
 router.post('/kpis/:kpi_id/appraisals', adminController.recordKpiAppraisal);
 router.put('/role-permissions/:role_permission_id', adminController.updateRolePermission);
+router.get('/roles', authorize('super_admin'), adminController.getRoles);
+router.post('/roles', authorize('super_admin'), adminController.createRole);
+router.put('/roles/:role_id', authorize('super_admin'), adminController.updateRole);
+router.delete('/roles/:role_id', authorize('super_admin'), adminController.deleteRole);
 
 router.get('/settings', adminController.getSettings);
 

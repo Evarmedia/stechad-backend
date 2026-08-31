@@ -21,6 +21,7 @@ const Kpi = require("./Kpi");
 const KpiAppraisal = require("./KpiAppraisal");
 const Invoice = require("./Invoice");
 const RolePermission = require("./RolePermission");
+const Role = require("./Role");
 const { Referral } = require("./Referral");
 const { Reward } = require("./Reward");
 const { UserReward  } = require("./UserReward");
@@ -28,6 +29,11 @@ const { UserReward  } = require("./UserReward");
 /* =========================
    USER ↔ ROLE RELATIONSHIPS
    ========================= */
+
+Role.hasMany(User, { foreignKey: "role_id", as: "users", onDelete: "RESTRICT", onUpdate: "CASCADE" });
+User.belongsTo(Role, { foreignKey: "role_id", as: "role", onDelete: "RESTRICT", onUpdate: "CASCADE" });
+Role.hasMany(Invite, { foreignKey: "role_id", as: "invites", onDelete: "RESTRICT", onUpdate: "CASCADE" });
+Invite.belongsTo(Role, { foreignKey: "role_id", as: "role", onDelete: "RESTRICT", onUpdate: "CASCADE" });
 
 // User - Engineer (One-to-One)
 User.hasOne(Engineer, {
@@ -358,6 +364,7 @@ module.exports = {
   KpiAppraisal,
   Invoice,
   RolePermission,
+  Role,
   Referral,
   Reward,
   UserReward,

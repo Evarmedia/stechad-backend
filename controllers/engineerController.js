@@ -12,6 +12,7 @@ const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toInt, toTextArray, toBool } = require("../utils/helpers");
 const { formatUserResponse } = require("./authController");
 const { generateTokens } = require("../utils/generateTokens");
+const { getRoleKey } = require("../utils/roleUtils");
 const {
   notifyJobPosterOfApplication,
 } = require("../utils/notificationUtil");
@@ -250,7 +251,7 @@ const completeOnboarding = async (req, res) => {
     // Generate tokens
     const { token, refreshToken } = generateTokens({
       user_id: req.user.user_id,
-      role: userWithAssociations.role,
+      role: getRoleKey(userWithAssociations),
     });
 
     res.json({
@@ -661,7 +662,7 @@ const updateProfile = async (req, res) => {
     // Generate tokens
     const { token, refreshToken } = generateTokens({
       user_id: req.user.user_id,
-      role: userWithAssociations.role,
+      role: getRoleKey(userWithAssociations),
     });
 
     console.log("✅ [updateProfile] Profile updated successfully");

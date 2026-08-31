@@ -14,6 +14,7 @@ const { Op } = require("sequelize");
 
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { generateUniqueEmployeeId } = require("../utils/employeeId");
+const { ROLE_INCLUDE, getRoleKey, findRoleByKey } = require("../utils/roleUtils");
 
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
@@ -105,16 +106,19 @@ passport.use(
         let user = await User.findOne({ where: { email } });
 
         if (!user) {
+          const engineerRole = await findRoleByKey("engineer");
+          if (!engineerRole) throw new Error("Engineer system role is not seeded");
           // Create a new user if they don't exist
           user = await User.create({
             email,
             first_name,
             last_name,
-            role: "engineer", // default role or make it dynamic if needed
+            role_id: engineerRole.role_id,
           });
 
           // Create role-specific record (for engineers)
           await Engineer.create({ user_id: user.user_id });
+          user = await User.findByPk(user.user_id);
         }
 
         // Returning user object
@@ -170,7 +174,7 @@ const signup = async (req, res) => {
         // If the user exists, generate a token and return the user data
         const { token } = generateTokens({
           user_id: existingUser.user_id,
-          role: existingUser.role,
+          role: getRoleKey(existingUser),
         });
         return res.status(200).json({
           success: true,
@@ -205,6 +209,12 @@ const signup = async (req, res) => {
       }
     }
 
+    const roleKey = googleSignIn ? "engineer" : role;
+    const assignedRole = await findRoleByKey(roleKey);
+    if (!assignedRole || !assignedRole.is_system) {
+      return res.status(400).json({ success: false, message: "A valid system role is required" });
+    }
+
     // Create a new user record if Google sign-in is not used, or new user for Google login
     const user = await User.create({
       email,
@@ -212,15 +222,15 @@ const signup = async (req, res) => {
       confirm_password: googleSignIn ? null : confirm_password, // Skip confirm password if Google sign-in
       first_name,
       last_name,
-      role: googleSignIn ? "engineer" : role, // Default to 'engineer' role for Google users
+      role_id: assignedRole.role_id,
     });
 
     // Create role-specific records based on the role provided (for normal signup or Google login)
-    if (role === "engineer" || googleSignIn) {
+    if (roleKey === "engineer") {
       await Engineer.create({ user_id: user.user_id });
-    } else if (role === "project_manager") {
+    } else if (roleKey === "project_manager") {
       await ProjectManager.create({ user_id: user.user_id, status: "active" });
-    } else if (role === "admin") {
+    } else if (roleKey === "admin") {
       await Admin.create({ user_id: user.user_id });
     }
 
@@ -236,11 +246,18 @@ const signup = async (req, res) => {
     // Generate token for user login (both for normal signup and Google sign-in)
     const { token, refreshToken } = generateTokens({
       user_id: user.user_id,
-      role: user.role,
+      role: roleKey,
     });
 
     // Format user response with signed URLs
-    const formattedUser = await formatUserResponse(user);
+    const createdUser = await User.findByPk(user.user_id, {
+      include: [
+        { model: Engineer, as: "engineer" },
+        { model: ProjectManager, as: "project_manager" },
+        { model: Admin, as: "admin" },
+      ],
+    });
+    const formattedUser = await formatUserResponse(createdUser);
 
     // Respond with success message and user data + token (matching login format)
     res.status(201).json({
@@ -272,6 +289,7 @@ const login = async (req, res) => {
     const user = await User.unscoped().findOne({
       where: { email },
       include: [
+        ROLE_INCLUDE,
         { model: Engineer, as: "engineer" },
         { model: ProjectManager, as: "project_manager" },
         { model: Admin, as: "admin" },
@@ -307,7 +325,7 @@ const login = async (req, res) => {
     // Generate token
     const { token, refreshToken } = generateTokens({
       user_id: user.user_id,
-      role: user.role,
+      role: getRoleKey(user),
     });
 
     const inviteRecord = await Invite.findOne({
@@ -606,7 +624,8 @@ const acceptInvite = async (req, res) => {
       });
     }
 
-    if (invitedUser.role === "super_admin") {
+    const invitedRoleKey = getRoleKey(invitedUser);
+    if (invitedRoleKey === "super_admin") {
       await transaction.rollback();
       return res.status(409).json({
         success: false,
@@ -666,7 +685,7 @@ const acceptInvite = async (req, res) => {
         password: new_password,
         first_name: first_name || invitedUser.first_name,
         last_name: last_name || invitedUser.last_name,
-        role: invitedUser.role,
+        role_id: invitedUser.role_id,
         department_id: invitedUser.department_id || null,
         job_title: invitedUser.job_title || null,
         employee_id: employeeId,
@@ -675,14 +694,14 @@ const acceptInvite = async (req, res) => {
     );
 
     // 6️⃣ Create role-specific record
-    if (invitedUser.role === "project_manager") {
+    if (invitedRoleKey === "project_manager") {
       await ProjectManager.create(
         { user_id: user.user_id, status: "active" },
         { transaction }
       );
-    } else if (["admin", "super_admin"].includes(invitedUser.role)) {
+    } else if (["admin", "super_admin"].includes(invitedRoleKey)) {
       await Admin.create(
-        { user_id: user.user_id, is_super_admin: invitedUser.role === "super_admin" },
+        { user_id: user.user_id, is_super_admin: invitedRoleKey === "super_admin" },
         { transaction }
       );
     }

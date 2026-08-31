@@ -1,6 +1,7 @@
 const moment = require("moment");
 const { Op } = require("sequelize");
 const { Holiday, User, Notification } = require("../models");
+const { ROLE_INCLUDE } = require("./roleUtils");
 
 const sendUpcomingHolidayNotifications = async () => {
   const today = moment().startOf("day");
@@ -9,7 +10,7 @@ const sendUpcomingHolidayNotifications = async () => {
   });
   const due = holidays.map((holiday) => ({ holiday, days: moment(holiday.date).startOf("day").diff(today, "days") })).filter(({ days }) => [1, 7].includes(days));
   if (!due.length) return 0;
-  const users = await User.findAll({ where: { is_active: true, role: { [Op.in]: ["engineer", "project_manager", "staff", "admin", "super_admin"] } }, attributes: ["user_id"] });
+  const users = await User.findAll({ where: { is_active: true, "$role.role_key$": { [Op.in]: ["engineer", "project_manager", "staff", "admin", "super_admin"] } }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
   let created = 0;
   for (const { holiday, days } of due) {
     const title = `Holiday in ${days} day${days === 1 ? "" : "s"}`;

@@ -1,6 +1,7 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const bcrypt = require('bcryptjs');
+const Role = require("./Role");
 
 class User extends Model {}
 
@@ -20,12 +21,10 @@ User.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    role: {
-      type: DataTypes.TEXT,
+    role_id: {
+      type: DataTypes.UUID,
       allowNull: false,
-      validate: {
-        isIn: [['super_admin', 'admin', 'project_manager', 'engineer', 'staff']],
-      }
+      references: { model: Role, key: "role_id" },
     },
     first_name: {
       type: DataTypes.TEXT,
@@ -195,14 +194,13 @@ User.init(
     timestamps: true, // Sequelize will now handle the timestamps automatically
     createdAt: 'created_at',
     updatedAt: 'updated_at',
-    indexes: [
-      {
-        name: "users_single_super_admin",
-        unique: true,
-        fields: ["role"],
-        where: { role: "super_admin" },
+    defaultScope: {
+      attributes: {
+        exclude: ["password", "reset_password_token", "reset_password_expires"],
       },
-    ],
+      include: [{ model: Role, as: "role", attributes: ["role_id", "role_key", "name", "description", "is_system"], required: true }],
+    },
+    indexes: [{ name: "users_role_id", fields: ["role_id"] }],
   }
 );
 
@@ -229,7 +227,11 @@ User.prototype.comparePassword = async function(candidatePassword) {
 };
 
 User.prototype.toJSON = function() {
-  const user = this.get();
+  const user = this.get({ plain: true });
+  if (user.role && typeof user.role === "object") {
+    user.role_details = user.role;
+    user.role = user.role.role_key;
+  }
   delete user.password;
   delete user.reset_password_token;
   delete user.reset_password_expires;
@@ -245,11 +247,5 @@ const generateReferralCode = () => {
   }
   return result;
 };
-
-User.addScope('defaultScope', {
-  attributes: {
-    exclude: ['password', 'reset_password_token', 'reset_password_expires']
-  }
-}, { override: true });
 
 module.exports = User;

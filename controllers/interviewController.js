@@ -3,13 +3,15 @@ const path = require('path');
 const { Interview, Engineer, ProjectManager, Job, User } = require('../models');
 const notificationUtil = require('../utils/notificationUtil'); // assumes sendNotification()
 const sendEmail = require('../utils/sendEmail');
+const { getRoleKey } = require('../utils/roleUtils');
 
 // helpers
 function asJSON(modelInstance) {
   return modelInstance ? modelInstance.toJSON() : null;
 }
 function ensureRole(user, roles = []) {
-  return roles.includes(user.role);
+  const roleKey = getRoleKey(user);
+  return roles.includes(roleKey) || (roleKey === 'super_admin' && roles.includes('admin'));
 }
 
 // POST /api/interviews
@@ -31,7 +33,7 @@ async function scheduleInterview(req, res) {
     if (!engineer) return res.status(404).json({ success: false, message: 'Engineer not found' });
 
     const pm = await ProjectManager.findOne({ where: { user_id: req.user.user_id }, include: [{ model: User, as: 'user' }] });
-    if (!pm && req.user.role !== 'admin') {
+    if (!pm && !['admin', 'super_admin'].includes(getRoleKey(req.user))) {
       return res.status(403).json({ success: false, message: 'Only a PM or Admin can schedule' });
     }
 
@@ -181,9 +183,10 @@ async function getInterviewById(req, res) {
     if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
     // authZ
-    const isAdmin = req.user.role === 'admin';
-    const isPM    = req.user.role === 'project_manager' && interview.interviewer_id != null;
-    const isEngineer = req.user.role === 'engineer' && interview.candidate_id === interview.candidate?.engineer_id && interview.candidate?.user_id === req.user.user_id;
+    const roleKey = getRoleKey(req.user);
+    const isAdmin = ['admin', 'super_admin'].includes(roleKey);
+    const isPM    = roleKey === 'project_manager' && interview.interviewer_id != null;
+    const isEngineer = roleKey === 'engineer' && interview.candidate_id === interview.candidate?.engineer_id && interview.candidate?.user_id === req.user.user_id;
     if (!(isAdmin || isPM || isEngineer)) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
@@ -198,7 +201,7 @@ async function getInterviewById(req, res) {
 // For any logged-in user: return interviews where they are PM interviewer or Engineer candidate
 async function getMyInterviews(req, res) {
   try {
-    if (req.user.role === 'engineer') {
+    if (getRoleKey(req.user) === 'engineer') {
       const eng = await Engineer.findOne({ where: { user_id: req.user.user_id } });
       if (!eng) return res.json({ success: true, data: [] });
 
@@ -209,7 +212,7 @@ async function getMyInterviews(req, res) {
       return res.json({ success: true, data: rows });
     }
 
-    if (req.user.role === 'project_manager') {
+    if (getRoleKey(req.user) === 'project_manager') {
       const pm = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
       if (!pm) return res.json({ success: true, data: [] });
 
@@ -221,7 +224,7 @@ async function getMyInterviews(req, res) {
     }
 
     // Admin gets all
-    if (req.user.role === 'admin') {
+    if (['admin', 'super_admin'].includes(getRoleKey(req.user))) {
       const rows = await Interview.findAll({ order: [['date_time', 'DESC']] });
       return res.json({ success: true, data: rows });
     }
@@ -250,12 +253,12 @@ async function updateInterview(req, res) {
     });
     if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = ['admin', 'super_admin'].includes(getRoleKey(req.user));
     const pm = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
-    const isPM = req.user.role === 'project_manager' && pm && interview.interviewer_id === pm.project_managers_id;
+    const isPM = getRoleKey(req.user) === 'project_manager' && pm && interview.interviewer_id === pm.project_managers_id;
 
     const eng = await Engineer.findOne({ where: { user_id: req.user.user_id } });
-    const isEngineer = req.user.role === 'engineer' && eng && interview.candidate_id === eng.engineer_id;
+    const isEngineer = getRoleKey(req.user) === 'engineer' && eng && interview.candidate_id === eng.engineer_id;
 
     const { status, date_time, duration, zoom_link, phone_number, notes } = req.body;
     const wasRescheduled = date_time !== undefined || status === 'rescheduled';

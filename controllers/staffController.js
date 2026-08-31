@@ -32,6 +32,7 @@ const {
   reverseGeocode,
   reverseGeocodeWithProviderResponse,
 } = require("../utils/geoapify");
+const { ROLE_INCLUDE, getRoleKey } = require("../utils/roleUtils");
 
 const titleCase = (value = "") => value
   .split("_")
@@ -260,6 +261,7 @@ const getLeaveBalance = async (user) => {
 
 const getDashboard = async (req, res) => {
   try {
+    const roleKey = getRoleKey(req.user);
     const [attendance, leaveRows, expenseRows, invoiceRows, kpis, holidays, permissions, leaveBalance] = await Promise.all([
       getAttendanceData(req.user.user_id),
       LeaveRequest.findAll({ where: { user_id: req.user.user_id }, order: [["created_at", "DESC"]], limit: 5 }),
@@ -300,13 +302,13 @@ const getDashboard = async (req, res) => {
         permissions: permissions.map((permission) => ({
           key: permission.permission_key,
           name: permission.name,
-          allowed: req.user.role === "super_admin" || Boolean(permission[req.user.role]),
+          allowed: roleKey === "super_admin" || Boolean(permission[roleKey]),
         })),
         user: {
           id: req.user.user_id,
           name: `${req.user.first_name || ""} ${req.user.last_name || ""}`.trim() || req.user.email,
           email: req.user.email,
-          role: req.user.role,
+          role: roleKey,
           locationSharingEnabled: req.user.location_sharing_enabled,
           locationPermissionStatus: req.user.location_permission_status,
           browserLocation: req.user.location_sharing_enabled && req.user.location_permission_status === "granted" ? formatBrowserLocation(req.user) : null,
@@ -475,7 +477,7 @@ const submitInvoice = async (req, res) => {
     const invoice = await Invoice.create({
       invoice_number: `INV-${moment().format("YYYYMMDD")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       submitted_by: req.user.user_id,
-      invoice_type: req.user.role === "engineer" ? "engineer" : "staff",
+      invoice_type: getRoleKey(req.user) === "engineer" ? "engineer" : "staff",
       period,
       amount: Number(amount),
       currency: String(currency).toUpperCase(),
@@ -492,7 +494,7 @@ const submitInvoice = async (req, res) => {
 
 const getProjectInvoices = async (req, res) => {
   try {
-    if (req.user.role !== "project_manager") return res.status(403).json({ success: false, message: "Project invoice summaries are only available to project managers" });
+    if (getRoleKey(req.user) !== "project_manager") return res.status(403).json({ success: false, message: "Project invoice summaries are only available to project managers" });
     const manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
     if (!manager) return res.status(404).json({ success: false, message: "Project manager profile not found" });
     const [projects, invoices] = await Promise.all([
@@ -513,7 +515,7 @@ const getProjectInvoices = async (req, res) => {
 
 const getCompletedProjectsForInvoice = async (req, res) => {
   try {
-    if (req.user.role !== "project_manager") {
+    if (getRoleKey(req.user) !== "project_manager") {
       return res.status(403).json({ success: false, message: "Completed project billing is only available to project managers" });
     }
 
@@ -545,7 +547,7 @@ const getCompletedProjectsForInvoice = async (req, res) => {
 
 const submitProjectInvoice = async (req, res) => {
   try {
-    if (req.user.role !== "project_manager") return res.status(403).json({ success: false, message: "Only project managers can submit project invoices" });
+    if (getRoleKey(req.user) !== "project_manager") return res.status(403).json({ success: false, message: "Only project managers can submit project invoices" });
     const { project_id, client_name, period, amount, currency = "USD", notes, line_items = [] } = req.body;
     if (!project_id || !client_name || !period || !amount || Number(amount) <= 0) return res.status(400).json({ success: false, message: "Project, client, billing period, and a positive amount are required" });
     const manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
@@ -598,8 +600,9 @@ const getHolidays = async (req, res) => {
 const getBirthdays = async (req, res) => {
   try {
     const users = await User.findAll({
-      where: { is_active: true, date_of_birth: { [Op.ne]: null }, role: { [Op.in]: ["staff", "project_manager", "admin", "super_admin"] } },
-      attributes: ["user_id", "first_name", "last_name", "date_of_birth"],
+      where: { is_active: true, date_of_birth: { [Op.ne]: null }, "$role.role_key$": { [Op.in]: ["staff", "project_manager", "admin", "super_admin"] } },
+      attributes: ["user_id", "first_name", "last_name", "date_of_birth", "role_id"],
+      include: [ROLE_INCLUDE],
     });
     const today = moment().startOf("day");
     const birthdays = users.map((user) => {

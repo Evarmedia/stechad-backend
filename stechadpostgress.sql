@@ -12,13 +12,38 @@
 SET CONSTRAINTS ALL IMMEDIATE;
 
 -- ============================================================================
--- 1. USERS TABLE (Authentication Base)
+-- 1. ROLES AND USERS TABLES (Authorization and Authentication Base)
 -- ============================================================================
+CREATE TABLE IF NOT EXISTS roles (
+    role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    role_key VARCHAR(64) NOT NULL UNIQUE CHECK(role_key ~ '^[a-z][a-z0-9_]*$'),
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS roles_role_key_lower_unique ON roles(LOWER(role_key));
+CREATE UNIQUE INDEX IF NOT EXISTS roles_name_lower_unique ON roles(LOWER(name));
+
+INSERT INTO roles (role_id, role_key, name, description, is_system) VALUES
+    ('00000000-0000-4000-8000-000000000001', 'super_admin', 'Super Admin', 'Full platform access, including system administration.', TRUE),
+    ('00000000-0000-4000-8000-000000000002', 'admin', 'Admin', 'Platform and workforce administration access.', TRUE),
+    ('00000000-0000-4000-8000-000000000003', 'project_manager', 'Project Manager', 'Project, hiring, team, and delivery management access.', TRUE),
+    ('00000000-0000-4000-8000-000000000004', 'engineer', 'Engineer', 'Engineering talent profile and project delivery access.', TRUE),
+    ('00000000-0000-4000-8000-000000000005', 'staff', 'Staff', 'Workforce self-service access.', TRUE)
+ON CONFLICT(role_key) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    is_system = TRUE,
+    updated_at = CURRENT_TIMESTAMP;
+
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('super_admin', 'admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
+    role_id UUID NOT NULL REFERENCES roles(role_id) ON UPDATE CASCADE ON DELETE RESTRICT,
     first_name TEXT,
     last_name TEXT,
     phone_number TEXT,
@@ -47,8 +72,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role);
-CREATE UNIQUE INDEX users_single_super_admin ON users(role) WHERE role = 'super_admin';
+CREATE INDEX idx_users_role_id ON users(role_id);
+CREATE UNIQUE INDEX users_single_super_admin ON users(role_id)
+    WHERE role_id = '00000000-0000-4000-8000-000000000001';
 
 -- ============================================================================
 -- 2. ENGINEERS TABLE (Engineer-specific data)
@@ -142,7 +168,7 @@ CREATE TABLE IF NOT EXISTS invites (
     invite_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL,
     temp_password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('project_manager', 'engineer')) NOT NULL,
+    role_id UUID NOT NULL REFERENCES roles(role_id) ON UPDATE CASCADE ON DELETE RESTRICT,
     first_name TEXT,
     token TEXT NOT NULL UNIQUE,
     invited_by_user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE SET NULL,
@@ -152,6 +178,8 @@ CREATE TABLE IF NOT EXISTS invites (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_invites_role_id ON invites(role_id);
 
 -- ============================================================================
 -- 5. JOBS TABLE (Job postings created by PMs)

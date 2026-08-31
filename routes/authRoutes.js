@@ -38,8 +38,9 @@ const router = express.Router();
  *         headers:
  *           Location:
  *             description: Redirect location to Google OAuth
- *             type: string
- *             example: 'https://accounts.google.com/o/oauth2/auth?scope=profile%20email&response_type=code&client_id=YOUR_GOOGLE_CLIENT_ID&redirect_uri=http://localhost:5000/auth/google/callback'
+ *             schema:
+ *               type: string
+ *               example: 'https://accounts.google.com/o/oauth2/auth?scope=profile%20email&response_type=code&client_id=YOUR_GOOGLE_CLIENT_ID&redirect_uri=http://localhost:5000/auth/google/callback'
  *       400:
  *         description: Bad request if there is a problem with the OAuth initiation
  *         content:
@@ -125,7 +126,7 @@ router.get('/google/callback',
     // Send JWT token after successful login or signup
     const { token } = generateTokens({
       user_id: req.user.user_id,
-      role: req.user.role,
+      role: req.user.role?.role_key,
     });
     res.redirect(`${frontendUrl}/dashboard/engineer?token=${token}`);
   }
@@ -173,7 +174,7 @@ router.get('/google/callback',
  *                 example: Mosimabale
  *               role:
  *                 type: string
- *                 enum: [engineer, project_manager, admin]
+ *                 enum: [engineer]
  *                 example: engineer
  *               referral_code:
  *                 type: string

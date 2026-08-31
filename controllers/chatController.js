@@ -9,6 +9,7 @@ const {
   deleteMessage,
   searchMessages
 } = require('../utils/chatUtil');
+const { ROLE_INCLUDE } = require('../utils/roleUtils');
 
 // Get user's chats
 const getChats = async (req, res) => {
@@ -235,7 +236,8 @@ const getChatDetails = async (req, res) => {
           [require('sequelize').Op.in]: chat.participants
         }
       },
-      attributes: ['user_id', 'first_name', 'last_name', 'avatar_url', 'role']
+      attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name', 'role_id'],
+      include: [ROLE_INCLUDE],
     });
     
     const chatData = chat.toJSON();

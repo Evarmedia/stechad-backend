@@ -1,6 +1,7 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const User = require("./User");
+const Role = require("./Role");
 const bcrypt = require('bcryptjs');
 
 class Invite extends Model {}
@@ -37,12 +38,10 @@ Invite.init(
       allowNull: true,
       unique: true,
     },
-    role: {
-      type: DataTypes.TEXT,
+    role_id: {
+      type: DataTypes.UUID,
       allowNull: false,
-      validate: {
-        isIn: [["admin", "project_manager", "engineer", "staff"]],
-      },
+      references: { model: Role, key: "role_id" },
     },
     // temp_password: {
     //   type: DataTypes.TEXT,
@@ -85,6 +84,10 @@ Invite.init(
     underscored: true,
     createdAt: "created_at",
     updatedAt: "updated_at",
+    defaultScope: {
+      include: [{ model: Role, as: "role", attributes: ["role_id", "role_key", "name", "description", "is_system"], required: true }],
+    },
+    indexes: [{ name: "invites_role_id", fields: ["role_id"] }],
   }
 );
 
@@ -109,7 +112,11 @@ Invite.prototype.compareTempPassword = async function(tempUserPassword) {
 };
 
 Invite.prototype.toJSON = function() {
-  const user = this.get();
+  const user = this.get({ plain: true });
+  if (user.role && typeof user.role === "object") {
+    user.role_details = user.role;
+    user.role = user.role.role_key;
+  }
   delete user.temp_password;
   delete user.token;
   return user;

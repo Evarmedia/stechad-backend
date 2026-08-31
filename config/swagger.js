@@ -42,7 +42,9 @@ const options = {
           properties: {
             user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
             email: { type: 'string', format: 'email', example: 'mosimishak@gmail.com' },
-            role: { type: 'string', enum: ['engineer', 'project_manager', 'super_admin', 'admin', 'staff'], example: 'engineer' },
+            role_id: { type: 'string', format: 'uuid', description: 'Foreign key to the roles table.' },
+            role: { type: 'string', example: 'engineer', description: 'Serialized role key resolved from role_id; it is not stored on users.' },
+            role_details: { $ref: '#/components/schemas/Role' },
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },
             phone_number: { type: 'string', example: '+1234567890' },
@@ -238,6 +240,21 @@ const options = {
             totalPages: { type: 'integer', example: 5 },
             totalItems: { type: 'integer', example: 50 },
             itemsPerPage: { type: 'integer', example: 10 }
+          }
+        },
+        PaginationResponse: {
+          type: 'object',
+          required: ['success', 'data'],
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: {
+              type: 'object',
+              description: 'Endpoint-specific result collection plus pagination metadata.',
+              properties: {
+                pagination: { $ref: '#/components/schemas/PaginationInfo' }
+              },
+              additionalProperties: true
+            }
           }
         }
       }

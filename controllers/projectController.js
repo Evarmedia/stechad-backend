@@ -1,12 +1,14 @@
 const { Project, User, Job, ProjectManager, Engineer } = require("../models");
 const { Op } = require("sequelize");
 const { createNotification } = require("../utils/notificationUtil");
+const { getRoleKey } = require("../utils/roleUtils");
 
 // Get all projects with filtering and pagination - list
 const getAllProjects = async (req, res) => {
   try {
     const { page, limit, status, priority } = req.query;
-    const { user_id, role } = req.user;
+    const { user_id } = req.user;
+    const role = getRoleKey(req.user);
 
     /* ===============================
        BASE FILTERS (Project table)
@@ -291,7 +293,7 @@ const createProject = async (req, res) => {
 
     let manager = null;
 
-    if (["admin", "super_admin"].includes(req.user.role)) {
+    if (["admin", "super_admin"].includes(getRoleKey(req.user))) {
       const assignedManagerId = project_manager_id || project_managers_id;
 
       if (assignedManagerId) {
@@ -402,7 +404,7 @@ const updateProject = async (req, res) => {
     /* ===============================
    PERMISSION CHECK
    =============================== */
-    if (req.user.role === "project_manager") {
+    if (getRoleKey(req.user) === "project_manager") {
       const projectManagerUserId = project.project_manager?.user?.user_id;
 
       // ❌ Block only if project is assigned AND not owned by this PM
@@ -414,7 +416,7 @@ const updateProject = async (req, res) => {
       }
     }
 
-    if (["admin", "super_admin"].includes(req.user.role)
+    if (["admin", "super_admin"].includes(getRoleKey(req.user))
       && (req.body.project_manager_id !== undefined || req.body.project_managers_id !== undefined)) {
       const assignedManagerId = req.body.project_manager_id ?? req.body.project_managers_id;
       if (assignedManagerId === null || assignedManagerId === "") {
@@ -528,7 +530,7 @@ const deleteProject = async (req, res) => {
     /* ===============================
        PERMISSION CHECK
        =============================== */
-    if (req.user.role === "project_manager") {
+    if (getRoleKey(req.user) === "project_manager") {
       const ownerUserId = project.project_manager?.user?.user_id;
 
       const isOwner = ownerUserId === req.user.user_id;

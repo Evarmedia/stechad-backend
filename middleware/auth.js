@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { User, RolePermission } = require('../models');
+const { getRoleKey } = require('../utils/roleUtils');
 
 const permissionDefaults = {
   super_admin: ["*"],
@@ -51,11 +52,12 @@ const authenticate = async (req, res, next) => {
 // Role-based authorization
 const authorize = (...roles) => {
   return (req, res, next) => {
+    const roleKey = getRoleKey(req.user);
     // Super admins inherit every endpoint that grants the admin role.
-    if (req.user.role === 'super_admin' && roles.includes('admin')) {
+    if (roleKey === 'super_admin' && roles.includes('admin')) {
       return next();
     }
-    if (!roles.includes(req.user.role)) {
+    if (!roles.includes(roleKey)) {
       return res.status(403).json({ 
         success: false, 
         message: 'Access denied: insufficient permissions' 
@@ -66,13 +68,14 @@ const authorize = (...roles) => {
 };
 
 const hasPermission = async (user, permissionKey) => {
-  if (user.role === "super_admin") return true;
-  if (user.role === "engineer") return ["view_dashboard", "submit_expenses"].includes(permissionKey);
+  const roleKey = getRoleKey(user);
+  if (roleKey === "super_admin") return true;
+  if (roleKey === "engineer") return ["view_dashboard", "submit_expenses"].includes(permissionKey);
   if (Array.isArray(user.workforce_permissions) && user.workforce_permissions.includes(permissionKey)) return true;
-  const roleColumn = user.role === "project_manager" ? "project_manager" : user.role;
+  const roleColumn = roleKey === "project_manager" ? "project_manager" : roleKey;
   if (!["admin", "project_manager", "staff"].includes(roleColumn)) return false;
   const permission = await RolePermission.findOne({ where: { permission_key: permissionKey } });
-  if (!permission) return (permissionDefaults[user.role] || []).includes(permissionKey);
+  if (!permission) return (permissionDefaults[roleKey] || []).includes(permissionKey);
   return Boolean(permission[roleColumn]);
 };
 

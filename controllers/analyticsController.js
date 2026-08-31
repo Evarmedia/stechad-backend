@@ -7,6 +7,7 @@ const {
   Project,
 } = require("../models");
 const { Op } = require("sequelize");
+const { ROLE_INCLUDE } = require("../utils/roleUtils");
 
 // Get user analytics
 const getUserAnalytics = async (req, res) => {
@@ -66,10 +67,10 @@ const getUserAnalytics = async (req, res) => {
     // Role distribution
     const engineers = await Engineer.count();
     const projectManagers = await ProjectManager.count();
-    const admins = await User.count({ where: { role: "admin" } });
+    const admins = await User.count({ where: { "$role.role_key$": "admin" }, include: [ROLE_INCLUDE] });
 
     // User growth trends
-    const registrationTrends = await User.findAll({
+    const registrationTrends = await User.unscoped().findAll({
       attributes: [
         [User.sequelize.fn("DATE", User.sequelize.col("created_at")), "date"],
         [User.sequelize.fn("COUNT", User.sequelize.col("user_id")), "count"],

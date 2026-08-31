@@ -14,13 +14,35 @@ PRAGMA foreign_keys = ON;
 .mode column
 
 -- ============================================================================
--- 1. USERS TABLE (Authentication Base)
+-- 1. ROLES AND USERS TABLES (Authorization and Authentication Base)
 -- ============================================================================
+CREATE TABLE IF NOT EXISTS roles (
+    role_id TEXT PRIMARY KEY NOT NULL,
+    role_key TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    description TEXT,
+    is_system INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0, 1)),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO roles (role_id, role_key, name, description, is_system) VALUES
+    ('00000000-0000-4000-8000-000000000001', 'super_admin', 'Super Admin', 'Full platform access, including system administration.', 1),
+    ('00000000-0000-4000-8000-000000000002', 'admin', 'Admin', 'Platform and workforce administration access.', 1),
+    ('00000000-0000-4000-8000-000000000003', 'project_manager', 'Project Manager', 'Project, hiring, team, and delivery management access.', 1),
+    ('00000000-0000-4000-8000-000000000004', 'engineer', 'Engineer', 'Engineering talent profile and project delivery access.', 1),
+    ('00000000-0000-4000-8000-000000000005', 'staff', 'Staff', 'Workforce self-service access.', 1)
+ON CONFLICT(role_key) DO UPDATE SET
+    name = excluded.name,
+    description = excluded.description,
+    is_system = 1,
+    updated_at = CURRENT_TIMESTAMP;
+
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(4)))),
     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password TEXT NOT NULL,
-    role TEXT CHECK(role IN ('super_admin', 'admin', 'project_manager', 'engineer', 'staff')) NOT NULL,
+    role_id TEXT NOT NULL REFERENCES roles(role_id) ON UPDATE CASCADE ON DELETE RESTRICT,
     full_name TEXT,
     phone_number TEXT,
     is_verified INTEGER DEFAULT 0,
@@ -46,8 +68,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role);
-CREATE UNIQUE INDEX users_single_super_admin ON users(role) WHERE role = 'super_admin';
+CREATE INDEX idx_users_role_id ON users(role_id);
+CREATE UNIQUE INDEX users_single_super_admin ON users(role_id)
+    WHERE role_id = '00000000-0000-4000-8000-000000000001';
 
 
 -- ============================================================================

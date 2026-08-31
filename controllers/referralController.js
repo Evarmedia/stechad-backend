@@ -1,4 +1,4 @@
-const { User, Referral, Reward, UserReward } = require('../models');
+const { User, Role, Referral, Reward, UserReward } = require('../models');
 const { 
   getUserReferralStats, 
   getUserRewards, 
@@ -86,12 +86,13 @@ const getReferralLeaderboard = async (req, res) => {
       ],
       include: [
         {
-          model: User,
+          model: User.unscoped(),
           as: 'referrer',
-          attributes: ['first_name', 'last_name', 'role', 'avatar_object_name']
+          attributes: ['first_name', 'last_name', 'role_id', 'avatar_object_name'],
+          include: [{ model: Role, as: 'role', attributes: ['role_id', 'role_key', 'name'] }]
         }
       ],
-      group: ['referrer_id', 'referrer.user_id'],
+      group: ['referrer_id', 'referrer.user_id', 'referrer->role.role_id'],
       order: [[Referral.sequelize.fn('COUNT', Referral.sequelize.col('referral_id')), 'DESC']],
       limit: parseInt(limit),
       offset: parseInt(offset)
@@ -269,12 +270,13 @@ const getReferralAnalytics = async (req, res) => {
       ],
       include: [
         {
-          model: User,
+          model: User.unscoped(),
           as: 'referrer',
-          attributes: ['first_name', 'last_name', 'role']
+          attributes: ['first_name', 'last_name', 'role_id'],
+          include: [{ model: Role, as: 'role', attributes: ['role_id', 'role_key', 'name'] }]
         }
       ],
-      group: ['referrer_id', 'referrer.user_id'],
+      group: ['referrer_id', 'referrer.user_id', 'referrer->role.role_id'],
       order: [[Referral.sequelize.fn('COUNT', Referral.sequelize.col('referral_id')), 'DESC']],
       limit: 10
     });
