@@ -25,6 +25,7 @@ const {
   reconcileUnclosedAttendance,
 } = require("../utils/attendanceScheduler");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
+const { buildLocationLabel, distanceInKilometers, reverseGeocode } = require("../utils/geoapify");
 
 const titleCase = (value = "") => value
   .split("_")
@@ -37,9 +38,12 @@ const formatTime = (value) => value ? getWorkforceMoment(value).format("hh:mm A"
 const formatBrowserLocation = (user) => {
   if (user.browser_latitude === null || user.browser_latitude === undefined || user.browser_longitude === null || user.browser_longitude === undefined) return null;
   return {
-    latitude: Number(user.browser_latitude),
-    longitude: Number(user.browser_longitude),
-    accuracy: user.browser_location_accuracy === null || user.browser_location_accuracy === undefined ? null : Number(user.browser_location_accuracy),
+    label: buildLocationLabel({ city: user.browser_location_city, state: user.browser_location_state, country: user.browser_location_country }),
+    formattedAddress: user.browser_location_address || null,
+    city: user.browser_location_city || null,
+    state: user.browser_location_state || null,
+    country: user.browser_location_country || null,
+    countryCode: user.browser_location_country_code || null,
     updatedAt: user.browser_location_updated_at,
   };
 };
@@ -63,6 +67,44 @@ const normalizeBrowserLocation = ({ latitude, longitude, accuracy }) => {
   };
 };
 
+const enrichBrowserLocation = async (user, normalizedLocation) => {
+  if (!normalizedLocation) return null;
+  const movedKilometers = distanceInKilometers(
+    user.browser_latitude,
+    user.browser_longitude,
+    normalizedLocation.browser_latitude,
+    normalizedLocation.browser_longitude,
+  );
+  const needsAddress = !user.browser_location_country || movedKilometers >= 1;
+  if (!needsAddress) return normalizedLocation;
+
+  Object.assign(normalizedLocation, {
+    browser_location_address: null,
+    browser_location_city: null,
+    browser_location_state: null,
+    browser_location_country: null,
+    browser_location_country_code: null,
+  });
+  try {
+    const address = await reverseGeocode(normalizedLocation.browser_latitude, normalizedLocation.browser_longitude);
+    if (address) Object.assign(normalizedLocation, address);
+  } catch (error) {
+    console.warn("Geoapify reverse geocoding failed:", error.message);
+  }
+  return normalizedLocation;
+};
+
+const formatWorkedDuration = (clockIn, clockOut) => {
+  if (!clockIn || !clockOut) return { workedMinutes: null, workedDuration: null };
+  const workedMinutes = Math.max(0, Math.floor((new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 60_000));
+  const hours = Math.floor(workedMinutes / 60);
+  const minutes = workedMinutes % 60;
+  return {
+    workedMinutes,
+    workedDuration: hours ? `${hours}h ${minutes}m` : workedMinutes ? `${workedMinutes}m` : "Less than 1m",
+  };
+};
+
 const formatAttendance = (entry) => ({
   id: entry.attendance_id,
   date: entry.work_date,
@@ -75,6 +117,7 @@ const formatAttendance = (entry) => ({
   location: entry.latitude && entry.longitude
     ? { latitude: Number(entry.latitude), longitude: Number(entry.longitude), accuracy: Number(entry.location_accuracy || 0) }
     : null,
+  ...formatWorkedDuration(entry.clock_in, entry.clock_out),
 });
 
 const formatLeave = (request) => ({
@@ -299,7 +342,7 @@ const clockIn = async (req, res) => {
       longitude: req.user.location_sharing_enabled ? longitude ?? null : null,
       location_accuracy: req.user.location_sharing_enabled ? accuracy ?? null : null,
     });
-    if (normalizedLocation.value) await req.user.update(normalizedLocation.value);
+    if (normalizedLocation.value) await req.user.update(await enrichBrowserLocation(req.user, normalizedLocation.value));
     return res.status(201).json({ success: true, message: "Clocked in successfully", data: formatAttendance(entry) });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to clock in", error: error.message });
@@ -325,7 +368,7 @@ const clockOut = async (req, res) => {
       longitude: req.user.location_sharing_enabled ? longitude ?? entry.longitude : entry.longitude,
       location_accuracy: req.user.location_sharing_enabled ? accuracy ?? entry.location_accuracy : entry.location_accuracy,
     });
-    if (normalizedLocation.value) await req.user.update(normalizedLocation.value);
+    if (normalizedLocation.value) await req.user.update(await enrichBrowserLocation(req.user, normalizedLocation.value));
     return res.json({ success: true, message: "Clocked out successfully", data: formatAttendance(entry) });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to clock out", error: error.message });
@@ -551,7 +594,7 @@ const updateLocationSharing = async (req, res) => {
     if (normalizedLocation.error) return res.status(400).json({ success: false, message: normalizedLocation.error });
     if (normalizedLocation.value && permissionStatus !== "granted") return res.status(400).json({ success: false, message: "Location coordinates require granted browser permission" });
     const updates = { location_sharing_enabled: req.body.enabled, location_permission_status: permissionStatus };
-    if (normalizedLocation.value) Object.assign(updates, normalizedLocation.value);
+    if (normalizedLocation.value) Object.assign(updates, await enrichBrowserLocation(req.user, normalizedLocation.value));
     await req.user.update(updates);
     return res.json({
       success: true,
@@ -577,7 +620,7 @@ const updateLiveLocation = async (req, res) => {
     const entry = await Attendance.findOne({ where: { user_id: req.user.user_id, work_date: moment().format("YYYY-MM-DD"), clock_out: null } });
     if (!entry) return res.status(409).json({ success: false, message: "Location is only captured during an active work session" });
     await entry.update({ latitude, longitude, location_accuracy: accuracy || null });
-    await req.user.update(normalizedLocation.value);
+    await req.user.update(await enrichBrowserLocation(req.user, normalizedLocation.value));
     return res.json({ success: true, message: "Live work location updated" });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update location", error: error.message });

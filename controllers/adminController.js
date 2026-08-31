@@ -33,6 +33,7 @@ const sequelize = require("../config/database");
 const zohoService = require("../utils/zohoService");
 const { notifyPermissionHolders } = require("../utils/workforceNotification");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
+const { buildLocationLabel } = require("../utils/geoapify");
 
 const sanitizeKpiCriteria = (criteria) => {
   if (!Array.isArray(criteria)) return [];
@@ -246,7 +247,7 @@ const getWorkforce = async (req, res) => {
       User.findAll({
         order: [["created_at", "DESC"]],
         where: { role: { [Op.in]: ["staff", "admin", "project_manager", "super_admin"] } },
-        attributes: ["user_id", "first_name", "last_name", "email", "role", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "created_at"],
+        attributes: ["user_id", "first_name", "last_name", "email", "role", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "browser_location_address", "browser_location_city", "browser_location_state", "browser_location_country", "browser_location_country_code", "created_at"],
         include: [
           { model: Department, as: "department", attributes: ["department_id", "name", "code"] },
           { model: User, as: "reporting_manager", attributes: ["user_id", "first_name", "last_name", "email"] },
@@ -294,9 +295,11 @@ const getWorkforce = async (req, res) => {
         && user.browser_latitude !== null
         && user.browser_longitude !== null
         ? {
-          latitude: Number(user.browser_latitude),
-          longitude: Number(user.browser_longitude),
-          accuracy: user.browser_location_accuracy === null ? null : Number(user.browser_location_accuracy),
+          label: buildLocationLabel({ city: user.browser_location_city, state: user.browser_location_state, country: user.browser_location_country }),
+          formattedAddress: user.browser_location_address || null,
+          city: user.browser_location_city || null,
+          state: user.browser_location_state || null,
+          country: user.browser_location_country || null,
           updatedAt: user.browser_location_updated_at,
         }
         : null;
@@ -315,7 +318,7 @@ const getWorkforce = async (req, res) => {
         status: user.is_active ? "Active" : "Inactive",
         employmentType: user.employment_type,
         permissions: user.workforce_permissions || [],
-        location: browserLocation ? `${browserLocation.latitude.toFixed(6)}, ${browserLocation.longitude.toFixed(6)}` : user.city || user.country || "Not shared",
+        location: browserLocation?.label || (browserLocation ? "Location consent" : user.city || user.country || "Not shared"),
         browserLocation,
         attendance: presentUserIds.has(user.user_id) ? "Present" : "Not clocked in",
         joinedAt: user.created_at,

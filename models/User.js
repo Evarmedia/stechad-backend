@@ -103,6 +103,26 @@ User.init(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    browser_location_address: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    browser_location_city: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    browser_location_state: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    browser_location_country: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    browser_location_country_code: {
+      type: DataTypes.STRING(2),
+      allowNull: true,
+    },
     current_assignment: {
       type: DataTypes.TEXT,
       allowNull: true,
