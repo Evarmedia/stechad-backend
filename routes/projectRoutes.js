@@ -378,6 +378,7 @@ router.put('/:projects_id', authorize('admin', 'project_manager', 'engineer'), u
  * /projects/{projects_id}:
  *   delete:
  *     summary: Delete project
+ *     description: Admin and Super Admin can delete projects in any status. Project Managers can delete only projects they own (or unassigned projects) while the project is planning, cancelled, or on hold.
  *     tags: [Projects]
  *     parameters:
  *       - in: path
@@ -402,13 +403,13 @@ router.put('/:projects_id', authorize('admin', 'project_manager', 'engineer'), u
  *                   type: string
  *                   example: "Project deleted successfully"
  *       400:
- *         description: Cannot delete project that is in progress or completed
+ *         description: A Project Manager tried to delete a project that is in progress or completed
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       403:
- *         description: Not authorized to delete this project
+ *         description: The caller is not an Admin/Super Admin or the Project Manager does not own the project
  *         content:
  *           application/json:
  *             schema:

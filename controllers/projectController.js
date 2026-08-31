@@ -530,7 +530,8 @@ const deleteProject = async (req, res) => {
     /* ===============================
        PERMISSION CHECK
        =============================== */
-    if (getRoleKey(req.user) === "project_manager") {
+    const roleKey = getRoleKey(req.user);
+    if (roleKey === "project_manager") {
       const ownerUserId = project.project_manager?.user?.user_id;
 
       const isOwner = ownerUserId === req.user.user_id;
@@ -542,16 +543,16 @@ const deleteProject = async (req, res) => {
           message: "Not authorized to delete this project",
         });
       }
-    }
 
-    /* ===============================
-       STATUS CHECK
-       =============================== */
-    if (!["planning", "cancelled", "on_hold"].includes(project.status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete project that is in progress or completed",
-      });
+      /* ===============================
+         PROJECT MANAGER STATUS CHECK
+         =============================== */
+      if (!["planning", "cancelled", "on_hold"].includes(project.status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot delete project that is in progress or completed",
+        });
+      }
     }
 
     /* ===============================

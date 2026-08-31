@@ -1,6 +1,6 @@
 tags:
   - name: Workforce Admin
-    description: Admin and Super Admin workforce, department, approval, holiday, KPI, and permission operations.
+    description: Admin and Super Admin workforce, department, approval, holiday, KPI, permission, and custom-role operations.
   - name: Staff
     description: Authenticated workforce self-service endpoints for attendance, leave, expenses, invoices, KPIs, profile, and location.
 
@@ -681,14 +681,23 @@ paths:
     delete:
       tags: [Workforce Admin]
       summary: Delete a custom role
-      description: Super Admin only. System roles and roles assigned to a user or invitation cannot be deleted.
+      description: Super Admin only. Permanently deletes an unused custom role. Seeded system roles and roles assigned to a user or invitation cannot be deleted.
       parameters:
         - in: path
           name: role_id
           required: true
           schema: { type: string, format: uuid }
       responses:
-        '200': { description: Custom role deleted successfully. }
+        '200':
+          description: Custom role deleted successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message]
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: Role deleted successfully }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -746,7 +755,7 @@ paths:
     get:
       tags: [Staff]
       summary: Get attendance history and monthly summary
-      description: Reconciles stale open sessions, then returns up to 60 attendance entries and the current-month summary.
+      description: Available to authenticated workforce roles, including Project Managers. Reconciles stale open sessions, then returns up to 60 attendance entries and the current-month summary used by attendance dashboards and widgets.
       responses:
         '200':
           description: Attendance data retrieved successfully.
@@ -757,7 +766,7 @@ paths:
     post:
       tags: [Staff]
       summary: Clock in for the current workforce day
-      description: Creates today's attendance entry. Coordinates are stored only when location sharing has been enabled.
+      description: Creates today's attendance entry for the authenticated workforce user. Coordinates are stored only when location sharing has been enabled. This endpoint also powers the Project Manager dashboard clock widget.
       requestBody:
         required: false
         content:
@@ -771,7 +780,7 @@ paths:
     post:
       tags: [Staff]
       summary: Clock out and submit the daily work summary
-      description: Closes today's active attendance entry. A non-empty work log is required.
+      description: Closes today's active attendance entry for the authenticated workforce user. A non-empty work log is required. This endpoint also powers the Project Manager dashboard clock widget.
       requestBody:
         required: true
         content:
