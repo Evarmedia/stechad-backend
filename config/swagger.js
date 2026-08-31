@@ -46,7 +46,9 @@ const options = {
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },
             phone_number: { type: 'string', example: '+1234567890' },
-            avatar_object_name: { type: 'string', example: 'avatar-123.jpg' },
+            employee_id: { type: 'string', pattern: '^STE\\d{4}$', example: 'STE0748' },
+            avatar_object_name: { type: 'string', example: 'profile-images/user-id__avatar.jpg' },
+            avatar_url: { type: 'string', format: 'uri', description: 'Short-lived signed URL for the current avatar.' },
             is_active: { type: 'boolean', example: true },
             is_verified: { type: 'boolean', example: false },
             country: { type: 'string', example: 'USA' },
@@ -163,7 +165,7 @@ const options = {
           type: 'object',
           properties: {
             projects_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174006' },
-            project_managers_user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
+            project_managers_id: { type: 'string', format: 'uuid', nullable: true, example: '123e4567-e89b-12d3-a456-426614174003' },
             title: { type: 'string', example: 'E-commerce Website Development' },
             description: { type: 'string', example: 'Building a modern e-commerce platform...' },
             job_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174004' },
@@ -246,7 +248,7 @@ const options = {
       }
     ]
   },
-  apis: ['./routes/*.js', './controllers/*.js']
+  apis: ['./routes/*.js', './controllers/*.js', './docs/*.yaml']
 };
 
 const specs = swaggerJSDoc(options);

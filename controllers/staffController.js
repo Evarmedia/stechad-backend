@@ -15,7 +15,7 @@ const {
   RolePermission,
   Notification,
 } = require("../models");
-const { uploadToGCP } = require("../middleware/upload");
+const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { hasPermission } = require("../middleware/auth");
 const { notifyPermissionHolders } = require("../utils/workforceNotification");
@@ -25,7 +25,13 @@ const {
   reconcileUnclosedAttendance,
 } = require("../utils/attendanceScheduler");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
-const { buildLocationLabel, distanceInKilometers, reverseGeocode } = require("../utils/geoapify");
+const {
+  buildLocationLabel,
+  distanceInKilometers,
+  isGeoapifyConfigured,
+  reverseGeocode,
+  reverseGeocodeWithProviderResponse,
+} = require("../utils/geoapify");
 
 const titleCase = (value = "") => value
   .split("_")
@@ -185,6 +191,24 @@ const formatKpi = (kpi) => {
     latestScore: appraisals[0]?.overallScore ?? null,
     status: titleCase(kpi.status),
   };
+};
+
+const formatStaffProfile = async (user) => {
+  const data = user.toJSON();
+  delete data.password;
+  delete data.reset_password_token;
+  delete data.reset_password_expires;
+
+  data.avatar_url = null;
+  if (data.avatar_object_name) {
+    try {
+      data.avatar_url = await getV4ReadSignedUrl(data.avatar_object_name, 7 * 24 * 60 * 60);
+    } catch (error) {
+      console.warn("Failed to sign staff avatar URL:", error.message);
+    }
+  }
+
+  return data;
 };
 
 const notifyAdmins = async ({ title, message, action_url, metadata }) => {
@@ -472,7 +496,7 @@ const getProjectInvoices = async (req, res) => {
     const manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
     if (!manager) return res.status(404).json({ success: false, message: "Project manager profile not found" });
     const [projects, invoices] = await Promise.all([
-      Project.findAll({ where: { project_managers_id: manager.project_managers_id }, order: [["created_at", "DESC"]] }),
+      Project.findAll({ where: { project_managers_id: manager.project_managers_id, status: "completed" }, order: [["created_at", "DESC"]] }),
       Invoice.findAll({ where: { submitted_by: req.user.user_id, invoice_type: "project" }, include: [{ model: Project, as: "project", attributes: ["projects_id", "title", "status"] }], order: [["created_at", "DESC"]] }),
     ]);
     return res.json({
@@ -484,6 +508,38 @@ const getProjectInvoices = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load project invoice summaries", error: error.message });
+  }
+};
+
+const getCompletedProjectsForInvoice = async (req, res) => {
+  try {
+    if (req.user.role !== "project_manager") {
+      return res.status(403).json({ success: false, message: "Completed project billing is only available to project managers" });
+    }
+
+    const manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
+    if (!manager) return res.status(404).json({ success: false, message: "Project manager profile not found" });
+
+    const projects = await Project.findAll({
+      where: {
+        project_managers_id: manager.project_managers_id,
+        status: "completed",
+      },
+      attributes: ["projects_id", "title", "status", "updated_at"],
+      order: [["updated_at", "DESC"]],
+    });
+
+    return res.json({
+      success: true,
+      data: projects.map((project) => ({
+        id: project.projects_id,
+        title: project.title,
+        status: project.status,
+        completedAt: project.updated_at,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to load completed projects", error: error.message });
   }
 };
 
@@ -566,7 +622,8 @@ const getProfile = async (req, res) => {
         { model: User, as: "reporting_manager", attributes: ["user_id", "first_name", "last_name", "email"] },
       ],
     });
-    return res.json({ success: true, data: user });
+    if (!user) return res.status(404).json({ success: false, message: "Staff profile not found" });
+    return res.json({ success: true, data: await formatStaffProfile(user) });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load staff profile", error: error.message });
   }
@@ -576,10 +633,65 @@ const updateProfile = async (req, res) => {
   try {
     const allowed = ["first_name", "last_name", "phone_number", "country", "city", "linkedin_url", "website_url", "current_assignment", "work_region", "date_of_birth"];
     const updates = Object.fromEntries(allowed.filter((key) => req.body[key] !== undefined).map((key) => [key, req.body[key]]));
+    if (updates.date_of_birth === "") updates.date_of_birth = null;
+    const oldAvatarObjectName = req.user.avatar_object_name || null;
+
+    if (req.file) {
+      const { objectName } = await uploadToGCP(req.file, req.user.user_id, "profile-images");
+      updates.avatar_object_name = objectName;
+    }
+
     await req.user.update(updates);
+
+    if (req.file && oldAvatarObjectName && oldAvatarObjectName !== req.user.avatar_object_name) {
+      try {
+        await deleteFromGCP(oldAvatarObjectName);
+      } catch (error) {
+        console.warn("Failed to delete previous staff avatar:", error.message);
+      }
+    }
+
     return getProfile(req, res);
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update staff profile", error: error.message });
+  }
+};
+
+const reverseGeoLocation = async (req, res) => {
+  try {
+    const input = req.method === "GET" ? req.query : req.body;
+    const normalizedLocation = normalizeBrowserLocation({
+      latitude: input?.latitude ?? input?.lat,
+      longitude: input?.longitude ?? input?.lon,
+      accuracy: input?.accuracy,
+    });
+    if (normalizedLocation.error) return res.status(400).json({ success: false, message: normalizedLocation.error });
+    if (!normalizedLocation.value) return res.status(400).json({ success: false, message: "Latitude and longitude are required" });
+    if (!isGeoapifyConfigured()) return res.status(503).json({ success: false, message: "Reverse geocoding is unavailable. Configure GEOAPIFY_API_KEY and try again." });
+
+    const latitude = normalizedLocation.value.browser_latitude;
+    const longitude = normalizedLocation.value.browser_longitude;
+    const result = await reverseGeocodeWithProviderResponse(latitude, longitude);
+    if (!result?.address) return res.status(404).json({ success: false, message: "Geoapify did not find an address for these coordinates" });
+    const { address, providerResponse } = result;
+
+    return res.json({
+      success: true,
+      message: "Location resolved successfully",
+      data: {
+        latitude,
+        longitude,
+        formattedAddress: address.browser_location_address,
+        city: address.browser_location_city,
+        state: address.browser_location_state,
+        country: address.browser_location_country,
+        countryCode: address.browser_location_country_code,
+        provider: "Geoapify",
+        providerResponse,
+      },
+    });
+  } catch (error) {
+    return res.status(502).json({ success: false, message: "Reverse geocoding provider request failed", error: error.message });
   }
 };
 
@@ -640,6 +752,7 @@ module.exports = {
   getInvoices,
   submitInvoice,
   getProjectInvoices,
+  getCompletedProjectsForInvoice,
   submitProjectInvoice,
   getKpis,
   getHolidays,
@@ -648,4 +761,5 @@ module.exports = {
   updateProfile,
   updateLocationSharing,
   updateLiveLocation,
+  reverseGeoLocation,
 };

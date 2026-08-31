@@ -368,7 +368,12 @@ const createProject = async (req, res) => {
 const updateProject = async (req, res) => {
   try {
     const { projects_id } = req.params;
-    const updates = req.body;
+    const allowedFields = ["title", "description", "status", "priority", "progress", "team", "tasks", "start_date", "deadline", "feedback"];
+    const updates = Object.fromEntries(
+      allowedFields
+        .filter((field) => req.body[field] !== undefined)
+        .map((field) => [field, req.body[field]]),
+    );
 
     const project = await Project.findOne({
       where: { projects_id },
@@ -406,6 +411,30 @@ const updateProject = async (req, res) => {
           success: false,
           message: "Not authorized to update this project",
         });
+      }
+    }
+
+    if (["admin", "super_admin"].includes(req.user.role)
+      && (req.body.project_manager_id !== undefined || req.body.project_managers_id !== undefined)) {
+      const assignedManagerId = req.body.project_manager_id ?? req.body.project_managers_id;
+      if (assignedManagerId === null || assignedManagerId === "") {
+        updates.project_managers_id = null;
+      } else {
+        const manager = await ProjectManager.findOne({
+          where: {
+            [Op.or]: [
+              { project_managers_id: assignedManagerId },
+              { user_id: assignedManagerId },
+            ],
+          },
+        });
+        if (!manager) {
+          return res.status(400).json({
+            success: false,
+            message: "Assigned project manager not found",
+          });
+        }
+        updates.project_managers_id = manager.project_managers_id;
       }
     }
 

@@ -20,14 +20,17 @@ router.get("/expenses", staffController.getExpenses);
 router.post("/expenses", authorizePermission("submit_expenses"), upload.single("receipt"), staffController.submitExpense);
 router.get("/invoices", staffController.getInvoices);
 router.post("/invoices", staffController.submitInvoice);
+router.get("/project-invoices/completed-projects", staffController.getCompletedProjectsForInvoice);
 router.get("/project-invoices", staffController.getProjectInvoices);
 router.post("/project-invoices", staffController.submitProjectInvoice);
 router.get("/kpis", staffController.getKpis);
 router.get("/holidays", staffController.getHolidays);
 router.get("/birthdays", staffController.getBirthdays);
 router.get("/profile", staffController.getProfile);
-router.put("/profile", staffController.updateProfile);
+router.put("/profile", upload.single("avatar"), staffController.updateProfile);
 router.put("/location-sharing", staffController.updateLocationSharing);
 router.post("/location", staffController.updateLiveLocation);
+router.get("/location/reverse-geo", staffController.reverseGeoLocation);
+router.post("/location/reverse-geo", staffController.reverseGeoLocation);
 
 module.exports = router;

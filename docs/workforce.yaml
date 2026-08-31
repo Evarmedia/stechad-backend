@@ -1,0 +1,947 @@
+tags:
+  - name: Workforce Admin
+    description: Admin and Super Admin workforce, department, approval, holiday, KPI, and permission operations.
+  - name: Staff
+    description: Authenticated workforce self-service endpoints for attendance, leave, expenses, invoices, KPIs, profile, and location.
+
+components:
+  schemas:
+    WorkforceInviteRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+          example: ada@example.com
+        first_name:
+          type: string
+          example: Ada
+        last_name:
+          type: string
+          example: Okafor
+        department_id:
+          type: string
+          format: uuid
+          nullable: true
+        job_title:
+          type: string
+          example: Operations Analyst
+        role:
+          type: string
+          enum: [admin, project_manager, staff]
+          example: staff
+    WorkforceInvite:
+      type: object
+      properties:
+        invite_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        employee_id:
+          type: string
+          pattern: '^STE\d{4}$'
+          example: STE0748
+          description: Unique employee ID reserved when the invitation is created and copied to the user at acceptance.
+        role:
+          type: string
+          enum: [admin, project_manager, staff]
+        status:
+          type: string
+          enum: [pending, accepted, expired]
+        expires_at:
+          type: string
+          format: date-time
+    WorkforceUserUpdate:
+      type: object
+      description: Only supplied fields are changed. Super Admin safeguards are enforced by the API.
+      properties:
+        first_name: { type: string }
+        last_name: { type: string }
+        phone_number: { type: string }
+        employee_id: { type: string, pattern: '^STE\d{4}$', example: STE0748 }
+        department_id: { type: string, format: uuid, nullable: true }
+        job_title: { type: string, nullable: true }
+        reports_to_user_id: { type: string, format: uuid, nullable: true }
+        employment_type: { type: string, example: full_time }
+        hire_date: { type: string, format: date, nullable: true }
+        leave_allowance_days: { type: integer, minimum: 0, example: 20 }
+        country: { type: string }
+        city: { type: string }
+        current_assignment: { type: string }
+        work_region: { type: string }
+        workforce_permissions:
+          type: array
+          items: { type: string }
+        role:
+          type: string
+          enum: [admin, project_manager, staff]
+        is_active: { type: boolean }
+    DepartmentRequest:
+      type: object
+      properties:
+        name: { type: string, example: Engineering }
+        code: { type: string, example: ENG }
+        description: { type: string, nullable: true }
+        manager_user_id: { type: string, format: uuid, nullable: true }
+        location: { type: string, nullable: true, example: Lagos }
+    HolidayRequest:
+      type: object
+      properties:
+        name: { type: string, example: Independence Day }
+        date: { type: string, format: date, example: '2026-10-01' }
+        type: { type: string, example: Public holiday }
+        region: { type: string, nullable: true, example: Nigeria }
+        description: { type: string, nullable: true }
+    KpiCriterion:
+      type: object
+      required: [title]
+      properties:
+        id: { type: string, description: Optional stable criterion ID. The server generates one when omitted. }
+        title: { type: string, example: Deliver agreed milestones on time }
+    KpiRequest:
+      type: object
+      properties:
+        assigned_to_user_id: { type: string, format: uuid }
+        title: { type: string, example: Delivery quality }
+        description: { type: string, nullable: true }
+        review_cycle: { type: string, enum: [Monthly, Quarterly, Annual], default: Monthly }
+        status: { type: string, example: active }
+        criteria:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/KpiCriterion' }
+    KpiAppraisalRequest:
+      type: object
+      required: [criteria_scores]
+      properties:
+        criteria_scores:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [criterion_id, score]
+            properties:
+              criterion_id: { type: string }
+              score: { type: number, minimum: 0, maximum: 100 }
+        notes: { type: string, nullable: true }
+    ApprovalReviewRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [approved, rejected, disputed, receipt_verified, accounts_approved, paid]
+          description: Valid actions depend on the request type and its current workflow state.
+        notes: { type: string, nullable: true }
+    RolePermissionUpdate:
+      type: object
+      properties:
+        admin: { type: boolean }
+        project_manager: { type: boolean }
+        staff: { type: boolean }
+    CoordinatesRequest:
+      type: object
+      properties:
+        latitude: { type: number, minimum: -90, maximum: 90, example: 6.5244 }
+        longitude: { type: number, minimum: -180, maximum: 180, example: 3.3792 }
+        accuracy: { type: number, minimum: 0, nullable: true, example: 12.5 }
+    ClockOutRequest:
+      allOf:
+        - $ref: '#/components/schemas/CoordinatesRequest'
+        - type: object
+          required: [work_log]
+          properties:
+            work_log: { type: string, example: Completed the client onboarding workflow. }
+    LeaveSubmissionRequest:
+      type: object
+      required: [leave_type, start_date, end_date]
+      properties:
+        leave_type: { type: string, example: Annual leave }
+        start_date: { type: string, format: date, example: '2026-09-14' }
+        end_date: { type: string, format: date, example: '2026-09-18' }
+        reason: { type: string, nullable: true }
+    InvoiceSubmissionRequest:
+      type: object
+      required: [period, amount]
+      properties:
+        period: { type: string, example: August 2026 }
+        amount: { type: number, exclusiveMinimum: true, minimum: 0, example: 2500 }
+        currency: { type: string, minLength: 3, maxLength: 3, default: USD }
+        notes: { type: string, nullable: true }
+        line_items:
+          type: array
+          items: { type: object, additionalProperties: true }
+    ProjectInvoiceSubmissionRequest:
+      allOf:
+        - $ref: '#/components/schemas/InvoiceSubmissionRequest'
+        - type: object
+          required: [project_id, client_name]
+          properties:
+            project_id: { type: string, format: uuid }
+            client_name: { type: string, example: Acme Limited }
+    StaffProfile:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            department: { type: object, nullable: true, additionalProperties: true }
+            reporting_manager: { type: object, nullable: true, additionalProperties: true }
+    ReverseGeoResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { type: boolean, example: true }
+        message: { type: string, example: Location resolved successfully }
+        data:
+          type: object
+          properties:
+            latitude: { type: number, example: 6.5244 }
+            longitude: { type: number, example: 3.3792 }
+            formattedAddress: { type: string, nullable: true, example: Marina Road, Lagos Island, Lagos, Nigeria }
+            city: { type: string, nullable: true, example: Lagos }
+            state: { type: string, nullable: true, example: Lagos }
+            country: { type: string, nullable: true, example: Nigeria }
+            countryCode: { type: string, nullable: true, example: ng }
+            provider: { type: string, example: Geoapify }
+            providerResponse:
+              type: object
+              description: Raw Geoapify GeoJSON FeatureCollection returned by the provider; the API key is never included.
+              properties:
+                type: { type: string, example: FeatureCollection }
+                features:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string, example: Feature }
+                      properties: { type: object, additionalProperties: true }
+                      geometry: { type: object, additionalProperties: true }
+                      bbox:
+                        type: array
+                        items: { type: number }
+                query: { type: object, additionalProperties: true }
+    CompletedProject:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        status: { type: string, enum: [completed] }
+        completedAt: { type: string, format: date-time }
+  responses:
+    BadRequest:
+      description: The request payload or parameters are invalid.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: A valid bearer token is required.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The authenticated user does not have the required role or permission.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: The requested record was not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: The operation failed unexpectedly.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+paths:
+  /admin/workforce:
+    get:
+      tags: [Workforce Admin]
+      summary: Get the workforce operations dashboard
+      description: Returns the staff directory, departments, open approval queue, holidays, KPI library, role-permission matrix, and Zoho or local workforce metrics.
+      responses:
+        '200':
+          description: Workforce operations data retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /admin/workforce/invite:
+    post:
+      tags: [Workforce Admin]
+      summary: Invite a workforce member
+      description: Reserves a unique STE#### employee ID, persists a one-hour invitation, and sends the acceptance email. Allowed roles are Admin, Project Manager, and Staff.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkforceInviteRequest' }
+      responses:
+        '201':
+          description: Invitation sent and employee ID reserved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  message: { type: string, example: staff invited successfully. }
+                  data: { $ref: '#/components/schemas/WorkforceInvite' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /admin/workforce/users/{user_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Update a workforce member
+      description: Updates employment details, role, status, reporting line, or individual permission grants for an existing workforce user.
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkforceUserUpdate' }
+      responses:
+        '200':
+          description: Workforce user updated successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/workforce/approvals/{type}/{request_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Review a workforce request
+      description: Advances a leave, expense, or invoice through its permitted approval workflow and notifies the requester.
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema: { type: string, enum: [leave, expense, invoice] }
+        - in: path
+          name: request_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalReviewRequest' }
+      responses:
+        '200':
+          description: Approval status updated and requester notified.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The requested workflow transition conflicts with the current status. }
+  /admin/departments:
+    get:
+      tags: [Workforce Admin]
+      summary: List departments
+      description: Returns departments with their assigned manager.
+      responses:
+        '200':
+          description: Department list retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+    post:
+      tags: [Workforce Admin]
+      summary: Create a department
+      description: Creates an active department with an optional workforce manager and location.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/DepartmentRequest'
+                - type: object
+                  required: [name, code]
+      responses:
+        '201':
+          description: Department created successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/departments/{department_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Update a department
+      description: Updates supplied department fields; send manager_user_id as null to remove a manager.
+      parameters:
+        - in: path
+          name: department_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DepartmentRequest' }
+      responses:
+        '200':
+          description: Department updated successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Workforce Admin]
+      summary: Delete a department
+      description: Deletes the selected department.
+      parameters:
+        - in: path
+          name: department_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Department deleted successfully. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/holidays:
+    post:
+      tags: [Workforce Admin]
+      summary: Add a holiday
+      description: Adds a company holiday and sends an in-app notification to active workforce users.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/HolidayRequest'
+                - type: object
+                  required: [name, date]
+      responses:
+        '201':
+          description: Holiday created and notifications queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /admin/holidays/{holiday_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Update a holiday
+      description: Updates any supplied holiday fields.
+      parameters:
+        - in: path
+          name: holiday_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HolidayRequest' }
+      responses:
+        '200': { description: Holiday updated successfully. }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Workforce Admin]
+      summary: Delete a holiday
+      description: Removes a holiday from the company calendar.
+      parameters:
+        - in: path
+          name: holiday_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Holiday deleted successfully. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/kpis:
+    post:
+      tags: [Workforce Admin]
+      summary: Assign a reusable KPI
+      description: Creates a KPI assignment with one or more scored criteria and notifies the assignee.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/KpiRequest'
+                - type: object
+                  required: [assigned_to_user_id, title, criteria]
+      responses:
+        '201':
+          description: KPI assignment created successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/kpis/{kpi_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Update a KPI assignment
+      description: Updates the KPI metadata or reusable success criteria and notifies the assignee.
+      parameters:
+        - in: path
+          name: kpi_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KpiRequest' }
+      responses:
+        '200': { description: KPI assignment updated successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Workforce Admin]
+      summary: Delete a KPI assignment
+      description: Deletes the KPI and its dependent appraisal history.
+      parameters:
+        - in: path
+          name: kpi_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: KPI deleted successfully. }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/kpis/{kpi_id}/appraisals:
+    post:
+      tags: [Workforce Admin]
+      summary: Record the current KPI appraisal
+      description: Creates or updates the appraisal for the KPI's current monthly, quarterly, or annual period. Every criterion must have a score from 0 to 100.
+      parameters:
+        - in: path
+          name: kpi_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KpiAppraisalRequest' }
+      responses:
+        '200': { description: Existing appraisal for the current period updated. }
+        '201': { description: Appraisal for the current period created. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The KPI has no criteria to score. }
+  /admin/role-permissions/{role_permission_id}:
+    put:
+      tags: [Workforce Admin]
+      summary: Update the workforce role permission matrix
+      description: Enables or disables a permission for Admin, Project Manager, or Staff. Super Admin remains enabled.
+      parameters:
+        - in: path
+          name: role_permission_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RolePermissionUpdate' }
+      responses:
+        '200': { description: Role permission updated successfully. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /staff/dashboard:
+    get:
+      tags: [Staff]
+      summary: Get the staff self-service dashboard
+      description: Returns attendance, leave balance, recent claims and invoices, KPI progress, holidays, effective permissions, and current user context.
+      responses:
+        '200':
+          description: Staff dashboard retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '500': { $ref: '#/components/responses/ServerError' }
+  /staff/approvals:
+    get:
+      tags: [Staff]
+      summary: Get the caller's approval queue
+      description: Returns only approval items supported by the caller's effective leave, expense, receipt-verification, or invoice permissions.
+      responses:
+        '200':
+          description: Approval queue retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /staff/approvals/{type}/{request_id}:
+    put:
+      tags: [Staff]
+      summary: Review an approval from the staff workspace
+      description: Applies the same permission-aware leave, expense, or invoice transition as the Admin approval endpoint.
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema: { type: string, enum: [leave, expense, invoice] }
+        - in: path
+          name: request_id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalReviewRequest' }
+      responses:
+        '200': { description: Approval updated successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /staff/attendance:
+    get:
+      tags: [Staff]
+      summary: Get attendance history and monthly summary
+      description: Reconciles stale open sessions, then returns up to 60 attendance entries and the current-month summary.
+      responses:
+        '200':
+          description: Attendance data retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+  /staff/attendance/clock-in:
+    post:
+      tags: [Staff]
+      summary: Clock in for the current workforce day
+      description: Creates today's attendance entry. Coordinates are stored only when location sharing has been enabled.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoordinatesRequest' }
+      responses:
+        '201': { description: Clock-in recorded successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { description: Attendance was already started or the attendance day is closed. }
+  /staff/attendance/clock-out:
+    post:
+      tags: [Staff]
+      summary: Clock out and submit the daily work summary
+      description: Closes today's active attendance entry. A non-empty work log is required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClockOutRequest' }
+      responses:
+        '200': { description: Clock-out recorded successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The session is already closed or was marked absent. }
+  /staff/leave:
+    get:
+      tags: [Staff]
+      summary: Get leave requests and balance
+      description: Returns the caller's leave history plus annual allowance, used days, and remaining days.
+      responses:
+        '200':
+          description: Leave data retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+    post:
+      tags: [Staff]
+      summary: Submit a leave request
+      description: Creates a pending leave request and notifies users with leave-approval permission.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaveSubmissionRequest' }
+      responses:
+        '201': { description: Leave request submitted successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /staff/expenses:
+    get:
+      tags: [Staff]
+      summary: Get expense claims
+      description: Returns the caller's expense claims with a temporary signed receipt URL when available.
+      responses:
+        '200':
+          description: Expense claims retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+    post:
+      tags: [Staff]
+      summary: Submit an expense claim with receipt
+      description: Uploads a required image/PDF receipt (maximum 2MB), creates a pending claim, and notifies expense approvers.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [category, amount, receipt]
+              properties:
+                category: { type: string, example: Travel }
+                amount: { type: number, exclusiveMinimum: true, minimum: 0, example: 145.5 }
+                currency: { type: string, minLength: 3, maxLength: 3, default: USD }
+                description: { type: string, nullable: true }
+                expense_date: { type: string, format: date }
+                receipt: { type: string, format: binary, description: Image or PDF receipt, maximum 2MB. }
+      responses:
+        '201': { description: Expense claim and receipt submitted successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /staff/invoices:
+    get:
+      tags: [Staff]
+      summary: Get submitted invoices
+      description: Returns invoices submitted by the authenticated user.
+      responses:
+        '200':
+          description: Invoice list retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+    post:
+      tags: [Staff]
+      summary: Submit a workforce invoice
+      description: Creates a pending staff or engineer invoice and notifies invoice approvers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvoiceSubmissionRequest' }
+      responses:
+        '201': { description: Invoice submitted for review. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /staff/project-invoices/completed-projects:
+    get:
+      tags: [Staff]
+      summary: Get completed projects assigned to the project manager
+      description: Resolves the authenticated user's ProjectManager record and returns only completed projects whose project_managers_id matches it. Use this list to populate Project Invoice Summary selection.
+      responses:
+        '200':
+          description: Assigned completed projects retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/CompletedProject' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /staff/project-invoices:
+    get:
+      tags: [Staff]
+      summary: Get project invoice workspace data
+      description: Returns the caller's completed assigned projects and their previously submitted project invoice summaries.
+      responses:
+        '200':
+          description: Project invoice workspace retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Staff]
+      summary: Submit a completed-project invoice summary
+      description: Creates a pending project invoice only when the project is completed and assigned to the authenticated project manager.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectInvoiceSubmissionRequest' }
+      responses:
+        '201': { description: Project invoice summary submitted to accounts review. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: The selected project is not completed. }
+  /staff/kpis:
+    get:
+      tags: [Staff]
+      summary: Get assigned KPIs and appraisal history
+      description: Returns all KPI assignments for the caller, including criteria, current period, current appraisal, and score history.
+      responses:
+        '200':
+          description: KPI assignments retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+  /staff/holidays:
+    get:
+      tags: [Staff]
+      summary: Get company holidays
+      description: Returns upcoming holidays by default. Pass all=true to include past holidays.
+      parameters:
+        - in: query
+          name: all
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Holiday list retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+  /staff/birthdays:
+    get:
+      tags: [Staff]
+      summary: Get upcoming workforce birthdays
+      description: Returns active workforce birthdays occurring within the next 60 days.
+      responses:
+        '200':
+          description: Upcoming birthdays retrieved successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Success' }
+  /staff/profile:
+    get:
+      tags: [Staff]
+      summary: Get the staff profile
+      description: Returns employment and personal profile fields, department and reporting manager data, and a short-lived signed avatar URL.
+      responses:
+        '200':
+          description: Staff profile retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/StaffProfile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Staff]
+      summary: Update the staff profile and avatar
+      description: Updates supplied editable profile fields and optionally replaces the avatar. The previous stored avatar is removed after a successful update.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                first_name: { type: string }
+                last_name: { type: string }
+                phone_number: { type: string }
+                country: { type: string }
+                city: { type: string }
+                linkedin_url: { type: string, format: uri }
+                website_url: { type: string, format: uri }
+                current_assignment: { type: string }
+                work_region: { type: string }
+                date_of_birth: { type: string, format: date }
+                avatar: { type: string, format: binary, description: Optional image file, maximum 2MB. }
+      responses:
+        '200':
+          description: Profile updated; response contains the fresh profile and signed avatar_url.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/StaffProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /staff/location-sharing:
+    put:
+      tags: [Staff]
+      summary: Update browser-location consent
+      description: Enables or disables location sharing. Enabling requires permission_status=granted; coordinates are optional and are reverse-geocoded when configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CoordinatesRequest'
+                - type: object
+                  required: [enabled]
+                  properties:
+                    enabled: { type: boolean }
+                    permission_status: { type: string, enum: [not_asked, granted, denied, unavailable] }
+      responses:
+        '200': { description: Location-sharing preference updated successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /staff/location:
+    post:
+      tags: [Staff]
+      summary: Update live work-session location
+      description: Updates coordinates for today's active attendance session. Location sharing must already be enabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CoordinatesRequest'
+                - type: object
+                  required: [latitude, longitude]
+      responses:
+        '200': { description: Live work location updated successfully. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: There is no active work session. }
+  /staff/location/reverse-geo:
+    get:
+      tags: [Staff]
+      summary: Test Geoapify reverse geocoding with query parameters
+      description: Accepts Geoapify-style lat/lon query parameters, calls the provider server-side with GEOAPIFY_API_KEY, and returns both normalized address fields and the raw GeoJSON FeatureCollection. No location is persisted.
+      parameters:
+        - in: query
+          name: lat
+          required: true
+          schema: { type: number, minimum: -90, maximum: 90, example: 51.21709661403662 }
+        - in: query
+          name: lon
+          required: true
+          schema: { type: number, minimum: -180, maximum: 180, example: 6.7782883744862374 }
+      responses:
+        '200':
+          description: Coordinates resolved successfully; providerResponse contains Geoapify's FeatureCollection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReverseGeoResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { description: Geoapify returned no address feature for the coordinates. }
+        '502': { description: Geoapify returned an error or timed out. }
+        '503': { description: GEOAPIFY_API_KEY is not configured. }
+    post:
+      tags: [Staff]
+      summary: Test reverse geocoding for coordinates
+      description: JSON-body alternative to the GET operation. Sends validated latitude/longitude coordinates to Geoapify and returns normalized fields plus the raw GeoJSON FeatureCollection. No location is persisted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/CoordinatesRequest'
+                - type: object
+                  required: [latitude, longitude]
+            example:
+              latitude: 51.21709661403662
+              longitude: 6.7782883744862374
+      responses:
+        '200':
+          description: Coordinates resolved to an address successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReverseGeoResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { description: Geoapify returned no address feature for the coordinates. }
+        '502': { description: Geoapify returned an error or timed out. }
+        '503': { description: GEOAPIFY_API_KEY is not configured. }

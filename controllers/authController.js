@@ -13,6 +13,7 @@ const {
 const { Op } = require("sequelize");
 
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
+const { generateUniqueEmployeeId } = require("../utils/employeeId");
 
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
@@ -658,6 +659,7 @@ const acceptInvite = async (req, res) => {
     // ================================
 
     // 5️⃣ Create user
+    const employeeId = invitedUser.employee_id || await generateUniqueEmployeeId({ transaction });
     const user = await User.create(
       {
         email: invitedUser.email,
@@ -667,7 +669,7 @@ const acceptInvite = async (req, res) => {
         role: invitedUser.role,
         department_id: invitedUser.department_id || null,
         job_title: invitedUser.job_title || null,
-        employee_id: invitedUser.role === "staff" ? `STECH-${Date.now().toString().slice(-6)}` : null,
+        employee_id: employeeId,
       },
       { transaction }
     );

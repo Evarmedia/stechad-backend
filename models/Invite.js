@@ -32,6 +32,11 @@ Invite.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    employee_id: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: true,
+    },
     role: {
       type: DataTypes.TEXT,
       allowNull: false,
@@ -106,6 +111,7 @@ Invite.prototype.compareTempPassword = async function(tempUserPassword) {
 Invite.prototype.toJSON = function() {
   const user = this.get();
   delete user.temp_password;
+  delete user.token;
   return user;
 };
 

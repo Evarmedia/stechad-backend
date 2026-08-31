@@ -135,6 +135,9 @@ router.get(
   getProjectManagerProjects,
 );
 
+// Keep static routes ahead of /:projects_id so Express does not treat "stats" as an ID.
+router.get('/stats/overview', authorize('admin', 'project_manager'), getProjectStats);
+
 /**
  * @swagger
  * /projects/{projects_id}:
@@ -198,6 +201,11 @@ router.get('/:projects_id', authorize('admin', 'project_manager'), getProjectByI
  *               description:
  *                 type: string
  *                 example: "Building a modern e-commerce platform with React and Node.js"
+ *               project_manager_id:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: Project manager profile ID (or user ID). Admins may omit/null this to leave the project unassigned.
  *               status:
  *                 type: string
  *                 enum: [planning, in_progress, completed, on_hold, cancelled]
@@ -296,6 +304,11 @@ router.post('/', authorize('admin', 'project_manager'), createProject);
  *               description:
  *                 type: string
  *                 example: "Updated project description"
+ *               project_manager_id:
+ *                 type: string
+ *                 format: uuid
+ *                 nullable: true
+ *                 description: Project manager profile ID (or user ID). Admins may send null to unassign the project.
  *               status:
  *                 type: string
  *                 enum: [planning, in_progress, completed, on_hold, cancelled]
@@ -484,6 +497,4 @@ router.delete('/:projects_id', authorize('admin', 'project_manager'), deleteProj
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/stats/overview', authorize('admin', 'project_manager'), getProjectStats);
-
 module.exports = router;

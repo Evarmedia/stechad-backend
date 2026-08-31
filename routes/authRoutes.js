@@ -523,10 +523,10 @@ router.post('/edit-password', authenticate, editPassword);
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - new_password
+ *               - confirm_password
  *             properties:
- *               temp_password:
- *                 type: string
- *                 description: Temporary password
  *               new_password:
  *                 type: string
  *                 description: New password
@@ -545,7 +545,7 @@ router.post('/edit-password', authenticate, editPassword);
  *                 description: User's last name (optional)
  *     responses:
  *       201:
- *         description: Invite accepted and user registered successfully
+ *         description: Invite accepted successfully. The employee ID reserved by the invitation is copied to the new workforce account.
  *         content:
  *           application/json:
  *             schema:
@@ -557,22 +557,6 @@ router.post('/edit-password', authenticate, editPassword);
  *                 message:
  *                   type: string
  *                   example: Invite accepted and user registered successfully, Please Login
- *                 data:
- *                   type: object
- *                   properties:
- *                     user:
- *                       type: object
- *                       properties:
- *                         user_id:
- *                           type: integer
- *                         email:
- *                           type: string
- *                         first_name:
- *                           type: string
- *                         last_name:
- *                           type: string
- *                         role:
- *                           type: string
  *       400:
  *         description: Invalid or expired invite, or passwords do not match
  *         content:
@@ -586,19 +570,8 @@ router.post('/edit-password', authenticate, editPassword);
  *                 message:
  *                   type: string
  *                   example: Invalid or expired invite
- *       401:
- *         description: Temporary password is incorrect
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: Temporary password is incorrect
+ *       409:
+ *         description: The invitation targets a Super Admin account, which must be created by the manual seed command.
  *       500:
  *         description: Internal server error
  *         content:

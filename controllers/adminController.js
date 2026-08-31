@@ -34,6 +34,7 @@ const zohoService = require("../utils/zohoService");
 const { notifyPermissionHolders } = require("../utils/workforceNotification");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
 const { buildLocationLabel } = require("../utils/geoapify");
+const { generateUniqueEmployeeId } = require("../utils/employeeId");
 
 const sanitizeKpiCriteria = (criteria) => {
   if (!Array.isArray(criteria)) return [];
@@ -1250,6 +1251,7 @@ const inviteProjectManager = async (req, res) => {
     // const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
     const expires_at = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour
+    const employee_id = await generateUniqueEmployeeId({ transaction });
 
     const invitedUser = await Invite.create({
       email,
@@ -1257,6 +1259,7 @@ const inviteProjectManager = async (req, res) => {
       last_name: last_name || null,
       department_id: department_id || null,
       job_title: job_title || null,
+      employee_id,
       // temp_password: tempPassword,
       role,
       token,
@@ -1276,6 +1279,7 @@ const inviteProjectManager = async (req, res) => {
       firstname: first_name,
       // tempPassword,
       role: role.replace("_", " "),
+      employeeId: employee_id,
       year: new Date().getFullYear(),
       // url: `${process.env.FRONTEND_PROD_URL}/accept-invite?token=${token}`,
       url: `${process.env.NODE_ENV === "production"
