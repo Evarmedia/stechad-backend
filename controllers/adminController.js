@@ -332,28 +332,50 @@ const getWorkforce = async (req, res) => {
     });
 
     const personName = (person) => person ? `${person.first_name || ""} ${person.last_name || ""}`.trim() || person.email : "Unknown";
-    const approvalsQueue = [
-      ...leaveRequests.map((request) => ({
-        id: request.leave_request_id,
-        item: `${request.leave_type}: ${request.start_date} – ${request.end_date}`,
-        owner: personName(request.requester),
-        type: "leave",
-        status: "Pending",
-      })),
-      ...expenseClaims.map((claim) => ({
+    // Build approvals queue with optional receipt URL and description/notes
+    const leaveItems = leaveRequests.map((request) => ({
+      id: request.leave_request_id,
+      item: `${request.leave_type}: ${request.start_date} – ${request.end_date}`,
+      owner: personName(request.requester),
+      type: "leave",
+      status: "Pending",
+    }));
+
+    const expenseItems = await Promise.all(expenseClaims.map(async (claim) => {
+      let receiptUrl = null;
+      if (claim.receipt_object_name) {
+        try {
+          receiptUrl = await getV4ReadSignedUrl(claim.receipt_object_name, 3600);
+        } catch (error) {
+          // swallow signing errors and continue without URL
+          console.error("Failed to sign expense receipt URL:", error.message);
+        }
+      }
+      return {
         id: claim.expense_claim_id,
         item: `${claim.category}: ${claim.currency} ${Number(claim.amount).toFixed(2)}`,
         owner: personName(claim.claimant),
         type: "expense",
         status: claim.status === "approved" ? "Approved – receipt verification" : "Pending",
-      })),
-      ...invoices.map((invoice) => ({
-        id: invoice.invoice_id,
-        item: `${invoice.invoice_number}: ${invoice.currency} ${Number(invoice.amount).toFixed(2)}`,
-        owner: personName(invoice.submitter),
-        type: "invoice",
-        status: invoice.status.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "),
-      })),
+        receipt_url: receiptUrl,
+        description: claim.description || null,
+        receipt_name: claim.receipt_original_name || null,
+      };
+    }));
+
+    const invoiceItems = invoices.map((invoice) => ({
+      id: invoice.invoice_id,
+      item: `${invoice.invoice_number}: ${invoice.currency} ${Number(invoice.amount).toFixed(2)}`,
+      owner: personName(invoice.submitter),
+      type: "invoice",
+      status: invoice.status.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "),
+      description: invoice.notes || null,
+    }));
+
+    const approvalsQueue = [
+      ...leaveItems,
+      ...expenseItems,
+      ...invoiceItems,
     ];
 
     const activeStaff = staffDirectory.filter((member) => member.status === "Active").length;

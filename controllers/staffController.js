@@ -506,6 +506,7 @@ const getApprovalQueue = async (req, res) => {
             item: `${row.leave_type}: ${row.start_date} – ${row.end_date}`,
             status: titleCase(row.status),
             actions: ["approved", "rejected"],
+            description: row.reason || null,
           })),
         ),
       );
@@ -530,21 +531,34 @@ const getApprovalQueue = async (req, res) => {
             },
           ],
           order: [["created_at", "ASC"]],
-        }).then((rows) =>
-          rows.map((row) => ({
-            id: row.expense_claim_id,
-            type: "expense",
-            owner:
-              `${row.claimant?.first_name || ""} ${row.claimant?.last_name || ""}`.trim() ||
-              row.claimant?.email,
-            item: `${row.category}: ${row.currency} ${Number(row.amount).toFixed(2)}`,
-            status: titleCase(row.status),
-            actions:
-              row.status === "approved"
-                ? ["receipt_verified"]
-                : ["approved", "rejected"],
-          })),
-        ),
+        }).then(async (rows) => {
+          return await Promise.all(rows.map(async (row) => {
+            let receiptUrl = null;
+            if (row.receipt_object_name) {
+              try {
+                receiptUrl = await getV4ReadSignedUrl(row.receipt_object_name, 3600);
+              } catch (error) {
+                console.error("Failed to sign expense receipt URL:", error.message);
+              }
+            }
+            return {
+              id: row.expense_claim_id,
+              type: "expense",
+              owner:
+                `${row.claimant?.first_name || ""} ${row.claimant?.last_name || ""}`.trim() ||
+                row.claimant?.email,
+              item: `${row.category}: ${row.currency} ${Number(row.amount).toFixed(2)}`,
+              status: titleCase(row.status),
+              actions:
+                row.status === "approved"
+                  ? ["receipt_verified"]
+                  : ["approved", "rejected"],
+              receipt_url: receiptUrl,
+              description: row.description || null,
+              receipt_name: row.receipt_original_name || null,
+            };
+          }));
+        }),
       );
     if (canInvoices)
       queries.push(
@@ -571,6 +585,7 @@ const getApprovalQueue = async (req, res) => {
               row.status === "approved"
                 ? ["accounts_approved"]
                 : ["approved", "disputed"],
+            description: row.notes || null,
           })),
         ),
       );
