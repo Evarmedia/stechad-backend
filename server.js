@@ -319,8 +319,14 @@ const startServer = async () => {
     await migrateRoleStorage();
     console.log('Role storage migrated');
     
-    const alterSchema = process.env.DB_SYNC_ALTER !== 'false';
-    // await sequelize.sync({ alter: alterSchema, force: false });
+    if (process.env.DB_SYNC_ALTER !== "disabled") {
+      const alterSchema = process.env.DB_SYNC_ALTER !== "false";
+
+      await sequelize.sync({
+        alter: alterSchema,
+        force: false,
+      });
+    }
     console.log('Database synchronized');
     // Reconcile once more so fresh databases created by sync receive the same
     // role foreign keys, indexes, and system-role seed as upgraded databases.

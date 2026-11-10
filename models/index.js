@@ -78,32 +78,27 @@ Department.belongsTo(User, {
   as: "manager",
   onDelete: "SET NULL",
 });
+
 User.hasMany(Department, {
   foreignKey: "manager_user_id",
   as: "managed_departments",
   onDelete: "SET NULL",
 });
 
+// Department -> Members
 Department.hasMany(User, {
   foreignKey: "department_id",
   as: "members",
   onDelete: "SET NULL",
 });
+
+// User -> Department
+// constraints: false breaks the circular database dependency.
+// The Sequelize association remains available for queries.
 User.belongsTo(Department, {
   foreignKey: "department_id",
   as: "department",
-  onDelete: "SET NULL",
-});
-
-User.belongsTo(User, {
-  foreignKey: "reports_to_user_id",
-  as: "reporting_manager",
-  onDelete: "SET NULL",
-});
-User.hasMany(User, {
-  foreignKey: "reports_to_user_id",
-  as: "direct_reports",
-  onDelete: "SET NULL",
+  constraints: false,
 });
 
 /* =========================

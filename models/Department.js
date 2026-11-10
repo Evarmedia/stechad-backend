@@ -28,10 +28,6 @@ Department.init(
     manager_user_id: {
       type: DataTypes.UUID,
       allowNull: true,
-      references: {
-        model: "users",
-        key: "user_id",
-      },
     },
     location: {
       type: DataTypes.STRING,
@@ -57,7 +53,7 @@ Department.init(
     timestamps: true,
     createdAt: "created_at",
     updatedAt: "updated_at",
-  }
+  },
 );
 
 module.exports = Department;
