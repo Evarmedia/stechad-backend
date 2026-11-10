@@ -8,6 +8,7 @@ const Application = require("./Application");
 const Project = require("./Project");
 const Interview = require("./Interview");
 const Chat = require("./Chat");
+const ChatUserState = require("./ChatUserState");
 const Message = require("./Message");
 const Notification = require("./Notification");
 const Setting = require("./Setting");
@@ -346,6 +347,7 @@ module.exports = {
   Project,
   Interview,
   Chat,
+  ChatUserState,
   Message,
   Notification,
   Setting,

@@ -20,6 +20,9 @@ Message.init(
         key: 'chats_id',
       },
     },
+    // The additive migration owns the sequence/default. Sequelize's cyclic-model
+    // sync tries to ALTER TYPE BIGSERIAL when autoIncrement is used here.
+    message_sequence: { type: DataTypes.BIGINT },
     sender_id: {
       type: DataTypes.UUID,
       allowNull: false,

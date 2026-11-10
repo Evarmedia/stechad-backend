@@ -6,14 +6,12 @@ const handle = (operation) => async (req, res) => {
     await operation(req, res);
   } catch (error) {
     if (!error.status) console.error("Chat request failed:", error);
-    res
-      .status(error.status || 500)
-      .json({
-        success: false,
-        message: error.status
-          ? error.message
-          : "Unable to complete the chat request. Please try again.",
-      });
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.status
+        ? error.message
+        : "Unable to complete the chat request. Please try again.",
+    });
   }
 };
 // A notification failure must not turn an already-committed write into a failed send.
@@ -129,3 +127,143 @@ module.exports = {
   deleteChatMessage,
   searchChatMessages,
 };
+
+const management = require("../utils/chatManagement");
+const policy = require("../utils/chatPolicy");
+module.exports.clearHistory = handle(async (req, res) => {
+  const result = await management.clearHistory(
+    req.params.chat_id,
+    req.user.user_id,
+  );
+  const io = req.app.get("io");
+  io?.to(`user_${req.user.user_id}`).emit("history_cleared", result);
+  io?.to(`user_${req.user.user_id}`).emit("notifications_changed", result);
+  res.json({ success: true, data: result });
+});
+module.exports.deleteForUser = handle(async (req, res) => {
+  const result = await management.deleteForUser(
+    req.params.chat_id,
+    req.user.user_id,
+  );
+  const io = req.app.get("io");
+  io?.to(`user_${req.user.user_id}`).emit("chat_deleted", result);
+  io?.to(`user_${req.user.user_id}`).emit("notifications_changed", result);
+  res.json({ success: true, data: result });
+});
+const updateGroup = (operation) =>
+  handle(async (req, res) => {
+    const result = await operation(req);
+    await notify(req, result.chats_id, "group_updated", {});
+    res.json({ success: true, data: result });
+  });
+module.exports.updateSettings = updateGroup((req) =>
+  management.updateSettings(req.params.chat_id, req.user.user_id, req.body),
+);
+module.exports.addMembers = updateGroup((req) =>
+  management.addMembers(
+    req.params.chat_id,
+    req.user.user_id,
+    req.body.participant_ids,
+  ),
+);
+module.exports.removeMember = handle(async (req, res) => {
+  const result = await management.removeMember(
+    req.params.chat_id,
+    req.user.user_id,
+    req.params.user_id,
+  );
+  req.app
+    .get("io")
+    ?.to(`user_${req.params.user_id}`)
+    .emit("membership_revoked", { chat_id: req.params.chat_id });
+  req.app
+    .get("io")
+    ?.to(`user_${req.params.user_id}`)
+    .emit("notifications_changed", { chat_id: req.params.chat_id });
+  await notify(req, req.params.chat_id, "group_updated", {});
+  res.json({ success: true, data: result });
+});
+module.exports.participantProfile = handle(async (req, res) =>
+  res.json({
+    success: true,
+    data: await management.participantProfile(
+      req.params.chat_id,
+      req.user.user_id,
+      req.params.user_id,
+    ),
+  }),
+);
+// Authenticate and authorize before buffering an upload or contacting object storage.
+module.exports.groupImagePermission = async (req, res, next) => {
+  try {
+    await policy.requireManager(
+      await chat.getAuthorizedChat(req.params.chat_id, req.user.user_id),
+      req.user.user_id,
+    );
+    next();
+  } catch (error) {
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : "Unable to authorize group image",
+    });
+  }
+};
+module.exports.uploadGroupImage = handle(async (req, res) => {
+  const file = req.file;
+  const bytes = file?.buffer;
+  const signatures = {
+    "image/jpeg": () =>
+      bytes?.[0] === 0xff && bytes?.[1] === 0xd8 && bytes?.[2] === 0xff,
+    "image/png": () =>
+      bytes
+        ?.subarray(0, 8)
+        .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+    "image/webp": () =>
+      bytes?.toString("ascii", 0, 4) === "RIFF" &&
+      bytes?.toString("ascii", 8, 12) === "WEBP",
+  };
+  if (!file || !signatures[file.mimetype]?.())
+    throw policy.chatError("Choose a JPEG, PNG, or WebP image up to 2 MB");
+  const storage = require("../middleware/upload");
+  const previous = await chat.getAuthorizedChat(
+    req.params.chat_id,
+    req.user.user_id,
+  );
+  const uploaded = await storage.uploadToGCP(
+    file,
+    req.params.chat_id,
+    "chat-groups",
+  );
+  let result;
+  try {
+    result = await management.setGroupImage(
+      req.params.chat_id,
+      req.user.user_id,
+      uploaded.objectName,
+    );
+  } catch (error) {
+    await storage.deleteFromGCP(uploaded.objectName).catch(() => {});
+    throw error;
+  }
+  if (previous.avatar_object_name)
+    await storage.deleteFromGCP(previous.avatar_object_name).catch(() => {});
+  await notify(req, req.params.chat_id, "group_updated", {});
+  res.json({ success: true, data: result });
+});
+module.exports.removeGroupImage = handle(async (req, res) => {
+  const previous = await chat.getAuthorizedChat(
+    req.params.chat_id,
+    req.user.user_id,
+  );
+  const result = await management.setGroupImage(
+    req.params.chat_id,
+    req.user.user_id,
+    null,
+  );
+  if (previous.avatar_object_name)
+    await require("../middleware/upload")
+      .deleteFromGCP(previous.avatar_object_name)
+      .catch(() => {});
+  await notify(req, req.params.chat_id, "group_updated", {});
+  res.json({ success: true, data: result });
+});

@@ -23,6 +23,7 @@ Notification.init(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+    chat_message_id: { type: DataTypes.UUID, allowNull: true, references: { model: require("./Message"), key: "messages_id" }, onDelete: "CASCADE" },
     message: {
       type: DataTypes.TEXT,
       allowNull: false,
@@ -58,6 +59,7 @@ Notification.init(
     sequelize,
     modelName: "Notification",
     tableName: "notifications",
+    indexes: [{ unique: true, fields: ["user_id", "chat_message_id"], name: "notifications_recipient_message_unique" }],
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',

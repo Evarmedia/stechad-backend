@@ -100,6 +100,7 @@ const initializeChatSocket = (io) => {
     ]) {
       handle(incoming, async (data = {}) => {
         const chat = await getAuthorizedChat(data.chat_id, socket.userId);
+        require("./chatPolicy").requirePosting(chat, socket.userId);
         socket
           .to(
             chat.participants

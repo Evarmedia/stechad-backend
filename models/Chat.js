@@ -17,6 +17,9 @@ Chat.init(
     chat_name: {
       type: DataTypes.STRING,
     },
+    description: { type: DataTypes.TEXT, allowNull: false, defaultValue: "" },
+    avatar_object_name: { type: DataTypes.TEXT },
+    posting_policy: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "all_members" },
     participants: {
       type: DataTypes.ARRAY(DataTypes.UUID),
       allowNull: false,

@@ -32,6 +32,7 @@ const staffRoutes = require('./routes/staffRoutes');
 const { startHolidayNotificationScheduler } = require('./utils/holidayNotifications');
 const { startAttendanceCloseScheduler } = require('./utils/attendanceScheduler');
 const { migrateRoleStorage } = require('./utils/roleMigration');
+const { migrateChatStorage } = require('./utils/chatMigration');
 
 
 const passport = require('passport');
@@ -155,6 +156,7 @@ const startServer = async () => {
 
     await migrateRoleStorage();
     console.log('Role storage migrated');
+    await migrateChatStorage();
     
     if (process.env.DB_SYNC_ALTER !== "disabled") {
       const alterSchema = process.env.DB_SYNC_ALTER !== "false";
@@ -165,6 +167,7 @@ const startServer = async () => {
       });
     }
     console.log('Database synchronized');
+    await migrateChatStorage();
     // Reconcile once more so fresh databases created by sync receive the same
     // role foreign keys, indexes, and system-role seed as upgraded databases.
     await migrateRoleStorage();

@@ -42,7 +42,9 @@ if (!databaseUrl) {
   before(async () => {
     await database.createSchema(schema);
     await migrateRoleStorage();
+    await require("../utils/chatMigration").migrateChatStorage();
     await database.sync({ alter: false, force: false });
+    await require("../utils/chatMigration").migrateChatStorage();
     await migrateRoleStorage();
     if ((await Reward.count()) === 0) await createDefaultRewards();
     assert.equal(
@@ -54,12 +56,15 @@ if (!databaseUrl) {
     assert.equal(await Reward.count(), 2, "restart does not duplicate rewards");
     const role = await Role.findOne({ where: { role_key: "staff" } });
     [alice, bob, outsider, inactive] = await Promise.all(
-      ["Alice", "Bob", "Outsider", "Inactive"].map((first_name) =>
+      ["Alice", "Bob", "Outsider", "Inactive"].map(async (first_name) =>
         User.create({
           first_name,
           last_name: "Tester",
           email: `${first_name}@example.test`,
-          role_id: role.role_id,
+          role_id:
+            first_name === "Alice"
+              ? (await Role.findOne({ where: { role_key: "admin" } })).role_id
+              : role.role_id,
           is_active: first_name !== "Inactive",
         }),
       ),
@@ -518,5 +523,1004 @@ if (!databaseUrl) {
       { expiresIn: -1 },
     );
     assert.equal((await refresh({ refresh_token: expired })).status, 401);
+  });
+  const management = require("../utils/chatManagement");
+  const { Notification, ChatUserState } = require("../models");
+  const makeUser = async (roleKey, name = roleKey) =>
+    User.create({
+      first_name: name,
+      last_name: "Policy",
+      email: `${randomUUID()}@example.test`,
+      role_id: (await Role.findOne({ where: { role_key: roleKey } })).role_id,
+      is_active: true,
+      job_title: "Design lead",
+      city: "Lagos",
+      country: "Nigeria",
+    });
+  test("all roles enforce the new-contact matrix before pagination and against forged API creation", async () => {
+    const roles = [
+      "admin",
+      "super_admin",
+      "project_manager",
+      "staff",
+      "engineer",
+    ];
+    const people = Object.fromEntries(
+      await Promise.all(
+        roles.map(async (role) => [role, await makeUser(role)]),
+      ),
+    );
+    const allowed = {
+      admin: roles,
+      super_admin: roles,
+      project_manager: ["project_manager", "staff", "engineer"],
+      staff: ["staff", "project_manager"],
+      engineer: [],
+    };
+    for (const actor of roles) {
+      for (const target of roles) {
+        if (actor === "super_admin" && target === "super_admin") continue; // The database permits only one super admin.
+        const other =
+          actor === target ? await makeUser(target) : people[target];
+        const eligible = allowed[actor].includes(target);
+        const directory = await chat.getAvailableUsers(people[actor].user_id, {
+          search: other.first_name,
+          limit: 1,
+        });
+        if (!eligible)
+          assert.ok(
+            !directory.users.some((person) => person.user_id === other.user_id),
+          );
+        // Use fresh actors to keep existing direct threads from legitimately bypassing initiation rules.
+        const initiator =
+          actor === "super_admin" ? people.super_admin : await makeUser(actor);
+        const result = await request(initiator, "", "POST", {
+          participant_ids: [other.user_id],
+        });
+        assert.equal(
+          result.status,
+          eligible ? 201 : 403,
+          `${actor} -> ${target}`,
+        );
+      }
+      const directory = await chat.getAvailableUsers(people[actor].user_id, {
+        limit: 100,
+      });
+      assert.ok(
+        directory.users.every((person) => allowed[actor].includes(person.role)),
+      );
+      for (const chat_type of ["group", "support"]) {
+        const result = await request(people[actor], "", "POST", {
+          participant_ids: [(await makeUser("staff")).user_id],
+          chat_type,
+          chat_name: "Policy group",
+        });
+        assert.equal(
+          result.status,
+          ["admin", "super_admin", "project_manager"].includes(actor)
+            ? 201
+            : 403,
+        );
+      }
+    }
+    const staff = await makeUser("staff");
+    const pm = await makeUser("project_manager");
+    const engineer = await makeUser("engineer");
+    await chat.createChat(
+      [staff.user_id, engineer.user_id],
+      pm.user_id,
+      "group",
+      "Mixed roles",
+    );
+    assert.equal(
+      (await chat.getAvailableUsers(staff.user_id, { search: "engineer" }))
+        .users.length,
+      0,
+    );
+  });
+  test("engineers need an actual incoming direct message, retained after deletion and clearing", async () => {
+    const engineer = await makeUser("engineer"),
+      admin = await makeUser("admin"),
+      pm = await makeUser("project_manager");
+    const direct = await chat.createChat([engineer.user_id], admin.user_id);
+    await chat.createChat(
+      [engineer.user_id],
+      pm.user_id,
+      "group",
+      "Shared group",
+    );
+    assert.equal(
+      (await chat.getAvailableUsers(engineer.user_id)).users.length,
+      0,
+    );
+    // Existing empty threads remain replyable but do not populate the engineer's picker.
+    await chat.sendMessage(direct.chats_id, engineer.user_id, "Existing reply");
+    assert.equal(
+      (await chat.getAvailableUsers(engineer.user_id)).users.length,
+      0,
+    );
+    const incoming = await chat.sendMessage(
+      direct.chats_id,
+      admin.user_id,
+      "Actual incoming",
+    );
+    await chat.deleteMessage(incoming.messages_id, admin.user_id);
+    await management.clearHistory(direct.chats_id, engineer.user_id);
+    assert.deepEqual(
+      (await chat.getAvailableUsers(engineer.user_id)).users.map(
+        (person) => person.user_id,
+      ),
+      [admin.user_id],
+    );
+    await admin.update({ is_active: false });
+    assert.equal(
+      (await chat.getAvailableUsers(engineer.user_id)).users.length,
+      0,
+    );
+  });
+  test("creator management, legacy support, posting restrictions and profile authorization work through REST and sockets", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff"),
+      engineer = await makeUser("engineer"),
+      otherPm = await makeUser("project_manager");
+    const group = await chat.createChat(
+      [staff.user_id, engineer.user_id, otherPm.user_id],
+      pm.user_id,
+      "support",
+      "Legacy support",
+    );
+    for (const actor of [staff, engineer, otherPm]) {
+      assert.equal(
+        (
+          await request(actor, `/${group.chats_id}`, "PATCH", {
+            chat_name: "Forged",
+          })
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request(actor, `/${group.chats_id}/members`, "POST", {
+            participant_ids: [outsider.user_id],
+          })
+        ).status,
+        403,
+      );
+      assert.equal(
+        (await request(actor, `/${group.chats_id}/image`, "DELETE")).status,
+        403,
+      );
+    }
+    assert.equal(
+      (
+        await request(pm, `/${group.chats_id}`, "PATCH", {
+          created_by: otherPm.user_id,
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await request(pm, `/${group.chats_id}`, "PATCH", {
+          description: "a".repeat(1001),
+        })
+      ).status,
+      400,
+    );
+    await management.updateSettings(group.chats_id, pm.user_id, {
+      chat_name: "Announcements",
+      description: "Delivery updates",
+      posting_policy: "creator_only",
+    });
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, staff.user_id)).can_post,
+      false,
+    );
+    assert.equal(
+      (
+        await request(staff, `/${group.chats_id}/messages`, "POST", {
+          content: "Bypass",
+        })
+      ).status,
+      403,
+    );
+    const socket = await connect(staff);
+    assert.equal(
+      (
+        await emit(socket, "send_message", {
+          chat_id: group.chats_id,
+          content: "Socket bypass",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await emit(socket, "typing_start", { chat_id: group.chats_id })).status,
+      403,
+    );
+    await chat.sendMessage(group.chats_id, pm.user_id, "Creator announcement");
+    const profile = await request(
+      engineer,
+      `/${group.chats_id}/members/${staff.user_id}/profile`,
+    );
+    assert.equal(profile.status, 200);
+    assert.equal(profile.data.city, "Lagos");
+    assert.equal(profile.data.job_title, "Design lead");
+    assert.equal(profile.data.email, undefined);
+    assert.equal(profile.data.phone, undefined);
+    assert.equal(
+      (
+        await request(
+          outsider,
+          `/${group.chats_id}/members/${staff.user_id}/profile`,
+        )
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await request(
+          pm,
+          `/${group.chats_id}/members/${outsider.user_id}/profile`,
+        )
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await request(pm, `/${group.chats_id}/members/${pm.user_id}`, "DELETE"))
+        .status,
+      400,
+    );
+    await pm.update({
+      role_id: (await Role.findOne({ where: { role_key: "staff" } })).role_id,
+    });
+    assert.equal(
+      (
+        await request(pm, `/${group.chats_id}`, "PATCH", {
+          description: "No longer a PM",
+        })
+      ).status,
+      403,
+    );
+    socket.disconnect();
+  });
+  test("added and re-added members see full history with no historic unread alerts; removal revokes realtime access", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff"),
+      engineer = await makeUser("engineer");
+    const group = await chat.createChat(
+      [staff.user_id],
+      pm.user_id,
+      "group",
+      "Membership",
+    );
+    const old = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Older group history",
+    );
+    await management.addMembers(group.chats_id, pm.user_id, [engineer.user_id]);
+    assert.ok(
+      (
+        await chat.getChatMessages(group.chats_id, engineer.user_id)
+      ).messages.some((message) => message.messages_id === old.messages_id),
+    );
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+        .unread_count,
+      0,
+    );
+    assert.equal(
+      await Notification.count({ where: { user_id: engineer.user_id } }),
+      0,
+    );
+    await chat.markMessagesAsRead(group.chats_id, engineer.user_id);
+    const privateMessage = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Before clear",
+    );
+    await management.clearHistory(group.chats_id, engineer.user_id);
+    const receiver = await connect(engineer);
+    const revoked = event(receiver, "membership_revoked");
+    assert.equal(
+      (
+        await request(
+          pm,
+          `/${group.chats_id}/members/${engineer.user_id}`,
+          "DELETE",
+        )
+      ).status,
+      200,
+    );
+    assert.equal((await revoked).chat_id, group.chats_id);
+    assert.equal(
+      (await request(engineer, `/${group.chats_id}/messages`)).status,
+      404,
+    );
+    assert.equal(
+      (
+        await emit(receiver, "send_message", {
+          chat_id: group.chats_id,
+          content: "Revoked",
+        })
+      ).status,
+      404,
+    );
+    let leaked = false;
+    receiver.on("new_message", () => {
+      leaked = true;
+    });
+    await request(pm, `/${group.chats_id}/messages`, "POST", {
+      content: "While removed",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(leaked, false);
+    await management.addMembers(group.chats_id, pm.user_id, [engineer.user_id]);
+    const history = (
+      await chat.getChatMessages(group.chats_id, engineer.user_id)
+    ).messages;
+    assert.ok(history.some((message) => message.content === "While removed"));
+    assert.ok(
+      !history.some(
+        (message) => message.messages_id === privateMessage.messages_id,
+      ),
+    );
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+        .unread_count,
+      0,
+    );
+    await chat.markMessagesAsRead(group.chats_id, engineer.user_id, [
+      privateMessage.messages_id,
+    ]);
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+        .unread_count,
+      0,
+    );
+    receiver.disconnect();
+  });
+  test("personal clearing hides history, search, previews, quotes and notifications, and synchronizes tabs", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const group = await chat.createChat(
+      [staff.user_id],
+      pm.user_id,
+      "group",
+      "Private clear",
+    );
+    const original = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Confidential old content",
+    );
+    const tab1 = await connect(staff),
+      tab2 = await connect(staff);
+    const clear1 = event(tab1, "history_cleared"),
+      clear2 = event(tab2, "history_cleared");
+    const result = await request(staff, `/${group.chats_id}/clear`, "POST", {});
+    assert.equal(
+      (await clear1).cleared_through_sequence,
+      result.data.cleared_through_sequence,
+    );
+    assert.equal(
+      (await clear2).cleared_through_sequence,
+      result.data.cleared_through_sequence,
+    );
+    assert.equal(
+      (await chat.getChatMessages(group.chats_id, staff.user_id)).messages
+        .length,
+      0,
+    );
+    assert.equal(
+      (await chat.searchMessages(staff.user_id, "Confidential")).messages
+        .length,
+      0,
+    );
+    const details = await chat.getChatDetails(group.chats_id, staff.user_id);
+    assert.equal(details.last_message_content, null);
+    assert.equal(details.unread_count, 0);
+    assert.equal(
+      await Notification.count({ where: { user_id: staff.user_id } }),
+      0,
+    );
+    assert.equal(
+      (await chat.getChatMessages(group.chats_id, pm.user_id)).messages.length,
+      1,
+    );
+    await assert.rejects(
+      chat.sendMessage(
+        group.chats_id,
+        staff.user_id,
+        "Forged quote",
+        "text",
+        [],
+        original.messages_id,
+      ),
+      { status: 400 },
+    );
+    let oldEdit = false;
+    tab1.on("message_updated", () => {
+      oldEdit = true;
+    });
+    await request(pm, `/messages/${original.messages_id}`, "PUT", {
+      content: "Confidential edited",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(oldEdit, false);
+    const newMessage = event(tab1, "new_message");
+    const quoted = await request(pm, `/${group.chats_id}/messages`, "POST", {
+      content: "New reply",
+      reply_to: original.messages_id,
+    });
+    assert.equal((await newMessage).message.replyToMessage, null);
+    const history = (await chat.getChatMessages(group.chats_id, staff.user_id))
+      .messages;
+    assert.equal(history.length, 1);
+    assert.equal(history[0].replyToMessage, null);
+    assert.equal(history[0].reply_unavailable, true);
+    assert.equal(
+      (await chat.getChatMessages(group.chats_id, pm.user_id)).messages[1]
+        .replyToMessage.content,
+      "Confidential edited",
+    );
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, staff.user_id)).unread_count,
+      1,
+    );
+    assert.equal(
+      await Notification.count({
+        where: {
+          user_id: staff.user_id,
+          chat_message_id: quoted.data.messages_id,
+        },
+      }),
+      1,
+    );
+    [tab1, tab2].forEach((socket) => socket.disconnect());
+  });
+  test("personal chat deletion hides only the caller's copy and a newer message restores it", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const direct = await chat.createChat([staff.user_id], pm.user_id);
+    await chat.sendMessage(direct.chats_id, pm.user_id, "Old private history");
+    const tab1 = await connect(staff),
+      tab2 = await connect(staff);
+    const deleted1 = event(tab1, "chat_deleted"),
+      deleted2 = event(tab2, "chat_deleted");
+    const response = await request(staff, `/${direct.chats_id}`, "DELETE");
+    assert.equal(response.status, 200);
+    assert.equal((await deleted1).chat_id, direct.chats_id);
+    assert.equal((await deleted2).chat_id, direct.chats_id);
+    assert.ok(
+      !(await chat.getUserChats(staff.user_id)).chats.some(
+        (item) => item.chats_id === direct.chats_id,
+      ),
+    );
+    assert.ok(
+      (await chat.getUserChats(pm.user_id)).chats.some(
+        (item) => item.chats_id === direct.chats_id,
+      ),
+    );
+    assert.equal(
+      (await chat.getChatMessages(direct.chats_id, staff.user_id)).messages
+        .length,
+      0,
+    );
+    assert.equal(
+      (await chat.searchMessages(staff.user_id, "Old private")).messages.length,
+      0,
+    );
+    assert.equal(
+      await Notification.count({
+        where: {
+          user_id: staff.user_id,
+          chat_message_id: { [require("sequelize").Op.ne]: null },
+        },
+      }),
+      0,
+    );
+    const fresh = await chat.sendMessage(
+      direct.chats_id,
+      pm.user_id,
+      "A new message restores the chat",
+    );
+    const restored = (await chat.getUserChats(staff.user_id)).chats.find(
+      (item) => item.chats_id === direct.chats_id,
+    );
+    assert.equal(restored.last_message_id, fresh.messages_id);
+    assert.deepEqual(
+      (await chat.getChatMessages(direct.chats_id, staff.user_id)).messages.map(
+        (message) => message.messages_id,
+      ),
+      [fresh.messages_id],
+    );
+    [tab1, tab2].forEach((socket) => socket.disconnect());
+  });
+  test("deleting an empty chat hides it and deliberately restarting it restores the thread", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const direct = await chat.createChat([staff.user_id], pm.user_id);
+    await management.deleteForUser(direct.chats_id, pm.user_id);
+    assert.ok(
+      !(await chat.getUserChats(pm.user_id)).chats.some(
+        (item) => item.chats_id === direct.chats_id,
+      ),
+    );
+    const restored = await chat.createChat([staff.user_id], pm.user_id);
+    assert.equal(restored.chats_id, direct.chats_id);
+    assert.ok(
+      (await chat.getUserChats(pm.user_id)).chats.some(
+        (item) => item.chats_id === direct.chats_id,
+      ),
+    );
+  });
+  test("concurrent sends and clear have a strict sequence boundary; retries never recreate cleared notifications", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const group = await chat.createChat(
+      [staff.user_id],
+      pm.user_id,
+      "group",
+      "Concurrent clear",
+    );
+    const firstId = randomUUID();
+    const first = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Retry me",
+      "text",
+      [],
+      null,
+      firstId,
+    );
+    await management.clearHistory(group.chats_id, staff.user_id);
+    await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Retry me",
+      "text",
+      [],
+      null,
+      firstId,
+    );
+    assert.equal(
+      await Notification.count({ where: { user_id: staff.user_id } }),
+      0,
+    );
+    const operations = await Promise.all([
+      ...Array.from({ length: 8 }, (_, index) =>
+        chat.sendMessage(group.chats_id, pm.user_id, `Concurrent ${index}`),
+      ),
+      management.clearHistory(group.chats_id, staff.user_id),
+    ]);
+    const boundary = operations.at(-1).cleared_through_sequence;
+    const visible = (await chat.getChatMessages(group.chats_id, staff.user_id))
+      .messages;
+    const expected = operations
+      .slice(0, -1)
+      .filter((message) => BigInt(message.message_sequence) > BigInt(boundary));
+    assert.deepEqual(
+      new Set(visible.map((message) => message.messages_id)),
+      new Set(expected.map((message) => message.messages_id)),
+    );
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, staff.user_id)).unread_count,
+      expected.length,
+    );
+    await management.clearHistory(group.chats_id, pm.user_id);
+    await assert.rejects(
+      chat.sendMessage(
+        group.chats_id,
+        pm.user_id,
+        "Retry me",
+        "text",
+        [],
+        null,
+        firstId,
+      ),
+      { status: 409 },
+    );
+    assert.ok(BigInt(first.message_sequence) <= BigInt(boundary));
+  });
+  test("message notifications are durable, deduplicated and deep linked; reading synchronizes notification history", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const direct = await chat.createChat([staff.user_id], pm.user_id);
+    const receiver = await connect(staff);
+    const received = event(receiver, "notification_created");
+    const id = randomUUID();
+    const result = await request(pm, `/${direct.chats_id}/messages`, "POST", {
+      content: "Alert me",
+      client_message_id: id,
+    });
+    const notification = (await received).notification;
+    assert.equal(notification.chat_message_id, result.data.messages_id);
+    assert.equal(
+      notification.action_url,
+      `/dashboard/staff/messages?chat=${direct.chats_id}`,
+    );
+    await request(pm, `/${direct.chats_id}/messages`, "POST", {
+      content: "Alert me",
+      client_message_id: id,
+    });
+    assert.equal(
+      await Notification.count({
+        where: { user_id: staff.user_id, chat_message_id: id },
+      }),
+      1,
+    );
+    const changed = event(receiver, "notifications_changed");
+    await request(staff, `/${direct.chats_id}/read`, "POST", {});
+    await changed;
+    assert.equal(
+      (await Notification.findByPk(notification.notifications_id)).is_read,
+      true,
+    );
+    receiver.disconnect();
+  });
+  test("the additive migration upgrades a legacy schema twice without sync or losing messages and creators", async () => {
+    const originalSchema = database.schema;
+    const legacy = `chat_legacy_${randomUUID().replace(/-/g, "")}`;
+    const quote = (value) =>
+      database.getQueryInterface().queryGenerator.quoteIdentifier(value);
+    const table = (name) => `${quote(legacy)}.${quote(name)}`;
+    await database.createSchema(legacy);
+    try {
+      await database.query(
+        `CREATE TABLE ${table("users")} (user_id UUID PRIMARY KEY)`,
+      );
+      await database.query(
+        `CREATE TABLE ${table("chats")} (chats_id UUID PRIMARY KEY, created_by UUID NOT NULL)`,
+      );
+      await database.query(
+        `CREATE TABLE ${table("messages")} (messages_id UUID PRIMARY KEY, chat_id UUID, content TEXT)`,
+      );
+      await database.query(
+        `CREATE TABLE ${table("notifications")} (notifications_id UUID PRIMARY KEY, user_id UUID)`,
+      );
+      const chatId = randomUUID(),
+        messageId = randomUUID();
+      await database.query(
+        `INSERT INTO ${table("chats")} VALUES (:id, :creator)`,
+        { replacements: { id: chatId, creator: alice.user_id } },
+      );
+      await database.query(
+        `INSERT INTO ${table("messages")} VALUES (:id, :chat, 'Legacy history')`,
+        { replacements: { id: messageId, chat: chatId } },
+      );
+      database.schema = legacy;
+      const migrate = require("../utils/chatMigration").migrateChatStorage;
+      await migrate();
+      await migrate();
+      const rows = await database.query(`SELECT * FROM ${table("messages")}`, {
+        type: require("sequelize").QueryTypes.SELECT,
+      });
+      assert.equal(rows[0].content, "Legacy history");
+      assert.ok(BigInt(rows[0].message_sequence) > 0n);
+      const chats = await database.query(`SELECT * FROM ${table("chats")}`, {
+        type: require("sequelize").QueryTypes.SELECT,
+      });
+      assert.equal(chats[0].created_by, alice.user_id);
+      assert.equal(chats[0].posting_policy, "all_members");
+    } finally {
+      database.schema = originalSchema;
+      await database.dropSchema(legacy, { cascade: true });
+    }
+  });
+  test("group member limits, contextual picker filtering, and image upload authorization are enforced", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff"),
+      admin = await makeUser("admin");
+    const group = await chat.createChat(
+      [staff.user_id],
+      pm.user_id,
+      "group",
+      "Images and limits",
+    );
+    assert.equal(
+      (
+        await request(pm, `/${group.chats_id}/members`, "POST", {
+          participant_ids: [admin.user_id],
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await request(staff, `/users?context=group&chat_id=${group.chats_id}`))
+        .status,
+      403,
+    );
+    const picker = await chat.getAvailableUsers(pm.user_id, {
+      context: "group",
+      chat_id: group.chats_id,
+      limit: 100,
+    });
+    assert.ok(
+      picker.users.every(
+        (person) => !group.participants.includes(person.user_id),
+      ),
+    );
+    const uploadPath = require.resolve("../middleware/upload");
+    const previousUpload = require.cache[uploadPath];
+    const gcp = require("../config/gcpStorage");
+    const previousSign = gcp.getV4ReadSignedUrl;
+    let writes = 0,
+      deletes = 0;
+    require.cache[uploadPath] = {
+      id: uploadPath,
+      filename: uploadPath,
+      loaded: true,
+      exports: {
+        uploadToGCP: async () => {
+          writes++;
+          return { objectName: "groups/test.png" };
+        },
+        deleteFromGCP: async () => {
+          deletes++;
+        },
+      },
+    };
+    gcp.getV4ReadSignedUrl = async () =>
+      "https://storage.example.test/signed-image";
+    try {
+      const upload = async (actor, bytes, type) => {
+        const form = new FormData();
+        form.append("avatar", new Blob([bytes], { type }), "group.png");
+        return fetch(`${origin}/api/chat/${group.chats_id}/image`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token(actor)}` },
+          body: form,
+        });
+      };
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFv8AAAAASUVORK5CYII=",
+        "base64",
+      );
+      assert.equal((await upload(staff, png, "image/png")).status, 403);
+      assert.equal(writes, 0);
+      assert.equal((await upload(pm, "<svg/>", "image/svg+xml")).status, 400);
+      assert.equal((await upload(pm, "not a PNG", "image/png")).status, 400);
+      assert.equal(
+        (await upload(pm, Buffer.alloc(2 * 1024 * 1024 + 1), "image/png"))
+          .status,
+        400,
+      );
+      const response = await upload(pm, png, "image/png");
+      assert.equal(response.status, 200);
+      assert.equal(
+        (await response.json()).data.avatar_url,
+        "https://storage.example.test/signed-image",
+      );
+      assert.equal(
+        (await Chat.findByPk(group.chats_id)).avatar_object_name,
+        "groups/test.png",
+      );
+      assert.equal(writes, 1);
+      assert.equal(
+        (await request(pm, `/${group.chats_id}/image`, "DELETE")).status,
+        200,
+      );
+      assert.equal(deletes, 1);
+    } finally {
+      gcp.getV4ReadSignedUrl = previousSign;
+      if (previousUpload) require.cache[uploadPath] = previousUpload;
+      else delete require.cache[uploadPath];
+    }
+    const roleId = (await Role.findOne({ where: { role_key: "staff" } }))
+      .role_id;
+    const users = await User.bulkCreate(
+      Array.from({ length: 98 }, () => ({
+        first_name: "Limit",
+        last_name: "Member",
+        email: `${randomUUID()}@example.test`,
+        role_id: roleId,
+        is_active: true,
+      })),
+    );
+    await management.addMembers(
+      group.chats_id,
+      pm.user_id,
+      users.map((person) => person.user_id),
+    );
+    assert.equal(
+      (await Chat.findByPk(group.chats_id)).participants.length,
+      100,
+    );
+    assert.equal(
+      (
+        await request(pm, `/${group.chats_id}/members`, "POST", {
+          participant_ids: [outsider.user_id],
+        })
+      ).status,
+      400,
+    );
+  });
+
+  test("migration repairs a lagging sequence and REST/socket sends resume without renumbering history", async () => {
+    const group = await chat.createChat(
+      [bob.user_id],
+      alice.user_id,
+      "group",
+      "Sequence recovery",
+    );
+    const original = await chat.sendMessage(
+      group.chats_id,
+      alice.user_id,
+      "Preserved history",
+    );
+    const table = (name) =>
+      database
+        .getQueryInterface()
+        .queryGenerator.quoteTable({ schema, tableName: name });
+    const rewind = () =>
+      database.query(
+        `ALTER SEQUENCE ${table("chat_message_sequence")} RESTART WITH ${BigInt(original.message_sequence)}`,
+      );
+    await rewind();
+    await assert.rejects(
+      chat.sendMessage(group.chats_id, alice.user_id, "Reproduce collision"),
+      { name: "SequelizeUniqueConstraintError" },
+    );
+    await rewind();
+    const migrate = require("../utils/chatMigration").migrateChatStorage;
+    await Promise.all([migrate(), migrate()]);
+    assert.equal(
+      (await Message.findByPk(original.messages_id)).message_sequence,
+      original.message_sequence,
+    );
+    const receiver = await connect(bob);
+    const received = event(receiver, "new_message");
+    const sent = await request(alice, `/${group.chats_id}/messages`, "POST", {
+      content: "REST send recovered",
+    });
+    assert.equal(sent.status, 201);
+    assert.ok(
+      BigInt(sent.data.message_sequence) > BigInt(original.message_sequence),
+    );
+    assert.equal((await received).message.messages_id, sent.data.messages_id);
+    const socketSend = await emit(receiver, "send_message", {
+      chat_id: group.chats_id,
+      content: "Socket send recovered",
+    });
+    assert.equal(socketSend.success, true);
+    assert.ok(
+      BigInt(socketSend.message.message_sequence) >
+        BigInt(sent.data.message_sequence),
+    );
+    assert.equal(
+      await Notification.count({
+        where: { user_id: bob.user_id, chat_message_id: sent.data.messages_id },
+      }),
+      1,
+    );
+    receiver.disconnect();
+  });
+  test("migration backfills mixed legacy sequences precisely and never rewinds an advanced counter", async () => {
+    const group = await chat.createChat(
+      [bob.user_id],
+      alice.user_id,
+      "group",
+      "Mixed legacy sequence",
+    );
+    const table = (name) =>
+      database
+        .getQueryInterface()
+        .queryGenerator.quoteTable({ schema, tableName: name });
+    const high = "9007199254740995"; // Larger than JavaScript's safe integer range.
+    const old = await Message.create({
+      chat_id: group.chats_id,
+      sender_id: alice.user_id,
+      content: "Existing sequence",
+      message_sequence: high,
+    });
+    await database.query(
+      `ALTER TABLE ${table("messages")} ALTER COLUMN message_sequence DROP NOT NULL`,
+    );
+    const missing = await Message.create({
+      chat_id: group.chats_id,
+      sender_id: alice.user_id,
+      content: "Legacy NULL sequence",
+      message_sequence: null,
+    });
+    await database.query(
+      `ALTER SEQUENCE ${table("chat_message_sequence")} RESTART WITH 1`,
+    );
+    const migrate = require("../utils/chatMigration").migrateChatStorage;
+    await migrate();
+    assert.equal((await old.reload()).message_sequence, high);
+    assert.ok(BigInt((await missing.reload()).message_sequence) > BigInt(high));
+    const ahead = BigInt(missing.message_sequence) + 100n;
+    await database.query(
+      `ALTER SEQUENCE ${table("chat_message_sequence")} RESTART WITH ${ahead}`,
+    );
+    await migrate();
+    const next = await chat.sendMessage(
+      group.chats_id,
+      alice.user_id,
+      "Keep the counter ahead",
+    );
+    assert.equal(BigInt(next.message_sequence), ahead);
+    await migrate();
+    const afterRestart = await chat.sendMessage(
+      group.chats_id,
+      alice.user_id,
+      "Repeat migration safely",
+    );
+    assert.equal(BigInt(afterRestart.message_sequence), ahead + 1n);
+  });
+  test("sequence recovery respects clear and unread watermarks above every stored message", async () => {
+    const group = await chat.createChat(
+      [bob.user_id],
+      alice.user_id,
+      "group",
+      "Watermark recovery",
+    );
+    const table = (name) =>
+      database
+        .getQueryInterface()
+        .queryGenerator.quoteTable({ schema, tableName: name });
+    const baseline = "9007199254749999";
+    const cleared = (BigInt(baseline) - 2n).toString();
+    await ChatUserState.create({
+      chat_id: group.chats_id,
+      user_id: bob.user_id,
+      cleared_through_sequence: cleared,
+      unread_since_sequence: baseline,
+    });
+    await database.query(
+      `ALTER SEQUENCE ${table("chat_message_sequence")} RESTART WITH 1`,
+    );
+    await require("../utils/chatMigration").migrateChatStorage();
+    const message = await chat.sendMessage(
+      group.chats_id,
+      alice.user_id,
+      "Visible after sequence repair",
+    );
+    assert.ok(BigInt(message.message_sequence) > BigInt(baseline));
+    assert.equal(
+      (await chat.getChatMessages(group.chats_id, bob.user_id)).messages[0]
+        .messages_id,
+      message.messages_id,
+    );
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, bob.user_id)).unread_count,
+      1,
+    );
+    const state = await ChatUserState.findOne({
+      where: { chat_id: group.chats_id, user_id: bob.user_id },
+    });
+    assert.equal(state.cleared_through_sequence, cleared);
+    assert.equal(state.unread_since_sequence, baseline);
+  });
+  test("deleting history before a member's clear or join baseline does not reduce new unread counts", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff"),
+      engineer = await makeUser("engineer");
+    const group = await chat.createChat(
+      [staff.user_id],
+      pm.user_id,
+      "group",
+      "Unread boundary",
+    );
+    const old = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Old unread history",
+    );
+    await management.clearHistory(group.chats_id, staff.user_id);
+    await management.addMembers(group.chats_id, pm.user_id, [engineer.user_id]);
+    await chat.sendMessage(group.chats_id, pm.user_id, "New unread message");
+    await chat.deleteMessage(old.messages_id, pm.user_id);
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, staff.user_id)).unread_count,
+      1,
+    );
+    assert.equal(
+      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+        .unread_count,
+      1,
+    );
   });
 }

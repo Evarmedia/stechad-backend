@@ -1,7 +1,14 @@
-const { Chat, Message, User } = require("../models");
-const { Op } = require("sequelize");
+const {
+  Chat,
+  Message,
+  User,
+  ChatUserState,
+  Notification,
+} = require("../models");
+const { Op, QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const { ROLE_INCLUDE } = require("./roleUtils");
+const policy = require("./chatPolicy");
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -61,7 +68,12 @@ const messageInclude = [
     include: [{ model: User, as: "sender", attributes: USER_ATTRIBUTES }],
   },
 ];
-const formatMessage = async (message) => {
+const formatMessage = async (message, userId, suppliedState) => {
+  if (!message) return null;
+  const state =
+    suppliedState || (await policy.userState(message.chat_id, userId));
+  if (!policy.after(message.message_sequence, state.cleared_through_sequence))
+    return null;
   const data = message.toJSON();
   if (message.sender) data.sender = await formatUser(message.sender);
   if (message.replyToMessage?.sender)
@@ -69,14 +81,27 @@ const formatMessage = async (message) => {
       message.replyToMessage.sender,
     );
   // A deleted message's content must not leak through a quoted reply.
+  if (
+    data.replyToMessage &&
+    !policy.after(
+      data.replyToMessage.message_sequence,
+      state.cleared_through_sequence,
+    )
+  ) {
+    data.replyToMessage = null;
+    data.reply_unavailable = true;
+  }
   if (data.replyToMessage?.is_deleted) {
     data.replyToMessage.content = "This message was deleted";
     data.replyToMessage.attachments = [];
   }
   return data;
 };
-const findMessage = async (id) =>
-  formatMessage(await Message.findByPk(id, { include: messageInclude }));
+const findMessage = async (id, userId) =>
+  formatMessage(
+    await Message.findByPk(id, { include: messageInclude }),
+    userId,
+  );
 
 const getAuthorizedChat = async (chatId, userId, options = {}) => {
   validateId(chatId, "chat ID");
@@ -92,6 +117,56 @@ const getAuthorizedChat = async (chatId, userId, options = {}) => {
   return chat;
 };
 
+const formatChat = async (chat, userId, details, snapshot) => {
+  const state = snapshot
+    ? snapshot.states.get(chat.chats_id) || { cleared_through_sequence: "0" }
+    : await policy.userState(chat.chats_id, userId);
+  const data = chat.toJSON();
+  delete data.unread_counts;
+  const last = snapshot
+    ? snapshot.lastMessages.get(chat.last_message_id)
+    : chat.last_message_id &&
+      (await Message.findByPk(chat.last_message_id, {
+        attributes: ["message_sequence"],
+      }));
+  data.last_message_sequence = last ? String(last.message_sequence) : null;
+  if (
+    !last ||
+    !policy.after(last.message_sequence, state.cleared_through_sequence)
+  ) {
+    for (const key of [
+      "last_message_id",
+      "last_message_content",
+      "last_message_sender_id",
+      "last_message_timestamp",
+    ])
+      data[key] = null;
+  }
+  let avatar_url = null;
+  if (chat.avatar_object_name) {
+    try {
+      avatar_url = await require("../config/gcpStorage").getV4ReadSignedUrl(
+        chat.avatar_object_name,
+      );
+    } catch {}
+  }
+  return {
+    ...data,
+    avatar_url,
+    participant_details: details,
+    unread_count: chat.unread_counts?.[userId] || 0,
+    cleared_through_sequence: String(state.cleared_through_sequence),
+    can_manage: policy.canManage(
+      chat,
+      userId,
+      snapshot ? snapshot.role : await policy.actorRole(userId),
+    ),
+    can_post:
+      chat.chat_type === "direct" ||
+      chat.posting_policy !== "creator_only" ||
+      chat.created_by === userId,
+  };
+};
 const getChatDetails = async (chatId, userId) => {
   const chat = await getAuthorizedChat(chatId, userId);
   const participants = await User.findAll({
@@ -99,11 +174,11 @@ const getChatDetails = async (chatId, userId) => {
     attributes: USER_ATTRIBUTES,
     include: [ROLE_INCLUDE],
   });
-  return {
-    ...chat.toJSON(),
-    participant_details: await Promise.all(participants.map(formatUser)),
-    unread_count: chat.unread_counts?.[userId] || 0,
-  };
+  return formatChat(
+    chat,
+    userId,
+    await Promise.all(participants.map(formatUser)),
+  );
 };
 
 const getAvailableUsers = async (userId, options = {}) => {
@@ -111,15 +186,31 @@ const getAvailableUsers = async (userId, options = {}) => {
   const search = String(options.search || "")
     .trim()
     .slice(0, 100);
-  const where = { is_active: true, user_id: { [Op.ne]: userId } };
+  const context = options.context || "direct";
+  let group;
+  if (options.chat_id) {
+    group = await getAuthorizedChat(options.chat_id, userId);
+    await policy.requireManager(group, userId);
+    if (context !== "group") throw chatError("Group context is required");
+  }
+  const filter = await policy.contactFilter(userId, context);
+  const where = {
+    [Op.and]: [
+      filter,
+      {
+        is_active: true,
+        user_id: { [Op.notIn]: group ? group.participants : [userId] },
+      },
+    ],
+  };
   if (search)
-    where[Op.and] = search
-      .split(/\s+/)
-      .map((term) => ({
+    where[Op.and].push(
+      ...search.split(/\s+/).map((term) => ({
         [Op.or]: ["first_name", "last_name"].map((field) => ({
           [field]: { [Op.iLike]: `%${term}%` },
         })),
-      }));
+      })),
+    );
   const users = await User.findAndCountAll({
     where,
     attributes: USER_ATTRIBUTES,
@@ -184,8 +275,25 @@ const createChat = async (
         },
         transaction,
       });
-      if (existing) return existing;
+      if (existing) {
+        // Starting a previously deleted direct chat is an explicit restore for
+        // the caller. Their personal clear boundary remains in place.
+        await ChatUserState.update(
+          { hidden_through_sequence: null },
+          {
+            where: { chat_id: existing.chats_id, user_id: createdBy },
+            transaction,
+          },
+        );
+        return existing;
+      }
     }
+    await policy.requireContacts(
+      participants.filter((id) => id !== createdBy),
+      createdBy,
+      chatType === "direct" ? "direct" : "group",
+      transaction,
+    );
     return Chat.create(
       {
         chat_type: chatType,
@@ -208,6 +316,18 @@ const getUserChats = async (userId, options = {}) => {
       throw chatError("Invalid chat type");
     where.chat_type = options.chat_type;
   }
+  const hidden = await sequelize.query(
+    `SELECT state.chat_id
+    FROM ${policy.quoteTable("chat_user_states")} state
+    LEFT JOIN ${policy.quoteTable("chats")} chat ON chat.chats_id = state.chat_id
+    LEFT JOIN ${policy.quoteTable("messages")} message ON message.messages_id = chat.last_message_id
+    WHERE state.user_id = :userId
+      AND state.hidden_through_sequence IS NOT NULL
+      AND (message.message_sequence IS NULL OR message.message_sequence <= state.hidden_through_sequence)`,
+    { replacements: { userId }, type: QueryTypes.SELECT },
+  );
+  if (hidden.length)
+    where.chats_id = { [Op.notIn]: hidden.map((state) => state.chat_id) };
   const chats = await Chat.findAndCountAll({
     where,
     limit,
@@ -232,14 +352,43 @@ const getUserChats = async (userId, options = {}) => {
       user,
     ]),
   );
+  const [states, lastMessages, role] = await Promise.all([
+    ChatUserState.findAll({
+      where: {
+        user_id: userId,
+        chat_id: { [Op.in]: chats.rows.map((chat) => chat.chats_id) },
+      },
+    }),
+    Message.findAll({
+      where: {
+        messages_id: {
+          [Op.in]: chats.rows
+            .map((chat) => chat.last_message_id)
+            .filter(Boolean),
+        },
+      },
+      attributes: ["messages_id", "message_sequence"],
+    }),
+    policy.actorRole(userId),
+  ]);
+  const snapshot = {
+    states: new Map(states.map((state) => [state.chat_id, state])),
+    lastMessages: new Map(
+      lastMessages.map((message) => [message.messages_id, message]),
+    ),
+    role,
+  };
   return {
-    chats: chats.rows.map((chat) => ({
-      ...chat.toJSON(),
-      participant_details: chat.participants
-        .map((id) => details.get(id))
-        .filter(Boolean),
-      unread_count: chat.unread_counts?.[userId] || 0,
-    })),
+    chats: await Promise.all(
+      chats.rows.map((chat) =>
+        formatChat(
+          chat,
+          userId,
+          chat.participants.map((id) => details.get(id)).filter(Boolean),
+          snapshot,
+        ),
+      ),
+    ),
     pagination: pageInfo(chats.count, page, limit),
   };
 };
@@ -267,23 +416,38 @@ const sendMessage = async (
     throw chatError("Attachments must be an array of at most 10 items");
   if (replyTo) validateId(replyTo, "reply message ID");
   if (clientMessageId) validateId(clientMessageId, "client message ID");
+  let newlyCreated = false;
   const message = await sequelize.transaction(async (transaction) => {
     const chat = await getAuthorizedChat(chatId, senderId, {
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
+    policy.requirePosting(chat, senderId);
+    const state = await policy.userState(chatId, senderId, transaction);
     if (clientMessageId) {
       const existing = await Message.findByPk(clientMessageId, { transaction });
       if (existing) {
         if (existing.chat_id !== chatId || existing.sender_id !== senderId)
           throw chatError("Message ID is already in use");
+        if (
+          !policy.after(
+            existing.message_sequence,
+            state.cleared_through_sequence,
+          )
+        )
+          throw chatError("This message is no longer in your history", 409);
         return existing;
       }
     }
     if (
       replyTo &&
       !(await Message.findOne({
-        where: { messages_id: replyTo, chat_id: chatId, is_deleted: false },
+        where: {
+          messages_id: replyTo,
+          chat_id: chatId,
+          is_deleted: false,
+          ...policy.sequenceWhere(state),
+        },
         transaction,
       }))
     )
@@ -314,15 +478,57 @@ const sendMessage = async (
       },
       { transaction },
     );
+    newlyCreated = true;
+    const recipients = await User.findAll({
+      where: {
+        user_id: { [Op.in]: chat.participants.filter((id) => id !== senderId) },
+        is_active: true,
+      },
+      transaction,
+    });
+    const sender = await User.findByPk(senderId, { transaction });
+    for (const recipient of recipients) {
+      const role = require("./roleUtils").getRoleKey(recipient);
+      const base = ["admin", "super_admin"].includes(role)
+        ? "/admin"
+        : `/dashboard/${role === "project_manager" ? "pm" : role}`;
+      await Notification.create(
+        {
+          user_id: recipient.user_id,
+          chat_message_id: created.messages_id,
+          title: [sender.first_name, sender.last_name]
+            .filter(Boolean)
+            .join(" "),
+          message: text.slice(0, 250),
+          action_url: `${base}/messages?chat=${chatId}`,
+          metadata: {
+            chat_id: chatId,
+            message_id: created.messages_id,
+            message_sequence: String(created.message_sequence),
+            kind: "chat_message",
+          },
+        },
+        { transaction },
+      );
+    }
     return created;
   });
-  return findMessage(message.messages_id);
+  const result = await findMessage(message.messages_id, senderId);
+  if (!result)
+    throw chatError("This message is no longer in your history", 409);
+  Object.defineProperty(result, "_is_new", { value: newlyCreated });
+  return result;
 };
 
 const getChatMessages = async (chatId, userId, options = {}) => {
   await getAuthorizedChat(chatId, userId);
   const { page, limit, offset } = pagination(options);
-  const where = { chat_id: chatId, is_deleted: false };
+  const state = await policy.userState(chatId, userId);
+  const where = {
+    chat_id: chatId,
+    is_deleted: false,
+    ...policy.sequenceWhere(state),
+  };
   if (options.before_timestamp) {
     const before = new Date(options.before_timestamp);
     if (!Number.isFinite(before.getTime()))
@@ -346,7 +552,13 @@ const getChatMessages = async (chatId, userId, options = {}) => {
     ],
   });
   return {
-    messages: await Promise.all(messages.rows.reverse().map(formatMessage)),
+    messages: (
+      await Promise.all(
+        messages.rows
+          .reverse()
+          .map((message) => formatMessage(message, userId)),
+      )
+    ).filter(Boolean),
     pagination: pageInfo(messages.count, page, limit),
   };
 };
@@ -360,7 +572,9 @@ const markMessagesAsRead = async (chatId, userId, messageIds = []) => {
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
+    const state = await policy.userState(chatId, userId, transaction);
     const where = {
+      ...policy.sequenceWhere(state),
       chat_id: chatId,
       is_deleted: false,
       sender_id: { [Op.ne]: userId },
@@ -382,9 +596,25 @@ const markMessagesAsRead = async (chatId, userId, messageIds = []) => {
       },
       { where, transaction },
     );
+    const readMessages = await Message.findAll({
+      where,
+      attributes: ["messages_id"],
+      transaction,
+    });
+    await Notification.update(
+      { is_read: true, read_at: new Date() },
+      {
+        where: {
+          user_id: userId,
+          chat_message_id: { [Op.in]: readMessages.map((m) => m.messages_id) },
+        },
+        transaction,
+      },
+    );
     // Recalculate for partial reads as well; marking all read also persists receipts.
     const unread = await Message.count({
       where: {
+        ...policy.sequenceWhere(state, true),
         chat_id: chatId,
         is_deleted: false,
         sender_id: { [Op.ne]: userId },
@@ -424,9 +654,13 @@ const mutateMessage = async (messageId, userId, content, deleting) => {
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
+    const state = await policy.userState(chat.chats_id, userId, transaction);
+    if (!policy.after(message.message_sequence, state.cleared_through_sequence))
+      throw chatError("Message not found", 404);
     if (message.sender_id !== userId)
       throw chatError("Only the sender can change this message", 403);
     if (message.is_deleted) throw chatError("Message not found", 404);
+    if (!deleting) policy.requirePosting(chat, userId);
     await message.update(
       deleting
         ? {
@@ -439,9 +673,33 @@ const mutateMessage = async (messageId, userId, content, deleting) => {
       { transaction },
     );
     if (deleting) {
+      await Notification.update(
+        { message: "This message was deleted" },
+        { where: { chat_message_id: messageId }, transaction },
+      );
       const counts = { ...chat.unread_counts };
+      const memberStates = new Map(
+        (
+          await ChatUserState.findAll({
+            where: { chat_id: chat.chats_id },
+            transaction,
+          })
+        ).map((state) => [state.user_id, state]),
+      );
       for (const id of chat.participants)
-        if (id !== userId && !message.read_by?.[id])
+        if (
+          id !== userId &&
+          !message.read_by?.[id] &&
+          policy.after(
+            message.message_sequence,
+            policy.unreadBoundary(
+              memberStates.get(id) || {
+                cleared_through_sequence: "0",
+                unread_since_sequence: "0",
+              },
+            ),
+          )
+        )
           counts[id] = Math.max(0, (counts[id] || 0) - 1);
       await chat.update(
         {
@@ -458,7 +716,10 @@ const mutateMessage = async (messageId, userId, content, deleting) => {
         { transaction, silent: true },
       );
   });
-  return findMessage(messageId);
+  const result = await findMessage(messageId, userId);
+  if (!result)
+    throw chatError("This message is no longer in your history", 409);
+  return result;
 };
 const editMessage = (messageId, userId, content) =>
   mutateMessage(messageId, userId, validateContent(content), false);
@@ -483,11 +744,20 @@ const searchMessages = async (userId, query, options = {}) => {
     if (!ids.includes(options.chat_id))
       throw chatError("Chat not found or access denied", 404);
   }
+  const states = await ChatUserState.findAll({
+    where: { user_id: userId, chat_id: { [Op.in]: ids } },
+  });
+  const boundaries = new Map(states.map((state) => [state.chat_id, state]));
   const messages = await Message.findAndCountAll({
     where: {
       content: { [Op.iLike]: `%${query.trim()}%` },
       is_deleted: false,
-      chat_id: options.chat_id || { [Op.in]: ids },
+      [Op.or]: (options.chat_id ? [options.chat_id] : ids).map((id) => ({
+        chat_id: id,
+        ...policy.sequenceWhere(
+          boundaries.get(id) || { cleared_through_sequence: "0" },
+        ),
+      })),
     },
     include: messageInclude,
     limit,
@@ -498,12 +768,17 @@ const searchMessages = async (userId, query, options = {}) => {
     ],
   });
   return {
-    messages: await Promise.all(messages.rows.map(formatMessage)),
+    messages: (
+      await Promise.all(
+        messages.rows.map((message) => formatMessage(message, userId)),
+      )
+    ).filter(Boolean),
     pagination: pageInfo(messages.count, page, limit),
   };
 };
 
 module.exports = {
+  findMessage,
   createChat,
   getUserChats,
   getAvailableUsers,

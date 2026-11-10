@@ -1,4 +1,4 @@
-const express = require('express');
+const express = require("express");
 /**
  * @swagger
  * tags:
@@ -6,7 +6,7 @@ const express = require('express');
  *   description: Real-time chat system endpoints
  */
 
-const { authenticate } = require('../middleware/auth');
+const { authenticate } = require("../middleware/auth");
 const {
   getChats,
   getAvailableUsers,
@@ -17,8 +17,8 @@ const {
   editChatMessage,
   deleteChatMessage,
   searchChatMessages,
-  getChatDetails
-} = require('../controllers/chatController');
+  getChatDetails,
+} = require("../controllers/chatController");
 
 const router = express.Router();
 
@@ -89,7 +89,7 @@ router.use(authenticate);
  *                     pagination:
  *                       type: object
  */
-router.get('/', getChats);
+router.get("/", getChats);
 // Static paths must be registered before /:chat_id.
 /**
  * @swagger
@@ -118,8 +118,8 @@ router.get('/', getChats);
  *       200:
  *         description: Safe participant profiles and pagination
  */
-router.get('/users', getAvailableUsers);
-router.get('/search', searchChatMessages);
+router.get("/users", getAvailableUsers);
+router.get("/search", searchChatMessages);
 
 /**
  * @swagger
@@ -154,7 +154,7 @@ router.get('/search', searchChatMessages);
  *       400:
  *         description: Invalid participants or chat already exists
  */
-router.post('/', createNewChat);
+router.post("/", createNewChat);
 
 /**
  * @swagger
@@ -174,7 +174,7 @@ router.post('/', createNewChat);
  *       404:
  *         description: Chat not found or access denied
  */
-router.get('/:chat_id', getChatDetails);
+router.get("/:chat_id", getChatDetails);
 
 /**
  * @swagger
@@ -215,7 +215,7 @@ router.get('/:chat_id', getChatDetails);
  *       404:
  *         description: Chat not found or access denied
  */
-router.get('/:chat_id/messages', getMessages);
+router.get("/:chat_id/messages", getMessages);
 
 /**
  * @swagger
@@ -262,7 +262,7 @@ router.get('/:chat_id/messages', getMessages);
  *       404:
  *         description: Chat not found or access denied
  */
-router.post('/:chat_id/messages', sendChatMessage);
+router.post("/:chat_id/messages", sendChatMessage);
 
 /**
  * @swagger
@@ -291,7 +291,7 @@ router.post('/:chat_id/messages', sendChatMessage);
  *       200:
  *         description: Messages marked as read successfully
  */
-router.post('/:chat_id/read', markAsRead);
+router.post("/:chat_id/read", markAsRead);
 
 /**
  * @swagger
@@ -325,7 +325,7 @@ router.post('/:chat_id/read', markAsRead);
  *       404:
  *         description: Message not found
  */
-router.put('/messages/:message_id', editChatMessage);
+router.put("/messages/:message_id", editChatMessage);
 
 /**
  * @swagger
@@ -347,7 +347,7 @@ router.put('/messages/:message_id', editChatMessage);
  *       404:
  *         description: Message not found
  */
-router.delete('/messages/:message_id', deleteChatMessage);
+router.delete("/messages/:message_id", deleteChatMessage);
 
 /**
  * @swagger
@@ -384,5 +384,52 @@ router.delete('/messages/:message_id', deleteChatMessage);
  *       400:
  *         description: Query too short
  */
+
+const controller = require("../controllers/chatController");
+const multer = require("multer");
+const groupUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (["image/jpeg", "image/png", "image/webp"].includes(file.mimetype))
+      cb(null, true);
+    else
+      cb(
+        Object.assign(new Error("Choose a JPEG, PNG, or WebP image"), {
+          status: 400,
+        }),
+      );
+  },
+}).single("avatar");
+router.post("/:chat_id/clear", controller.clearHistory);
+router.delete("/:chat_id", controller.deleteForUser);
+router.patch("/:chat_id", controller.updateSettings);
+router.post("/:chat_id/members", controller.addMembers);
+router.delete("/:chat_id/members/:user_id", controller.removeMember);
+router.get("/:chat_id/members/:user_id/profile", controller.participantProfile);
+router.post(
+  "/:chat_id/image",
+  controller.groupImagePermission,
+  (req, res, next) =>
+    groupUpload(req, res, (error) => {
+      if (error)
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              error.code === "LIMIT_FILE_SIZE"
+                ? "Images must be at most 2 MB"
+                : error.message,
+          });
+      next();
+    }),
+  controller.uploadGroupImage,
+);
+router.delete(
+  "/:chat_id/image",
+  controller.groupImagePermission,
+  controller.removeGroupImage,
+);
 
 module.exports = router;
