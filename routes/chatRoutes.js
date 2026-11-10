@@ -9,6 +9,7 @@ const express = require('express');
 const { authenticate } = require('../middleware/auth');
 const {
   getChats,
+  getAvailableUsers,
   createNewChat,
   getMessages,
   sendChatMessage,
@@ -89,6 +90,36 @@ router.use(authenticate);
  *                       type: object
  */
 router.get('/', getChats);
+// Static paths must be registered before /:chat_id.
+/**
+ * @swagger
+ * /chat/users:
+ *   get:
+ *     summary: Find active team members to message
+ *     tags: [Chat]
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Filter by first name, last name, or full name
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *           maximum: 100
+ *     responses:
+ *       200:
+ *         description: Safe participant profiles and pagination
+ */
+router.get('/users', getAvailableUsers);
+router.get('/search', searchChatMessages);
 
 /**
  * @swagger
@@ -172,6 +203,12 @@ router.get('/:chat_id', getChatDetails);
  *         schema:
  *           type: string
  *           format: date-time
+ *       - in: query
+ *         name: before_id
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Oldest loaded message ID, paired with before_timestamp for stable pagination
  *     responses:
  *       200:
  *         description: Messages retrieved successfully
@@ -206,7 +243,7 @@ router.get('/:chat_id/messages', getMessages);
  *                 example: "Hello, how are you?"
  *               message_type:
  *                 type: string
- *                 enum: [text, image, file, system]
+ *                 enum: [text, image, file]
  *                 default: text
  *               attachments:
  *                 type: array
@@ -215,6 +252,10 @@ router.get('/:chat_id/messages', getMessages);
  *               reply_to:
  *                 type: string
  *                 description: Message ID being replied to
+ *               client_message_id:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Reuse this UUID when retrying a send to avoid creating duplicates
  *     responses:
  *       201:
  *         description: Message sent successfully
@@ -343,6 +384,5 @@ router.delete('/messages/:message_id', deleteChatMessage);
  *       400:
  *         description: Query too short
  */
-router.get('/search', searchChatMessages);
 
 module.exports = router;

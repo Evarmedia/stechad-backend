@@ -1,264 +1,126 @@
-const { Chat, Message, User } = require('../models');
-const { 
-  createChat, 
-  getUserChats, 
-  sendMessage, 
-  getChatMessages, 
-  markMessagesAsRead,
-  editMessage,
-  deleteMessage,
-  searchMessages
-} = require('../utils/chatUtil');
-const { ROLE_INCLUDE } = require('../utils/roleUtils');
+const chat = require("../utils/chatUtil");
+const { publishChatEvent } = require("../utils/chatEvents");
 
-// Get user's chats
-const getChats = async (req, res) => {
+const handle = (operation) => async (req, res) => {
   try {
-    const { page = 1, limit = 20, chat_type } = req.query;
-    
-    const chats = await getUserChats(req.user.user_id, {
-      page,
-      limit,
-      chat_type
-    });
-    
-    res.json({
-      success: true,
-      data: chats
-    });
+    await operation(req, res);
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get chats',
-      error: error.message
-    });
-  }
-};
-
-// Create new chat
-const createNewChat = async (req, res) => {
-  try {
-    const { participant_ids, chat_type = 'direct', chat_name } = req.body;
-    
-    // Add current user to participants if not included
-    const participants = [...new Set([req.user.user_id, ...participant_ids])];
-    
-    const chat = await createChat(participants, req.user.user_id, chat_type, chat_name);
-    
-    res.status(201).json({
-      success: true,
-      message: 'Chat created successfully',
-      data: chat
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create chat',
-      error: error.message
-    });
-  }
-};
-
-// Get chat messages
-const getMessages = async (req, res) => {
-  try {
-    const { chat_id } = req.params;
-    const { page = 1, limit = 50, before_timestamp } = req.query;
-    
-    const messages = await getChatMessages(chat_id, req.user.user_id, {
-      page,
-      limit,
-      before_timestamp
-    });
-    
-    res.json({
-      success: true,
-      data: messages
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get messages',
-      error: error.message
-    });
-  }
-};
-
-// Send message (also handled via WebSocket)
-const sendChatMessage = async (req, res) => {
-  try {
-    const { chat_id } = req.params;
-    const { content, message_type = 'text', attachments = [], reply_to } = req.body;
-    
-    const message = await sendMessage(
-      chat_id, 
-      req.user.user_id, 
-      content, 
-      message_type, 
-      attachments, 
-      reply_to
-    );
-    
-    res.status(201).json({
-      success: true,
-      message: 'Message sent successfully',
-      data: message
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send message',
-      error: error.message
-    });
-  }
-};
-
-// Mark messages as read
-const markAsRead = async (req, res) => {
-  try {
-    const { chat_id } = req.params;
-    const { message_ids = [] } = req.body;
-    
-    await markMessagesAsRead(chat_id, req.user.user_id, message_ids);
-    
-    res.json({
-      success: true,
-      message: 'Messages marked as read'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to mark messages as read',
-      error: error.message
-    });
-  }
-};
-
-// Edit message
-const editChatMessage = async (req, res) => {
-  try {
-    const { message_id } = req.params;
-    const { content } = req.body;
-    
-    const message = await editMessage(message_id, req.user.user_id, content);
-    
-    res.json({
-      success: true,
-      message: 'Message edited successfully',
-      data: message
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to edit message',
-      error: error.message
-    });
-  }
-};
-
-// Delete message
-const deleteChatMessage = async (req, res) => {
-  try {
-    const { message_id } = req.params;
-    
-    const message = await deleteMessage(message_id, req.user.user_id);
-    
-    res.json({
-      success: true,
-      message: 'Message deleted successfully',
-      data: message
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete message',
-      error: error.message
-    });
-  }
-};
-
-// Search messages
-const searchChatMessages = async (req, res) => {
-  try {
-    const { query, page = 1, limit = 20, chat_id } = req.query;
-    
-    if (!query || query.trim().length < 2) {
-      return res.status(400).json({
+    if (!error.status) console.error("Chat request failed:", error);
+    res
+      .status(error.status || 500)
+      .json({
         success: false,
-        message: 'Search query must be at least 2 characters long'
+        message: error.status
+          ? error.message
+          : "Unable to complete the chat request. Please try again.",
       });
-    }
-    
-    const results = await searchMessages(req.user.user_id, query, {
-      page,
-      limit,
-      chat_id
-    });
-    
-    res.json({
-      success: true,
-      data: results
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to search messages',
-      error: error.message
-    });
   }
 };
-
-// Get chat details
-const getChatDetails = async (req, res) => {
-  try {
-    const { chat_id } = req.params;
-    
-    const chat = await Chat.findOne({
-      where: { 
-        chats_id: chat_id,
-        participants: {
-          [require('sequelize').Op.contains]: [req.user.user_id]
-        }
-      }
-    });
-    
-    if (!chat) {
-      return res.status(404).json({
-        success: false,
-        message: 'Chat not found or access denied'
-      });
-    }
-    
-    // Get participant details
-    const participants = await User.findAll({
-      where: {
-        user_id: {
-          [require('sequelize').Op.in]: chat.participants
-        }
-      },
-      attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name', 'role_id'],
-      include: [ROLE_INCLUDE],
-    });
-    
-    const chatData = chat.toJSON();
-    chatData.participant_details = participants;
-    chatData.unread_count = chatData.unread_counts[req.user.user_id] || 0;
-    
-    res.json({
-      success: true,
-      data: chatData
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get chat details',
-      error: error.message
-    });
-  }
-};
+// A notification failure must not turn an already-committed write into a failed send.
+const notify = (req, chatId, event, payload) =>
+  publishChatEvent(req.app.get("io"), chatId, event, payload).catch((error) =>
+    console.error("Chat notification failed:", error),
+  );
+const getChats = handle(async (req, res) =>
+  res.json({
+    success: true,
+    data: await chat.getUserChats(req.user.user_id, req.query),
+  }),
+);
+const getAvailableUsers = handle(async (req, res) =>
+  res.json({
+    success: true,
+    data: await chat.getAvailableUsers(req.user.user_id, req.query),
+  }),
+);
+const getChatDetails = handle(async (req, res) =>
+  res.json({
+    success: true,
+    data: await chat.getChatDetails(req.params.chat_id, req.user.user_id),
+  }),
+);
+const createNewChat = handle(async (req, res) => {
+  const { participant_ids, chat_type = "direct", chat_name = null } = req.body;
+  const result = await chat.createChat(
+    participant_ids,
+    req.user.user_id,
+    chat_type,
+    chat_name,
+  );
+  await notify(req, result.chats_id, "chat_created", {});
+  res.status(201).json({ success: true, data: result });
+});
+const getMessages = handle(async (req, res) =>
+  res.json({
+    success: true,
+    data: await chat.getChatMessages(
+      req.params.chat_id,
+      req.user.user_id,
+      req.query,
+    ),
+  }),
+);
+const sendChatMessage = handle(async (req, res) => {
+  const {
+    content,
+    message_type = "text",
+    attachments = [],
+    reply_to = null,
+    client_message_id = null,
+  } = req.body;
+  const message = await chat.sendMessage(
+    req.params.chat_id,
+    req.user.user_id,
+    content,
+    message_type,
+    attachments,
+    reply_to,
+    client_message_id,
+  );
+  await notify(req, req.params.chat_id, "new_message", { message });
+  res.status(201).json({ success: true, data: message });
+});
+const markAsRead = handle(async (req, res) => {
+  const receipt = await chat.markMessagesAsRead(
+    req.params.chat_id,
+    req.user.user_id,
+    req.body.message_ids,
+  );
+  await notify(req, req.params.chat_id, "messages_read", receipt);
+  res.json({ success: true, data: receipt });
+});
+const editChatMessage = handle(async (req, res) => {
+  const message = await chat.editMessage(
+    req.params.message_id,
+    req.user.user_id,
+    req.body.content,
+  );
+  await notify(req, message.chat_id, "message_updated", { message });
+  res.json({ success: true, data: message });
+});
+const deleteChatMessage = handle(async (req, res) => {
+  const message = await chat.deleteMessage(
+    req.params.message_id,
+    req.user.user_id,
+  );
+  await notify(req, message.chat_id, "message_deleted", { message });
+  res.json({ success: true, data: message });
+});
+const searchChatMessages = handle(async (req, res) =>
+  res.json({
+    success: true,
+    data: await chat.searchMessages(
+      req.user.user_id,
+      req.query.query,
+      req.query,
+    ),
+  }),
+);
 
 module.exports = {
   getChats,
+  getAvailableUsers,
+  getChatDetails,
   createNewChat,
   getMessages,
   sendChatMessage,
@@ -266,5 +128,4 @@ module.exports = {
   editChatMessage,
   deleteChatMessage,
   searchChatMessages,
-  getChatDetails
 };

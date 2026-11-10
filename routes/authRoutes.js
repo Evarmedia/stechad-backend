@@ -24,6 +24,31 @@ const passport = require('passport');
 const { generateTokens } = require('../utils/generateTokens')
 
 const router = express.Router();
+const { refreshAccessToken } = require('../controllers/sessionController');
+
+/**
+ * @swagger
+ * /auth/refresh-token:
+ *   post:
+ *     summary: Refresh an active user's session
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refresh_token]
+ *             properties:
+ *               refresh_token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: New access and refresh tokens in data.token and data.refreshToken
+ *       401:
+ *         description: Invalid, expired, or inactive session
+ */
+router.post('/refresh-token', refreshAccessToken);
 
 /**
  * @swagger

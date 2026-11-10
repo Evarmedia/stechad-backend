@@ -1,495 +1,518 @@
-const { Chat, Message, User } = require('../models');
-const { Op } = require('sequelize');
-const { ROLE_INCLUDE } = require('./roleUtils');
+const { Chat, Message, User } = require("../models");
+const { Op } = require("sequelize");
+const sequelize = require("../config/database");
+const { ROLE_INCLUDE } = require("./roleUtils");
 
-/**
- * Create a new chat between users
- * @param {Array} participantIds - Array of user IDs
- * @param {string} createdBy - ID of user creating the chat
- * @param {string} chatType - Type of chat (direct, group, support)
- * @param {string} chatName - Name of the chat (optional for direct chats)
- * @returns {Promise<Object>} The created chat
- */
-const createChat = async (participantIds, createdBy, chatType = 'direct', chatName = null) => {
-  try {
-    // Validate participants
-    if (!Array.isArray(participantIds) || participantIds.length < 2) {
-      throw new Error('At least 2 participants are required');
-    }
-
-    // Check if direct chat already exists between these users
-    if (chatType === 'direct' && participantIds.length === 2) {
-      const existingChat = await Chat.findOne({
-        where: {
-          chat_type: 'direct',
-          participants: {
-            [Op.contains]: participantIds
-          },
-          is_active: true
-        }
-      });
-
-      if (existingChat) {
-        return existingChat;
-      }
-    }
-
-    // Initialize unread counts for all participants
-    const unreadCounts = {};
-    participantIds.forEach(id => {
-      unreadCounts[id] = 0;
-    });
-
-    const chat = await Chat.create({
-      chat_type: chatType,
-      chat_name: chatName,
-      participants: participantIds,
-      unread_counts: unreadCounts,
-      created_by: createdBy,
-      is_active: true
-    });
-
-    return chat;
-  } catch (error) {
-    console.error('Error creating chat:', error);
-    throw error;
-  }
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const USER_ATTRIBUTES = [
+  "user_id",
+  "first_name",
+  "last_name",
+  "avatar_object_name",
+  "role_id",
+];
+const chatError = (message, status = 400) =>
+  Object.assign(new Error(message), { status });
+const validateId = (id, label = "ID") => {
+  if (typeof id !== "string" || !UUID_PATTERN.test(id))
+    throw chatError(`Invalid ${label}`);
 };
-
-/**
- * Get user's chats with pagination
- * @param {string} userId - The user's ID
- * @param {Object} options - Query options
- * @returns {Promise<Object>} Paginated chats
- */
-const getUserChats = async (userId, options = {}) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      chat_type
-    } = options;
-
-    const offset = (page - 1) * limit;
-    let where = {
-      participants: {
-        [Op.contains]: [userId]
-      },
-      is_active: true
-    };
-
-    if (chat_type) {
-      where.chat_type = chat_type;
-    }
-
-    const chats = await Chat.findAndCountAll({
-      where,
-      include: [
-        {
-          model: Message,
-          as: 'messages',
-          limit: 1,
-          order: [['timestamp', 'DESC']],
-          include: [
-            {
-              model: User,
-              as: 'sender',
-              attributes: ['first_name', 'last_name', 'avatar_object_name']
-            }
-          ]
-        }
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['updated_at', 'DESC']]
-    });
-
-    // Get participant details for each chat
-    const chatsWithParticipants = await Promise.all(
-      chats.rows.map(async (chat) => {
-        const participants = await User.findAll({
-          where: {
-            user_id: {
-              [Op.in]: chat.participants
-            }
-          },
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name', 'role_id'],
-          include: [ROLE_INCLUDE],
-        });
-
-        const chatData = chat.toJSON();
-        chatData.participant_details = participants;
-        chatData.unread_count = chatData.unread_counts[userId] || 0;
-
-        return chatData;
-      })
+const pagination = (options = {}, defaultLimit = 50) => {
+  const page = Number(options.page ?? 1);
+  const limit = Number(options.limit ?? defaultLimit);
+  if (
+    !Number.isInteger(page) ||
+    page < 1 ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 100
+  ) {
+    throw chatError(
+      "Page must be positive and limit must be between 1 and 100",
     );
-
-    return {
-      chats: chatsWithParticipants,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(chats.count / limit),
-        totalItems: chats.count,
-        itemsPerPage: parseInt(limit)
-      }
-    };
-  } catch (error) {
-    console.error('Error getting user chats:', error);
-    throw error;
   }
+  return { page, limit, offset: (page - 1) * limit };
+};
+const pageInfo = (count, page, limit) => ({
+  currentPage: page,
+  totalPages: Math.ceil(count / limit),
+  totalItems: count,
+  itemsPerPage: limit,
+});
+
+const formatUser = async (user) => {
+  const data = user.toJSON();
+  if (data.avatar_object_name) {
+    try {
+      const { getV4ReadSignedUrl } = require("../config/gcpStorage");
+      data.avatar_url = await getV4ReadSignedUrl(data.avatar_object_name);
+    } catch {
+      data.avatar_url = null;
+    }
+  }
+  return data;
+};
+const messageInclude = [
+  { model: User, as: "sender", attributes: USER_ATTRIBUTES },
+  {
+    model: Message,
+    as: "replyToMessage",
+    include: [{ model: User, as: "sender", attributes: USER_ATTRIBUTES }],
+  },
+];
+const formatMessage = async (message) => {
+  const data = message.toJSON();
+  if (message.sender) data.sender = await formatUser(message.sender);
+  if (message.replyToMessage?.sender)
+    data.replyToMessage.sender = await formatUser(
+      message.replyToMessage.sender,
+    );
+  // A deleted message's content must not leak through a quoted reply.
+  if (data.replyToMessage?.is_deleted) {
+    data.replyToMessage.content = "This message was deleted";
+    data.replyToMessage.attachments = [];
+  }
+  return data;
+};
+const findMessage = async (id) =>
+  formatMessage(await Message.findByPk(id, { include: messageInclude }));
+
+const getAuthorizedChat = async (chatId, userId, options = {}) => {
+  validateId(chatId, "chat ID");
+  const chat = await Chat.findOne({
+    where: {
+      chats_id: chatId,
+      is_active: true,
+      participants: { [Op.contains]: [userId] },
+    },
+    ...options,
+  });
+  if (!chat) throw chatError("Chat not found or access denied", 404);
+  return chat;
 };
 
-/**
- * Send a message in a chat
- * @param {string} chatId - The chat ID
- * @param {string} senderId - The sender's user ID
- * @param {string} content - The message content
- * @param {string} messageType - Type of message (text, image, file, system)
- * @param {Array} attachments - Array of attachment objects
- * @param {string} replyTo - ID of message being replied to
- * @returns {Promise<Object>} The created message
- */
-const sendMessage = async (chatId, senderId, content, messageType = 'text', attachments = [], replyTo = null) => {
-  try {
-    // Verify chat exists and user is participant
-    const chat = await Chat.findByPk(chatId);
-    if (!chat) {
-      throw new Error('Chat not found');
-    }
+const getChatDetails = async (chatId, userId) => {
+  const chat = await getAuthorizedChat(chatId, userId);
+  const participants = await User.findAll({
+    where: { user_id: { [Op.in]: chat.participants } },
+    attributes: USER_ATTRIBUTES,
+    include: [ROLE_INCLUDE],
+  });
+  return {
+    ...chat.toJSON(),
+    participant_details: await Promise.all(participants.map(formatUser)),
+    unread_count: chat.unread_counts?.[userId] || 0,
+  };
+};
 
-    if (!chat.participants.includes(senderId)) {
-      throw new Error('User is not a participant in this chat');
-    }
+const getAvailableUsers = async (userId, options = {}) => {
+  const { page, limit, offset } = pagination(options, 20);
+  const search = String(options.search || "")
+    .trim()
+    .slice(0, 100);
+  const where = { is_active: true, user_id: { [Op.ne]: userId } };
+  if (search)
+    where[Op.and] = search
+      .split(/\s+/)
+      .map((term) => ({
+        [Op.or]: ["first_name", "last_name"].map((field) => ({
+          [field]: { [Op.iLike]: `%${term}%` },
+        })),
+      }));
+  const users = await User.findAndCountAll({
+    where,
+    attributes: USER_ATTRIBUTES,
+    include: [ROLE_INCLUDE],
+    order: [
+      ["first_name", "ASC"],
+      ["user_id", "ASC"],
+    ],
+    limit,
+    offset,
+  });
+  return {
+    users: await Promise.all(users.rows.map(formatUser)),
+    pagination: pageInfo(users.count, page, limit),
+  };
+};
 
-    // Create the message
-    const message = await Message.create({
-      chat_id: chatId,
-      sender_id: senderId,
-      message_type: messageType,
-      content,
-      attachments,
-      reply_to: replyTo,
-      timestamp: new Date()
+const createChat = async (
+  participantIds,
+  createdBy,
+  chatType = "direct",
+  chatName = null,
+) => {
+  if (!Array.isArray(participantIds))
+    throw chatError("Participant IDs must be an array");
+  const participants = [...new Set([createdBy, ...participantIds])].sort();
+  participants.forEach((id) => validateId(id, "participant ID"));
+  if (participants.length < 2 || participants.length > 100)
+    throw chatError("A chat requires between 2 and 100 participants");
+  if (!["direct", "group", "support"].includes(chatType))
+    throw chatError("Invalid chat type");
+  if (chatType === "direct" && participants.length !== 2)
+    throw chatError("Direct chats require exactly 2 participants");
+  if (
+    chatName !== null &&
+    (typeof chatName !== "string" || chatName.trim().length > 100)
+  )
+    throw chatError("Chat name must be at most 100 characters");
+  if (chatType !== "direct" && !chatName?.trim())
+    throw chatError("A name is required for group and support chats");
+
+  const chat = await sequelize.transaction(async (transaction) => {
+    // Lock in ID order so concurrent attempts to start the same direct chat reuse it.
+    const users = await User.unscoped().findAll({
+      where: { user_id: { [Op.in]: participants }, is_active: true },
+      attributes: ["user_id"],
+      order: [["user_id", "ASC"]],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
     });
-
-    // Update chat's last message info
-    await chat.update({
-      last_message_id: message.messages_id,
-      last_message_content: content,
-      last_message_sender_id: senderId,
-      last_message_timestamp: message.timestamp,
-      updated_at: new Date()
-    });
-
-    // Update unread counts for other participants
-    const updatedUnreadCounts = { ...chat.unread_counts };
-    chat.participants.forEach(participantId => {
-      if (participantId !== senderId) {
-        updatedUnreadCounts[participantId] = (updatedUnreadCounts[participantId] || 0) + 1;
-      }
-    });
-
-    await chat.update({ unread_counts: updatedUnreadCounts });
-
-    // Get message with sender details
-    const messageWithSender = await Message.findByPk(message.messages_id, {
-      include: [
-        {
-          model: User,
-          as: 'sender',
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name']
+    if (users.length !== participants.length)
+      throw chatError("One or more participants are unavailable");
+    if (chatType === "direct") {
+      const existing = await Chat.findOne({
+        where: {
+          chat_type: "direct",
+          participants: {
+            [Op.contains]: participants,
+            [Op.contained]: participants,
+          },
+          is_active: true,
         },
-        {
-          model: Message,
-          as: 'replyToMessage',
-          include: [
-            {
-              model: User,
-              as: 'sender',
-              attributes: ['first_name', 'last_name']
-            }
-          ]
-        }
-      ]
-    });
-
-    return messageWithSender;
-  } catch (error) {
-    console.error('Error sending message:', error);
-    throw error;
-  }
+        transaction,
+      });
+      if (existing) return existing;
+    }
+    return Chat.create(
+      {
+        chat_type: chatType,
+        chat_name: chatName?.trim() || null,
+        participants,
+        unread_counts: Object.fromEntries(participants.map((id) => [id, 0])),
+        created_by: createdBy,
+      },
+      { transaction },
+    );
+  });
+  return getChatDetails(chat.chats_id, createdBy);
 };
 
-/**
- * Get messages in a chat with pagination
- * @param {string} chatId - The chat ID
- * @param {string} userId - The requesting user's ID
- * @param {Object} options - Query options
- * @returns {Promise<Object>} Paginated messages
- */
+const getUserChats = async (userId, options = {}) => {
+  const { page, limit, offset } = pagination(options, 50);
+  const where = { participants: { [Op.contains]: [userId] }, is_active: true };
+  if (options.chat_type) {
+    if (!["direct", "group", "support"].includes(options.chat_type))
+      throw chatError("Invalid chat type");
+    where.chat_type = options.chat_type;
+  }
+  const chats = await Chat.findAndCountAll({
+    where,
+    limit,
+    offset,
+    order: [
+      ["updated_at", "DESC"],
+      ["chats_id", "ASC"],
+    ],
+  });
+  const ids = [...new Set(chats.rows.flatMap((chat) => chat.participants))];
+  // One participant query for the entire inbox, rather than one query per chat.
+  const users = ids.length
+    ? await User.findAll({
+        where: { user_id: { [Op.in]: ids } },
+        attributes: USER_ATTRIBUTES,
+        include: [ROLE_INCLUDE],
+      })
+    : [];
+  const details = new Map(
+    (await Promise.all(users.map(formatUser))).map((user) => [
+      user.user_id,
+      user,
+    ]),
+  );
+  return {
+    chats: chats.rows.map((chat) => ({
+      ...chat.toJSON(),
+      participant_details: chat.participants
+        .map((id) => details.get(id))
+        .filter(Boolean),
+      unread_count: chat.unread_counts?.[userId] || 0,
+    })),
+    pagination: pageInfo(chats.count, page, limit),
+  };
+};
+
+const validateContent = (content) => {
+  if (typeof content !== "string" || !content.trim())
+    throw chatError("Message cannot be empty");
+  if (content.length > 10000)
+    throw chatError("Message must be at most 10,000 characters");
+  return content.trim();
+};
+const sendMessage = async (
+  chatId,
+  senderId,
+  content,
+  messageType = "text",
+  attachments = [],
+  replyTo = null,
+  clientMessageId = null,
+) => {
+  const text = validateContent(content);
+  if (!["text", "image", "file"].includes(messageType))
+    throw chatError("Invalid message type");
+  if (!Array.isArray(attachments) || attachments.length > 10)
+    throw chatError("Attachments must be an array of at most 10 items");
+  if (replyTo) validateId(replyTo, "reply message ID");
+  if (clientMessageId) validateId(clientMessageId, "client message ID");
+  const message = await sequelize.transaction(async (transaction) => {
+    const chat = await getAuthorizedChat(chatId, senderId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (clientMessageId) {
+      const existing = await Message.findByPk(clientMessageId, { transaction });
+      if (existing) {
+        if (existing.chat_id !== chatId || existing.sender_id !== senderId)
+          throw chatError("Message ID is already in use");
+        return existing;
+      }
+    }
+    if (
+      replyTo &&
+      !(await Message.findOne({
+        where: { messages_id: replyTo, chat_id: chatId, is_deleted: false },
+        transaction,
+      }))
+    )
+      throw chatError("Reply message is not available in this conversation");
+    const created = await Message.create(
+      {
+        ...(clientMessageId ? { messages_id: clientMessageId } : {}),
+        chat_id: chatId,
+        sender_id: senderId,
+        content: text,
+        message_type: messageType,
+        attachments,
+        reply_to: replyTo,
+        read_by: { [senderId]: new Date().toISOString() },
+      },
+      { transaction },
+    );
+    const counts = { ...chat.unread_counts };
+    for (const id of chat.participants)
+      if (id !== senderId) counts[id] = (counts[id] || 0) + 1;
+    await chat.update(
+      {
+        last_message_id: created.messages_id,
+        last_message_content: text,
+        last_message_sender_id: senderId,
+        last_message_timestamp: created.timestamp,
+        unread_counts: counts,
+      },
+      { transaction },
+    );
+    return created;
+  });
+  return findMessage(message.messages_id);
+};
+
 const getChatMessages = async (chatId, userId, options = {}) => {
-  try {
-    const {
-      page = 1,
-      limit = 50,
-      before_timestamp
-    } = options;
-
-    // Verify user is participant
-    const chat = await Chat.findByPk(chatId);
-    if (!chat || !chat.participants.includes(userId)) {
-      throw new Error('Chat not found or access denied');
-    }
-
-    const offset = (page - 1) * limit;
-    let where = {
-      chat_id: chatId,
-      is_deleted: false
-    };
-
-    if (before_timestamp) {
-      where.timestamp = {
-        [Op.lt]: new Date(before_timestamp)
-      };
-    }
-
-    const messages = await Message.findAndCountAll({
-      where,
-      include: [
-        {
-          model: User,
-          as: 'sender',
-          attributes: ['user_id', 'first_name', 'last_name', 'avatar_object_name']
-        },
-        {
-          model: Message,
-          as: 'replyToMessage',
-          include: [
-            {
-              model: User,
-              as: 'sender',
-              attributes: ['first_name', 'last_name']
-            }
-          ]
-        }
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['timestamp', 'DESC']]
-    });
-
-    return {
-      messages: messages.rows.reverse(), // Reverse to show oldest first
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(messages.count / limit),
-        totalItems: messages.count,
-        itemsPerPage: parseInt(limit)
-      }
-    };
-  } catch (error) {
-    console.error('Error getting chat messages:', error);
-    throw error;
+  await getAuthorizedChat(chatId, userId);
+  const { page, limit, offset } = pagination(options);
+  const where = { chat_id: chatId, is_deleted: false };
+  if (options.before_timestamp) {
+    const before = new Date(options.before_timestamp);
+    if (!Number.isFinite(before.getTime()))
+      throw chatError("Invalid before_timestamp");
+    if (options.before_id) {
+      validateId(options.before_id, "cursor message ID");
+      where[Op.or] = [
+        { timestamp: { [Op.lt]: before } },
+        { timestamp: before, messages_id: { [Op.lt]: options.before_id } },
+      ];
+    } else where.timestamp = { [Op.lt]: before };
   }
+  const messages = await Message.findAndCountAll({
+    where,
+    include: messageInclude,
+    limit,
+    offset,
+    order: [
+      ["timestamp", "DESC"],
+      ["messages_id", "DESC"],
+    ],
+  });
+  return {
+    messages: await Promise.all(messages.rows.reverse().map(formatMessage)),
+    pagination: pageInfo(messages.count, page, limit),
+  };
 };
 
-/**
- * Mark messages as read
- * @param {string} chatId - The chat ID
- * @param {string} userId - The user's ID
- * @param {Array} messageIds - Array of message IDs to mark as read
- * @returns {Promise<Object>} Updated chat
- */
 const markMessagesAsRead = async (chatId, userId, messageIds = []) => {
-  try {
-    const chat = await Chat.findByPk(chatId);
-    if (!chat || !chat.participants.includes(userId)) {
-      throw new Error('Chat not found or access denied');
-    }
-
-    // If no specific messages provided, mark all as read
-    if (messageIds.length === 0) {
-      // Reset unread count for this user
-      const updatedUnreadCounts = { ...chat.unread_counts };
-      updatedUnreadCounts[userId] = 0;
-      
-      await chat.update({ unread_counts: updatedUnreadCounts });
-    } else {
-      // Mark specific messages as read
-      await Message.update(
-        {
-          read_by: sequelize.fn(
-            'jsonb_set',
-            sequelize.col('read_by'),
-            `{${userId}}`,
-            JSON.stringify(new Date()),
-            true
-          )
-        },
-        {
-          where: {
-            messages_id: {
-              [Op.in]: messageIds
-            },
-            chat_id: chatId
-          }
-        }
-      );
-    }
-
-    return chat;
-  } catch (error) {
-    console.error('Error marking messages as read:', error);
-    throw error;
-  }
-};
-
-/**
- * Edit a message
- * @param {string} messageId - The message ID
- * @param {string} userId - The user's ID
- * @param {string} newContent - The new message content
- * @returns {Promise<Object>} Updated message
- */
-const editMessage = async (messageId, userId, newContent) => {
-  try {
-    const message = await Message.findByPk(messageId);
-    if (!message) {
-      throw new Error('Message not found');
-    }
-
-    if (message.sender_id !== userId) {
-      throw new Error('Only the sender can edit this message');
-    }
-
-    await message.update({
-      content: newContent,
-      is_edited: true,
-      edited_at: new Date()
+  if (!Array.isArray(messageIds) || messageIds.length > 500)
+    throw chatError("Message IDs must be an array of at most 500 items");
+  messageIds.forEach((id) => validateId(id, "message ID"));
+  return sequelize.transaction(async (transaction) => {
+    const chat = await getAuthorizedChat(chatId, userId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
     });
-
-    return message;
-  } catch (error) {
-    console.error('Error editing message:', error);
-    throw error;
-  }
-};
-
-/**
- * Delete a message
- * @param {string} messageId - The message ID
- * @param {string} userId - The user's ID
- * @returns {Promise<Object>} Updated message
- */
-const deleteMessage = async (messageId, userId) => {
-  try {
-    const message = await Message.findByPk(messageId);
-    if (!message) {
-      throw new Error('Message not found');
-    }
-
-    if (message.sender_id !== userId) {
-      throw new Error('Only the sender can delete this message');
-    }
-
-    await message.update({
-      content: 'This message was deleted',
-      is_deleted: true,
-      deleted_at: new Date()
-    });
-
-    return message;
-  } catch (error) {
-    console.error('Error deleting message:', error);
-    throw error;
-  }
-};
-
-/**
- * Search messages in chats
- * @param {string} userId - The user's ID
- * @param {string} query - Search query
- * @param {Object} options - Search options
- * @returns {Promise<Object>} Search results
- */
-const searchMessages = async (userId, query, options = {}) => {
-  try {
-    const {
-      page = 1,
-      limit = 20,
-      chat_id
-    } = options;
-
-    const offset = (page - 1) * limit;
-    let where = {
-      content: {
-        [Op.iLike]: `%${query}%`
-      },
-      is_deleted: false
+    const where = {
+      chat_id: chatId,
+      is_deleted: false,
+      sender_id: { [Op.ne]: userId },
     };
-
-    // Get user's chats first
-    const userChats = await Chat.findAll({
+    if (messageIds.length) where.messages_id = { [Op.in]: messageIds };
+    await Message.update(
+      {
+        read_by: sequelize.fn(
+          "jsonb_set",
+          sequelize.fn(
+            "COALESCE",
+            sequelize.col("read_by"),
+            sequelize.cast("{}", "jsonb"),
+          ),
+          sequelize.cast(`{${userId}}`, "text[]"),
+          JSON.stringify(new Date().toISOString()),
+          true,
+        ),
+      },
+      { where, transaction },
+    );
+    // Recalculate for partial reads as well; marking all read also persists receipts.
+    const unread = await Message.count({
       where: {
-        participants: {
-          [Op.contains]: [userId]
-        },
-        is_active: true
+        chat_id: chatId,
+        is_deleted: false,
+        sender_id: { [Op.ne]: userId },
+        [Op.or]: [
+          { read_by: null },
+          sequelize.where(sequelize.json(`read_by.${userId}`), Op.is, null),
+        ],
       },
-      attributes: ['chats_id']
+      transaction,
     });
-
-    const chatIds = userChats.map(chat => chat.chats_id);
-    where.chat_id = {
-      [Op.in]: chatIds
-    };
-
-    if (chat_id) {
-      where.chat_id = chat_id;
-    }
-
-    const messages = await Message.findAndCountAll({
-      where,
-      include: [
-        {
-          model: User,
-          as: 'sender',
-          attributes: ['first_name', 'last_name', 'avatar_object_name']
-        },
-        {
-          model: Chat,
-          as: 'chat',
-          attributes: ['chats_id', 'chat_name', 'chat_type']
-        }
-      ],
-      limit: parseInt(limit),
-      offset: parseInt(offset),
-      order: [['timestamp', 'DESC']]
-    });
-
+    await chat.update(
+      { unread_counts: { ...chat.unread_counts, [userId]: unread } },
+      { transaction, silent: true },
+    );
     return {
-      messages: messages.rows,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(messages.count / limit),
-        totalItems: messages.count,
-        itemsPerPage: parseInt(limit)
-      }
+      chat_id: chatId,
+      user_id: userId,
+      message_ids: messageIds,
+      unread_count: unread,
+      read_at: new Date().toISOString(),
     };
-  } catch (error) {
-    console.error('Error searching messages:', error);
-    throw error;
+  });
+};
+
+const mutateMessage = async (messageId, userId, content, deleting) => {
+  validateId(messageId, "message ID");
+  const original = await Message.findByPk(messageId, {
+    attributes: ["chat_id"],
+  });
+  if (!original) throw chatError("Message not found", 404);
+  await sequelize.transaction(async (transaction) => {
+    const chat = await getAuthorizedChat(original.chat_id, userId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    const message = await Message.findByPk(messageId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (message.sender_id !== userId)
+      throw chatError("Only the sender can change this message", 403);
+    if (message.is_deleted) throw chatError("Message not found", 404);
+    await message.update(
+      deleting
+        ? {
+            content: "This message was deleted",
+            attachments: [],
+            is_deleted: true,
+            deleted_at: new Date(),
+          }
+        : { content, is_edited: true, edited_at: new Date() },
+      { transaction },
+    );
+    if (deleting) {
+      const counts = { ...chat.unread_counts };
+      for (const id of chat.participants)
+        if (id !== userId && !message.read_by?.[id])
+          counts[id] = Math.max(0, (counts[id] || 0) - 1);
+      await chat.update(
+        {
+          unread_counts: counts,
+          ...(chat.last_message_id === messageId
+            ? { last_message_content: "This message was deleted" }
+            : {}),
+        },
+        { transaction, silent: true },
+      );
+    } else if (chat.last_message_id === messageId)
+      await chat.update(
+        { last_message_content: content },
+        { transaction, silent: true },
+      );
+  });
+  return findMessage(messageId);
+};
+const editMessage = (messageId, userId, content) =>
+  mutateMessage(messageId, userId, validateContent(content), false);
+const deleteMessage = (messageId, userId) =>
+  mutateMessage(messageId, userId, null, true);
+
+const searchMessages = async (userId, query, options = {}) => {
+  if (
+    typeof query !== "string" ||
+    query.trim().length < 2 ||
+    query.length > 200
+  )
+    throw chatError("Search query must be between 2 and 200 characters");
+  const { page, limit, offset } = pagination(options, 20);
+  const userChats = await Chat.findAll({
+    where: { participants: { [Op.contains]: [userId] }, is_active: true },
+    attributes: ["chats_id"],
+  });
+  const ids = userChats.map((chat) => chat.chats_id);
+  if (options.chat_id) {
+    validateId(options.chat_id, "chat ID");
+    if (!ids.includes(options.chat_id))
+      throw chatError("Chat not found or access denied", 404);
   }
+  const messages = await Message.findAndCountAll({
+    where: {
+      content: { [Op.iLike]: `%${query.trim()}%` },
+      is_deleted: false,
+      chat_id: options.chat_id || { [Op.in]: ids },
+    },
+    include: messageInclude,
+    limit,
+    offset,
+    order: [
+      ["timestamp", "DESC"],
+      ["messages_id", "DESC"],
+    ],
+  });
+  return {
+    messages: await Promise.all(messages.rows.map(formatMessage)),
+    pagination: pageInfo(messages.count, page, limit),
+  };
 };
 
 module.exports = {
   createChat,
   getUserChats,
+  getAvailableUsers,
+  getChatDetails,
+  getAuthorizedChat,
   sendMessage,
   getChatMessages,
   markMessagesAsRead,
   editMessage,
   deleteMessage,
-  searchMessages
+  searchMessages,
 };

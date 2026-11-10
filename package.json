@@ -9,7 +9,7 @@
     "dev": "nodemon server.js",
     "seed:roles": "node seeders/roles.js",
     "seed:super-admin": "node seeders/superAdmin.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.17.2",
@@ -36,6 +36,7 @@
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "socket.io-client": "^4.8.4"
   }
 }

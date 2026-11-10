@@ -15,3 +15,25 @@ The command is idempotent for the same email and will refuse to create or promot
 Set `GEOAPIFY_API_KEY` to enable server-side reverse geocoding. When a user grants browser location consent, the backend sends the coordinate to Geoapify and stores the returned city, state, country, and formatted address. The API key is never sent to the browser.
 
 Authenticated users can test the integration with `GET /api/staff/location/reverse-geo?lat=51.21709661403662&lon=6.7782883744862374` or the equivalent `POST` JSON body using `latitude` and `longitude`. The response includes normalized address fields and Geoapify's raw GeoJSON FeatureCollection. Set `GEOAPIFY_TIMEOUT_MS` to override the default 20-second provider timeout.
+
+## Chat
+
+Chat uses authenticated REST endpoints under `/api/chat` and Socket.IO on the same HTTP server. Both transports enforce conversation membership. Messages sent through either transport notify every participant's open tabs, including tabs viewing another conversation. The `participants` array on each chat remains the membership source.
+
+- `GET /api/chat/users?search=...` lists active team members with names, roles, and avatars. It excludes private account fields.
+- `GET /api/chat/search?query=...&chat_id=...` searches only conversations the caller belongs to.
+- Message history supports `before_timestamp` plus `before_id` for stable pagination.
+- Send requests accept an optional UUID `client_message_id`. Reusing it retries the original message without adding another row or unread count.
+- Read receipts, edits, deletes, inbox previews, and unread counts are synchronized across participants. Deleted content is also removed from quoted replies.
+
+The session refresh endpoint is `POST /api/auth/refresh-token` with `{ "refresh_token": "..." }`. It verifies the refresh-token signature and active account, then returns `data.token` and `data.refreshToken`. Configure both `JWT_SECRET` and `JWT_REFRESH_SECRET`, as required by login token generation.
+
+Socket.IO authenticates with `auth: { token }`. It emits `new_message`, `chat_created`, `message_updated`, `message_deleted`, `messages_read`, `online_users`, `user_online`, `user_offline`, `user_typing`, and `user_stopped_typing`. Socket actions support acknowledgement callbacks returning `{ success, ... }` or `{ success: false, error, status }`.
+
+The integration suite exercises fresh-database reward seeding, concurrent chat creation and sends, duplicate-safe retries, receipts, pagination, access controls, REST delivery, session refresh, and multiple socket connections per user:
+
+```bash
+CHAT_TEST_DATABASE_URL='postgres://user:password@localhost/stechad_chat_test' npm test
+```
+
+Use a disposable PostgreSQL database whose test user can create schemas. Each run creates and removes its own randomly named `chat_test_*` schema. Without `CHAT_TEST_DATABASE_URL`, the database tests are explicitly skipped; the application's configured database is never used by the suite.
