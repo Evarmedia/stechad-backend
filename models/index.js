@@ -102,6 +102,21 @@ User.belongsTo(Department, {
   constraints: false,
 });
 
+// User -> reporting manager (self-reference)
+// constraints: false keeps this query association compatible with existing
+// databases where reports_to_user_id was added without a foreign key.
+User.belongsTo(User, {
+  foreignKey: "reports_to_user_id",
+  as: "reporting_manager",
+  constraints: false,
+});
+
+User.hasMany(User, {
+  foreignKey: "reports_to_user_id",
+  as: "direct_reports",
+  constraints: false,
+});
+
 /* =========================
    WORKFORCE OPERATIONS
    ========================= */
