@@ -1056,6 +1056,125 @@ if (!databaseUrl) {
       ),
     );
   });
+  test("deleting the same current direct history on both sides physically purges it", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const direct = await chat.createChat([staff.user_id], pm.user_id);
+    const message = await chat.sendMessage(
+      direct.chats_id,
+      pm.user_id,
+      "Remove this from storage",
+    );
+    const first = await management.deleteForUser(direct.chats_id, pm.user_id);
+    assert.equal(first.purged, false);
+    assert.ok(await Chat.findByPk(direct.chats_id));
+    const receiver = await connect(staff);
+    const purged = event(receiver, "chat_purged");
+    const second = await request(staff, `/${direct.chats_id}`, "DELETE");
+    assert.equal(second.status, 200);
+    assert.equal(second.data.purged, true);
+    assert.equal((await purged).chat_id, direct.chats_id);
+    assert.equal(await Chat.count({ where: { chats_id: direct.chats_id } }), 0);
+    assert.equal(
+      await Message.count({ where: { chat_id: direct.chats_id } }),
+      0,
+    );
+    assert.equal(
+      await ChatUserState.count({ where: { chat_id: direct.chats_id } }),
+      0,
+    );
+    assert.equal(
+      await Notification.count({
+        where: { chat_message_id: message.messages_id },
+      }),
+      0,
+    );
+    receiver.disconnect();
+  });
+  test("members can leave groups with a capped archive, then clear or delete it", async () => {
+    const pm = await makeUser("project_manager"),
+      staff = await makeUser("staff");
+    const group = await chat.createChat(
+      [staff.user_id],
+      pm.user_id,
+      "group",
+      "Departure archive",
+    );
+    const old = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Visible before leaving",
+    );
+    const receiver = await connect(staff);
+    const leftEvent = event(receiver, "group_left");
+    const left = await request(staff, `/${group.chats_id}/leave`, "POST", {});
+    assert.equal(left.status, 200);
+    assert.equal(left.data.has_left, true);
+    assert.equal(left.data.can_post, false);
+    assert.equal((await leftEvent).chat.has_left, true);
+    assert.ok(!left.data.participants.includes(staff.user_id));
+    await assert.rejects(management.leaveGroup(group.chats_id, pm.user_id), {
+      status: 403,
+    });
+    const recent = await chat.sendMessage(
+      group.chats_id,
+      pm.user_id,
+      "Hidden after leaving",
+    );
+    assert.deepEqual(
+      (await chat.getChatMessages(group.chats_id, staff.user_id)).messages.map(
+        (message) => message.messages_id,
+      ),
+      [old.messages_id],
+    );
+    assert.equal(
+      (await chat.searchMessages(staff.user_id, "Hidden after")).messages
+        .length,
+      0,
+    );
+    assert.equal(
+      (await chat.getUserChats(staff.user_id)).chats.find(
+        (item) => item.chats_id === group.chats_id,
+      ).last_message_id,
+      old.messages_id,
+    );
+    await assert.rejects(
+      chat.sendMessage(group.chats_id, staff.user_id, "Blocked"),
+      { status: 404 },
+    );
+    assert.equal(
+      await Notification.count({
+        where: { user_id: staff.user_id, chat_message_id: recent.messages_id },
+      }),
+      0,
+    );
+    await management.clearHistory(group.chats_id, staff.user_id);
+    assert.equal(
+      (await chat.getChatMessages(group.chats_id, staff.user_id)).messages
+        .length,
+      0,
+    );
+    await management.deleteForUser(group.chats_id, staff.user_id);
+    await chat.sendMessage(group.chats_id, pm.user_id, "Still hidden");
+    assert.ok(
+      !(await chat.getUserChats(staff.user_id)).chats.some(
+        (item) => item.chats_id === group.chats_id,
+      ),
+    );
+    const restored = await management.addMembers(group.chats_id, pm.user_id, [
+      staff.user_id,
+    ]);
+    assert.equal(restored.participants.includes(staff.user_id), true);
+    const details = await chat.getChatDetails(group.chats_id, staff.user_id);
+    assert.equal(details.has_left, false);
+    assert.equal(details.can_post, true);
+    assert.ok(
+      (await chat.getChatMessages(group.chats_id, staff.user_id)).messages.some(
+        (message) => message.messages_id === recent.messages_id,
+      ),
+    );
+    receiver.disconnect();
+  });
   test("concurrent sends and clear have a strict sequence boundary; retries never recreate cleared notifications", async () => {
     const pm = await makeUser("project_manager"),
       staff = await makeUser("staff");
@@ -1208,6 +1327,28 @@ if (!databaseUrl) {
       database.schema = originalSchema;
       await database.dropSchema(legacy, { cascade: true });
     }
+  });
+  test("the versioned Sequelize chat lifecycle migration is idempotent", async () => {
+    const migration = require("../migrations/20261110233000-chat-user-lifecycle");
+    const queryInterface = database.getQueryInterface();
+    await migration.up(queryInterface, require("sequelize"));
+    await migration.up(queryInterface, require("sequelize"));
+    const columns = await queryInterface.describeTable({
+      schema,
+      tableName: "chat_user_states",
+    });
+    assert.ok(columns.hidden_through_sequence);
+    assert.ok(columns.left_through_sequence);
+    const indexes = await queryInterface.showIndex({
+      schema,
+      tableName: "chat_user_states",
+    });
+    assert.ok(
+      indexes.some((index) => index.name === "chat_user_states_hidden_by_user"),
+    );
+    assert.ok(
+      indexes.some((index) => index.name === "chat_user_states_left_by_user"),
+    );
   });
   test("group member limits, contextual picker filtering, and image upload authorization are enforced", async () => {
     const pm = await makeUser("project_manager"),

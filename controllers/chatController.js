@@ -148,6 +148,25 @@ module.exports.deleteForUser = handle(async (req, res) => {
   const io = req.app.get("io");
   io?.to(`user_${req.user.user_id}`).emit("chat_deleted", result);
   io?.to(`user_${req.user.user_id}`).emit("notifications_changed", result);
+  if (result.purged)
+    for (const userId of result.purged_for_user_ids)
+      io?.to(`user_${userId}`).emit("chat_purged", {
+        chat_id: result.chat_id,
+      });
+  res.json({ success: true, data: result });
+});
+module.exports.leaveGroup = handle(async (req, res) => {
+  const result = await management.leaveGroup(
+    req.params.chat_id,
+    req.user.user_id,
+  );
+  const io = req.app.get("io");
+  io?.in(`user_${req.user.user_id}`).socketsLeave(`chat_${req.params.chat_id}`);
+  io?.to(`user_${req.user.user_id}`).emit("group_left", { chat: result });
+  io?.to(`user_${req.user.user_id}`).emit("notifications_changed", {
+    chat_id: req.params.chat_id,
+  });
+  await notify(req, req.params.chat_id, "group_updated", {});
   res.json({ success: true, data: result });
 });
 const updateGroup = (operation) =>

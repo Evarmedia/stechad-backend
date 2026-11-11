@@ -403,6 +403,7 @@ const groupUpload = multer({
 }).single("avatar");
 router.post("/:chat_id/clear", controller.clearHistory);
 router.delete("/:chat_id", controller.deleteForUser);
+router.post("/:chat_id/leave", controller.leaveGroup);
 router.patch("/:chat_id", controller.updateSettings);
 router.post("/:chat_id/members", controller.addMembers);
 router.delete("/:chat_id/members/:user_id", controller.removeMember);
@@ -413,15 +414,13 @@ router.post(
   (req, res, next) =>
     groupUpload(req, res, (error) => {
       if (error)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              error.code === "LIMIT_FILE_SIZE"
-                ? "Images must be at most 2 MB"
-                : error.message,
-          });
+        return res.status(400).json({
+          success: false,
+          message:
+            error.code === "LIMIT_FILE_SIZE"
+              ? "Images must be at most 2 MB"
+              : error.message,
+        });
       next();
     }),
   controller.uploadGroupImage,

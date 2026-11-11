@@ -37,9 +37,13 @@ async function migrateChatStorage() {
       cleared_through_sequence BIGINT NOT NULL DEFAULT 0,
       unread_since_sequence BIGINT NOT NULL DEFAULT 0,
       hidden_through_sequence BIGINT,
+      left_through_sequence BIGINT,
       PRIMARY KEY (chat_id, user_id))`);
     await run(
       `ALTER TABLE ${table("chat_user_states")} ADD COLUMN IF NOT EXISTS hidden_through_sequence BIGINT`,
+    );
+    await run(
+      `ALTER TABLE ${table("chat_user_states")} ADD COLUMN IF NOT EXISTS left_through_sequence BIGINT`,
     );
     // Restores or an older sequence/default can leave the counter behind rows
     // already in the table. Align it before backfilling NULLs or accepting sends.
@@ -49,7 +53,7 @@ async function migrateChatStorage() {
     const [floor] = await run(
       `SELECT GREATEST(
       COALESCE((SELECT MAX(message_sequence) FROM ${table("messages")}), 0),
-      COALESCE((SELECT MAX(GREATEST(cleared_through_sequence, unread_since_sequence, COALESCE(hidden_through_sequence, 0))) FROM ${table("chat_user_states")}), 0)
+      COALESCE((SELECT MAX(GREATEST(cleared_through_sequence, unread_since_sequence, COALESCE(hidden_through_sequence, 0), COALESCE(left_through_sequence, 0))) FROM ${table("chat_user_states")}), 0)
     )::text AS value`,
       { type: require("sequelize").QueryTypes.SELECT },
     );
@@ -86,6 +90,9 @@ async function migrateChatStorage() {
     );
     await run(
       `CREATE INDEX IF NOT EXISTS chat_user_states_hidden_by_user ON ${table("chat_user_states")} (user_id, chat_id, hidden_through_sequence) WHERE hidden_through_sequence IS NOT NULL`,
+    );
+    await run(
+      `CREATE INDEX IF NOT EXISTS chat_user_states_left_by_user ON ${table("chat_user_states")} (user_id, chat_id, left_through_sequence) WHERE left_through_sequence IS NOT NULL`,
     );
     await run(
       `ALTER TABLE ${table("notifications")} ADD COLUMN IF NOT EXISTS chat_message_id UUID REFERENCES ${table("messages")}(messages_id) ON DELETE CASCADE`,

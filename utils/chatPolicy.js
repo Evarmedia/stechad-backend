@@ -82,27 +82,41 @@ async function userState(chatId, userId, transaction) {
     (await ChatUserState.findOne({
       where: { chat_id: chatId, user_id: userId },
       transaction,
-    })) || { cleared_through_sequence: "0", unread_since_sequence: "0" }
+    })) || {
+      cleared_through_sequence: "0",
+      unread_since_sequence: "0",
+      hidden_through_sequence: null,
+      left_through_sequence: null,
+    }
   );
 }
 const after = (sequence, boundary) =>
   BigInt(sequence || 0) > BigInt(boundary || 0);
+const visible = (sequence, state) =>
+  after(sequence, state.cleared_through_sequence) &&
+  (state.left_through_sequence === null ||
+    state.left_through_sequence === undefined ||
+    BigInt(sequence || 0) <= BigInt(state.left_through_sequence));
 const unreadBoundary = (state) =>
   BigInt(state.cleared_through_sequence) > BigInt(state.unread_since_sequence)
     ? state.cleared_through_sequence
     : state.unread_since_sequence;
-const sequenceWhere = (state, unread = false) => ({
-  message_sequence: {
+const sequenceWhere = (state, unread = false) => {
+  const range = {
     [Op.gt]: unread ? unreadBoundary(state) : state.cleared_through_sequence,
-  },
-});
+  };
+  if (
+    state.left_through_sequence !== null &&
+    state.left_through_sequence !== undefined
+  )
+    range[Op.lte] = state.left_through_sequence;
+  return { message_sequence: range };
+};
 const quoteTable = (name) =>
-  sequelize
-    .getQueryInterface()
-    .queryGenerator.quoteTable({
-      schema: sequelize.schema || "public",
-      tableName: name,
-    });
+  sequelize.getQueryInterface().queryGenerator.quoteTable({
+    schema: sequelize.schema || "public",
+    tableName: name,
+  });
 module.exports = {
   chatError,
   managerRoles,
@@ -114,6 +128,7 @@ module.exports = {
   requireContacts,
   userState,
   after,
+  visible,
   unreadBoundary,
   sequenceWhere,
   quoteTable,

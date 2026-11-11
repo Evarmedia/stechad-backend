@@ -29,6 +29,14 @@ const latestSequence = async (chatId, transaction) =>
       })
     )?.message_sequence || 0,
   );
+const visibleLatestSequence = async (chatId, userId, transaction) => {
+  const latest = await latestSequence(chatId, transaction);
+  const state = await policy.userState(chatId, userId, transaction);
+  if (state.left_through_sequence === null) return latest;
+  return BigInt(latest) < BigInt(state.left_through_sequence)
+    ? latest
+    : String(state.left_through_sequence);
+};
 async function deleteNotifications(chatId, userId, transaction, boundary) {
   await sequelize.query(
     `DELETE FROM ${policy.quoteTable("notifications")} n USING ${policy.quoteTable("messages")} m
@@ -38,11 +46,11 @@ async function deleteNotifications(chatId, userId, transaction, boundary) {
 }
 async function clearHistory(chatId, userId) {
   return sequelize.transaction(async (transaction) => {
-    const chat = await chatUtil.getAuthorizedChat(chatId, userId, {
+    const chat = await chatUtil.getAccessibleChat(chatId, userId, {
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
-    const boundary = await latestSequence(chatId, transaction);
+    const boundary = await visibleLatestSequence(chatId, userId, transaction);
     const previous = await policy.userState(chatId, userId, transaction);
     await ChatUserState.upsert(
       {
@@ -54,21 +62,22 @@ async function clearHistory(chatId, userId) {
       },
       { transaction },
     );
-    await chat.update(
-      { unread_counts: { ...chat.unread_counts, [userId]: 0 } },
-      { transaction, silent: true },
-    );
+    if (chat.participants.includes(userId))
+      await chat.update(
+        { unread_counts: { ...chat.unread_counts, [userId]: 0 } },
+        { transaction, silent: true },
+      );
     await deleteNotifications(chatId, userId, transaction, boundary);
     return { chat_id: chatId, cleared_through_sequence: boundary };
   });
 }
 async function deleteForUser(chatId, userId) {
   return sequelize.transaction(async (transaction) => {
-    const chat = await chatUtil.getAuthorizedChat(chatId, userId, {
+    const chat = await chatUtil.getAccessibleChat(chatId, userId, {
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
-    const boundary = await latestSequence(chatId, transaction);
+    const boundary = await visibleLatestSequence(chatId, userId, transaction);
     const previous = await policy.userState(chatId, userId, transaction);
     await ChatUserState.upsert(
       {
@@ -80,17 +89,96 @@ async function deleteForUser(chatId, userId) {
       },
       { transaction },
     );
-    await chat.update(
-      { unread_counts: { ...chat.unread_counts, [userId]: 0 } },
-      { transaction, silent: true },
-    );
+    if (chat.participants.includes(userId))
+      await chat.update(
+        { unread_counts: { ...chat.unread_counts, [userId]: 0 } },
+        { transaction, silent: true },
+      );
     await deleteNotifications(chatId, userId, transaction);
+    let purged = false;
+    const participantIds = [...chat.participants];
+    if (chat.chat_type === "direct") {
+      const states = await ChatUserState.findAll({
+        where: { chat_id: chatId, user_id: { [Op.in]: participantIds } },
+        transaction,
+      });
+      const byUser = new Map(states.map((state) => [state.user_id, state]));
+      purged = participantIds.every((id) => {
+        const state = byUser.get(id);
+        return (
+          state &&
+          state.hidden_through_sequence !== null &&
+          BigInt(state.hidden_through_sequence) >= BigInt(boundary)
+        );
+      });
+      if (purged) {
+        const messageIds = (
+          await Message.findAll({
+            where: { chat_id: chatId },
+            attributes: ["messages_id"],
+            transaction,
+          })
+        ).map((message) => message.messages_id);
+        if (messageIds.length)
+          await Notification.destroy({
+            where: { chat_message_id: { [Op.in]: messageIds } },
+            transaction,
+          });
+        await ChatUserState.destroy({
+          where: { chat_id: chatId },
+          transaction,
+        });
+        await Message.destroy({ where: { chat_id: chatId }, transaction });
+        await chat.destroy({ transaction });
+      }
+    }
     return {
       chat_id: chatId,
       cleared_through_sequence: boundary,
       hidden_through_sequence: boundary,
+      purged,
+      purged_for_user_ids: purged ? participantIds : [],
     };
   });
+}
+async function leaveGroup(chatId, userId) {
+  await sequelize.transaction(async (transaction) => {
+    const chat = await chatUtil.getAuthorizedChat(chatId, userId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (chat.chat_type === "direct")
+      throw policy.chatError("Direct conversations cannot be left", 400);
+    if (chat.created_by === userId)
+      throw policy.chatError(
+        "The group creator cannot leave without transferring ownership",
+        403,
+      );
+    const boundary = await latestSequence(chatId, transaction);
+    const previous = await policy.userState(chatId, userId, transaction);
+    const counts = { ...chat.unread_counts };
+    delete counts[userId];
+    await ChatUserState.upsert(
+      {
+        chat_id: chatId,
+        user_id: userId,
+        cleared_through_sequence: previous.cleared_through_sequence,
+        unread_since_sequence: previous.unread_since_sequence,
+        hidden_through_sequence: null,
+        left_through_sequence: boundary,
+      },
+      { transaction },
+    );
+    await chat.update(
+      {
+        participants: chat.participants.filter((id) => id !== userId),
+        unread_counts: counts,
+      },
+      { transaction },
+    );
+    await deleteNotifications(chatId, userId, transaction);
+  });
+  return chatUtil.getChatDetails(chatId, userId);
 }
 async function managedWrite(chatId, userId, operation) {
   await sequelize.transaction(async (transaction) => {
@@ -157,6 +245,8 @@ async function addMembers(chatId, userId, ids) {
           user_id: id,
           cleared_through_sequence: previous.cleared_through_sequence,
           unread_since_sequence: baseline,
+          hidden_through_sequence: null,
+          left_through_sequence: null,
         },
         { transaction },
       );
@@ -189,7 +279,7 @@ async function removeMember(chatId, userId, targetId) {
 }
 async function participantProfile(chatId, userId, targetId) {
   validateId(targetId);
-  const chat = await chatUtil.getAuthorizedChat(chatId, userId);
+  const chat = await chatUtil.getAccessibleChat(chatId, userId);
   if (!chat.participants.includes(targetId))
     throw policy.chatError("Participant not found", 404);
   const user = await User.findByPk(targetId, {
@@ -241,6 +331,7 @@ async function setGroupImage(chatId, userId, objectName) {
 module.exports = {
   clearHistory,
   deleteForUser,
+  leaveGroup,
   updateSettings,
   addMembers,
   removeMember,

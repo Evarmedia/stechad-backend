@@ -72,8 +72,7 @@ const formatMessage = async (message, userId, suppliedState) => {
   if (!message) return null;
   const state =
     suppliedState || (await policy.userState(message.chat_id, userId));
-  if (!policy.after(message.message_sequence, state.cleared_through_sequence))
-    return null;
+  if (!policy.visible(message.message_sequence, state)) return null;
   const data = message.toJSON();
   if (message.sender) data.sender = await formatUser(message.sender);
   if (message.replyToMessage?.sender)
@@ -83,10 +82,7 @@ const formatMessage = async (message, userId, suppliedState) => {
   // A deleted message's content must not leak through a quoted reply.
   if (
     data.replyToMessage &&
-    !policy.after(
-      data.replyToMessage.message_sequence,
-      state.cleared_through_sequence,
-    )
+    !policy.visible(data.replyToMessage.message_sequence, state)
   ) {
     data.replyToMessage = null;
     data.reply_unavailable = true;
@@ -117,18 +113,66 @@ const getAuthorizedChat = async (chatId, userId, options = {}) => {
   return chat;
 };
 
+const getAccessibleChat = async (chatId, userId, options = {}) => {
+  validateId(chatId, "chat ID");
+  const active = await Chat.findOne({
+    where: {
+      chats_id: chatId,
+      is_active: true,
+      participants: { [Op.contains]: [userId] },
+    },
+    ...options,
+  });
+  if (active) return active;
+  const state = await ChatUserState.findOne({
+    where: {
+      chat_id: chatId,
+      user_id: userId,
+      left_through_sequence: { [Op.ne]: null },
+    },
+    transaction: options.transaction,
+  });
+  if (!state) throw chatError("Chat not found or access denied", 404);
+  const chat = await Chat.findOne({
+    where: { chats_id: chatId, is_active: true },
+    ...options,
+  });
+  if (!chat) throw chatError("Chat not found or access denied", 404);
+  return chat;
+};
+
 const formatChat = async (chat, userId, details, snapshot) => {
   const state = snapshot
-    ? snapshot.states.get(chat.chats_id) || { cleared_through_sequence: "0" }
+    ? snapshot.states.get(chat.chats_id) || {
+        cleared_through_sequence: "0",
+        left_through_sequence: null,
+      }
     : await policy.userState(chat.chats_id, userId);
   const data = chat.toJSON();
   delete data.unread_counts;
-  const last = snapshot
-    ? snapshot.lastMessages.get(chat.last_message_id)
-    : chat.last_message_id &&
-      (await Message.findByPk(chat.last_message_id, {
-        attributes: ["message_sequence"],
-      }));
+  const hasLeft = state.left_through_sequence !== null;
+  const last = hasLeft
+    ? await Message.findOne({
+        where: {
+          chat_id: chat.chats_id,
+          is_deleted: false,
+          ...policy.sequenceWhere(state),
+        },
+        attributes: [
+          "messages_id",
+          "message_sequence",
+          "content",
+          "sender_id",
+          "timestamp",
+        ],
+        order: [["message_sequence", "DESC"]],
+      })
+    : snapshot
+      ? snapshot.lastMessages.get(chat.last_message_id)
+      : chat.last_message_id &&
+        (await Message.findByPk(chat.last_message_id, {
+          attributes: ["message_sequence"],
+        }));
   data.last_message_sequence = last ? String(last.message_sequence) : null;
   if (
     !last ||
@@ -141,7 +185,13 @@ const formatChat = async (chat, userId, details, snapshot) => {
       "last_message_timestamp",
     ])
       data[key] = null;
+  } else if (hasLeft) {
+    data.last_message_id = last.messages_id;
+    data.last_message_content = last.content;
+    data.last_message_sender_id = last.sender_id;
+    data.last_message_timestamp = last.timestamp;
   }
+  if (hasLeft) data.updated_at = last?.timestamp || data.created_at;
   let avatar_url = null;
   if (chat.avatar_object_name) {
     try {
@@ -154,21 +204,31 @@ const formatChat = async (chat, userId, details, snapshot) => {
     ...data,
     avatar_url,
     participant_details: details,
-    unread_count: chat.unread_counts?.[userId] || 0,
+    unread_count: hasLeft ? 0 : chat.unread_counts?.[userId] || 0,
     cleared_through_sequence: String(state.cleared_through_sequence),
-    can_manage: policy.canManage(
-      chat,
-      userId,
-      snapshot ? snapshot.role : await policy.actorRole(userId),
-    ),
+    left_through_sequence: hasLeft ? String(state.left_through_sequence) : null,
+    has_left: hasLeft,
+    can_leave:
+      !hasLeft &&
+      chat.chat_type !== "direct" &&
+      chat.created_by !== userId &&
+      chat.participants.includes(userId),
+    can_manage:
+      !hasLeft &&
+      policy.canManage(
+        chat,
+        userId,
+        snapshot ? snapshot.role : await policy.actorRole(userId),
+      ),
     can_post:
-      chat.chat_type === "direct" ||
-      chat.posting_policy !== "creator_only" ||
-      chat.created_by === userId,
+      !hasLeft &&
+      (chat.chat_type === "direct" ||
+        chat.posting_policy !== "creator_only" ||
+        chat.created_by === userId),
   };
 };
 const getChatDetails = async (chatId, userId) => {
-  const chat = await getAuthorizedChat(chatId, userId);
+  const chat = await getAccessibleChat(chatId, userId);
   const participants = await User.findAll({
     where: { user_id: { [Op.in]: chat.participants } },
     attributes: USER_ATTRIBUTES,
@@ -279,7 +339,7 @@ const createChat = async (
         // Starting a previously deleted direct chat is an explicit restore for
         // the caller. Their personal clear boundary remains in place.
         await ChatUserState.update(
-          { hidden_through_sequence: null },
+          { hidden_through_sequence: null, left_through_sequence: null },
           {
             where: { chat_id: existing.chats_id, user_id: createdBy },
             transaction,
@@ -310,7 +370,18 @@ const createChat = async (
 
 const getUserChats = async (userId, options = {}) => {
   const { page, limit, offset } = pagination(options, 50);
-  const where = { participants: { [Op.contains]: [userId] }, is_active: true };
+  const archived = await ChatUserState.findAll({
+    where: { user_id: userId, left_through_sequence: { [Op.ne]: null } },
+    attributes: ["chat_id"],
+  });
+  const archivedIds = archived.map((state) => state.chat_id);
+  const where = {
+    [Op.or]: [
+      { participants: { [Op.contains]: [userId] } },
+      ...(archivedIds.length ? [{ chats_id: { [Op.in]: archivedIds } }] : []),
+    ],
+    is_active: true,
+  };
   if (options.chat_type) {
     if (!["direct", "group", "support"].includes(options.chat_type))
       throw chatError("Invalid chat type");
@@ -323,7 +394,11 @@ const getUserChats = async (userId, options = {}) => {
     LEFT JOIN ${policy.quoteTable("messages")} message ON message.messages_id = chat.last_message_id
     WHERE state.user_id = :userId
       AND state.hidden_through_sequence IS NOT NULL
-      AND (message.message_sequence IS NULL OR message.message_sequence <= state.hidden_through_sequence)`,
+      AND (
+        (state.left_through_sequence IS NOT NULL AND state.left_through_sequence <= state.hidden_through_sequence)
+        OR
+        (state.left_through_sequence IS NULL AND (message.message_sequence IS NULL OR message.message_sequence <= state.hidden_through_sequence))
+      )`,
     { replacements: { userId }, type: QueryTypes.SELECT },
   );
   if (hidden.length)
@@ -521,7 +596,7 @@ const sendMessage = async (
 };
 
 const getChatMessages = async (chatId, userId, options = {}) => {
-  await getAuthorizedChat(chatId, userId);
+  await getAccessibleChat(chatId, userId);
   const { page, limit, offset } = pagination(options);
   const state = await policy.userState(chatId, userId);
   const where = {
@@ -568,7 +643,7 @@ const markMessagesAsRead = async (chatId, userId, messageIds = []) => {
     throw chatError("Message IDs must be an array of at most 500 items");
   messageIds.forEach((id) => validateId(id, "message ID"));
   return sequelize.transaction(async (transaction) => {
-    const chat = await getAuthorizedChat(chatId, userId, {
+    const chat = await getAccessibleChat(chatId, userId, {
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
@@ -625,15 +700,17 @@ const markMessagesAsRead = async (chatId, userId, messageIds = []) => {
       },
       transaction,
     });
-    await chat.update(
-      { unread_counts: { ...chat.unread_counts, [userId]: unread } },
-      { transaction, silent: true },
-    );
+    const hasLeft = state.left_through_sequence !== null;
+    if (!hasLeft)
+      await chat.update(
+        { unread_counts: { ...chat.unread_counts, [userId]: unread } },
+        { transaction, silent: true },
+      );
     return {
       chat_id: chatId,
       user_id: userId,
       message_ids: messageIds,
-      unread_count: unread,
+      unread_count: hasLeft ? 0 : unread,
       read_at: new Date().toISOString(),
     };
   });
@@ -734,8 +811,19 @@ const searchMessages = async (userId, query, options = {}) => {
   )
     throw chatError("Search query must be between 2 and 200 characters");
   const { page, limit, offset } = pagination(options, 20);
+  const archived = await ChatUserState.findAll({
+    where: { user_id: userId, left_through_sequence: { [Op.ne]: null } },
+    attributes: ["chat_id"],
+  });
+  const archivedIds = archived.map((state) => state.chat_id);
   const userChats = await Chat.findAll({
-    where: { participants: { [Op.contains]: [userId] }, is_active: true },
+    where: {
+      is_active: true,
+      [Op.or]: [
+        { participants: { [Op.contains]: [userId] } },
+        ...(archivedIds.length ? [{ chats_id: { [Op.in]: archivedIds } }] : []),
+      ],
+    },
     attributes: ["chats_id"],
   });
   const ids = userChats.map((chat) => chat.chats_id);
@@ -784,6 +872,7 @@ module.exports = {
   getAvailableUsers,
   getChatDetails,
   getAuthorizedChat,
+  getAccessibleChat,
   sendMessage,
   getChatMessages,
   markMessagesAsRead,

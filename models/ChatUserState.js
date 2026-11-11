@@ -33,6 +33,11 @@ ChatUserState.init(
       allowNull: true,
       defaultValue: null,
     },
+    left_through_sequence: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     sequelize,
