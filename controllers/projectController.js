@@ -1,4 +1,4 @@
-const { Project, User, Job, ProjectManager, Engineer } = require("../models");
+const { Project, User, Job, ProjectManager, Talent } = require("../models");
 const { Op } = require("sequelize");
 const { createNotification } = require("../utils/notificationUtil");
 const { getRoleKey } = require("../utils/roleUtils");
@@ -40,15 +40,15 @@ const getAllProjects = async (req, res) => {
       ];
     }
 
-    if (role === "engineer") {
-      // Engineers see only projects they are assigned to (M:N)
+    if (role === "talent") {
+      // Talents see only projects they are assigned to (M:N)
       // ✅ Important: restrict via include with required: true
       include.push({
-        model: Engineer,
-        as: "engineers",
+        model: Talent,
+        as: "talents",
         required: true,
         through: { attributes: [] },
-        where: { user_id }, // since Engineer has user_id column
+        where: { user_id }, // since Talent has user_id column
         // If you prefer to go through User, use the nested include below instead:
         // include: [{ model: User, as: "user", where: { user_id }, attributes: [] }],
       });
@@ -70,11 +70,11 @@ const getAllProjects = async (req, res) => {
        Avoid duplicates: only add these if not already used for restriction
        =============================== */
 
-    // If role !== engineer, we can safely include engineers for display
-    if (role !== "engineer") {
+    // If role !== talent, we can safely include talents for display
+    if (role !== "talent") {
       include.push({
-        model: Engineer,
-        as: "engineers",
+        model: Talent,
+        as: "talents",
         required: false,
         through: { attributes: [] },
         include: [
@@ -86,7 +86,7 @@ const getAllProjects = async (req, res) => {
         ],
       });
     } else {
-      // role === engineer: we already included engineers for restriction,
+      // role === talent: we already included talents for restriction,
       // but we still want the user fields in response:
       include[0].include = [
         {
@@ -174,8 +174,8 @@ const getProjectManagerProjects = async (req, res) => {
       where: { project_managers_id: projectManager.project_managers_id },
       include: [
         {
-          model: Engineer,
-          as: "engineers",
+          model: Talent,
+          as: "talents",
           through: { attributes: [] },
           required: false,
           include: [
@@ -228,10 +228,10 @@ const getProjectById = async (req, res) => {
           ],
         },
 
-        // 🔹 Engineers (Many-to-Many)
+        // 🔹 Talents (Many-to-Many)
         {
-          model: Engineer,
-          as: "engineers",
+          model: Talent,
+          as: "talents",
           through: { attributes: [] },
           required: false,
           include: [
@@ -278,7 +278,7 @@ const createProject = async (req, res) => {
     const {
       title,
       description,
-      engineer_ids = [],
+      talent_ids = [],
       status = "planning",
       priority = "medium",
       progress = 0,
@@ -338,15 +338,15 @@ const createProject = async (req, res) => {
     });
 
     /* ===============================
-       ASSIGN ENGINEERS (OPTIONAL)
+       ASSIGN TALENTS (OPTIONAL)
        =============================== */
-    if (Array.isArray(engineer_ids) && engineer_ids.length > 0) {
-      const engineers = await Engineer.findAll({
-        where: { engineer_id: engineer_ids },
+    if (Array.isArray(talent_ids) && talent_ids.length > 0) {
+      const talents = await Talent.findAll({
+        where: { talent_id: talent_ids },
       });
 
-      if (engineers.length) {
-        await project.addEngineers(engineers); // Sequelize M:N helper
+      if (talents.length) {
+        await project.addTalents(talents); // Sequelize M:N helper
       }
     }
 
@@ -386,8 +386,8 @@ const updateProject = async (req, res) => {
           include: [{ model: User, as: "user" }],
         },
         {
-          model: Engineer,
-          as: "engineers",
+          model: Talent,
+          as: "talents",
           through: { attributes: [] },
           include: [{ model: User, as: "user" }],
         },
@@ -446,12 +446,12 @@ const updateProject = async (req, res) => {
     await project.update(updates);
 
     /* ===============================
-       NOTIFICATIONS (ENGINEERS)
+       NOTIFICATIONS (TALENTS)
        =============================== */
-    const engineerUsers =
-      project.engineers?.map((e) => e.user?.user_id).filter(Boolean) || [];
+    const talentUsers =
+      project.talents?.map((e) => e.user?.user_id).filter(Boolean) || [];
 
-    for (const userId of engineerUsers) {
+    for (const userId of talentUsers) {
       // Status change
       if (updates.status && oldStatus !== updates.status) {
         await createNotification({

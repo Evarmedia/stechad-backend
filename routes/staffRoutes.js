@@ -6,7 +6,7 @@ const adminController = require("../controllers/adminController");
 
 const router = express.Router();
 
-router.use(authenticate, authorize("staff", "project_manager", "engineer", "admin", "super_admin"));
+router.use(authenticate, authorize("staff", "project_manager", "talent", "admin", "super_admin"));
 
 router.get("/dashboard", staffController.getDashboard);
 router.get("/approvals", authorizeAnyPermission("approve_leave", "approve_expenses", "verify_receipts", "approve_invoices"), staffController.getApprovalQueue);

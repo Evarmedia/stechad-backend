@@ -543,7 +543,7 @@ if (!databaseUrl) {
       "super_admin",
       "project_manager",
       "staff",
-      "engineer",
+      "talent",
     ];
     const people = Object.fromEntries(
       await Promise.all(
@@ -553,9 +553,9 @@ if (!databaseUrl) {
     const allowed = {
       admin: roles,
       super_admin: roles,
-      project_manager: ["project_manager", "staff", "engineer"],
+      project_manager: ["project_manager", "staff", "talent"],
       staff: ["staff", "project_manager"],
-      engineer: [],
+      talent: [],
     };
     for (const actor of roles) {
       for (const target of roles) {
@@ -605,38 +605,38 @@ if (!databaseUrl) {
     }
     const staff = await makeUser("staff");
     const pm = await makeUser("project_manager");
-    const engineer = await makeUser("engineer");
+    const talent = await makeUser("talent");
     await chat.createChat(
-      [staff.user_id, engineer.user_id],
+      [staff.user_id, talent.user_id],
       pm.user_id,
       "group",
       "Mixed roles",
     );
     assert.equal(
-      (await chat.getAvailableUsers(staff.user_id, { search: "engineer" }))
+      (await chat.getAvailableUsers(staff.user_id, { search: "talent" }))
         .users.length,
       0,
     );
   });
-  test("engineers need an actual incoming direct message, retained after deletion and clearing", async () => {
-    const engineer = await makeUser("engineer"),
+  test("talents need an actual incoming direct message, retained after deletion and clearing", async () => {
+    const talent = await makeUser("talent"),
       admin = await makeUser("admin"),
       pm = await makeUser("project_manager");
-    const direct = await chat.createChat([engineer.user_id], admin.user_id);
+    const direct = await chat.createChat([talent.user_id], admin.user_id);
     await chat.createChat(
-      [engineer.user_id],
+      [talent.user_id],
       pm.user_id,
       "group",
       "Shared group",
     );
     assert.equal(
-      (await chat.getAvailableUsers(engineer.user_id)).users.length,
+      (await chat.getAvailableUsers(talent.user_id)).users.length,
       0,
     );
-    // Existing empty threads remain replyable but do not populate the engineer's picker.
-    await chat.sendMessage(direct.chats_id, engineer.user_id, "Existing reply");
+    // Existing empty threads remain replyable but do not populate the talent's picker.
+    await chat.sendMessage(direct.chats_id, talent.user_id, "Existing reply");
     assert.equal(
-      (await chat.getAvailableUsers(engineer.user_id)).users.length,
+      (await chat.getAvailableUsers(talent.user_id)).users.length,
       0,
     );
     const incoming = await chat.sendMessage(
@@ -645,31 +645,31 @@ if (!databaseUrl) {
       "Actual incoming",
     );
     await chat.deleteMessage(incoming.messages_id, admin.user_id);
-    await management.clearHistory(direct.chats_id, engineer.user_id);
+    await management.clearHistory(direct.chats_id, talent.user_id);
     assert.deepEqual(
-      (await chat.getAvailableUsers(engineer.user_id)).users.map(
+      (await chat.getAvailableUsers(talent.user_id)).users.map(
         (person) => person.user_id,
       ),
       [admin.user_id],
     );
     await admin.update({ is_active: false });
     assert.equal(
-      (await chat.getAvailableUsers(engineer.user_id)).users.length,
+      (await chat.getAvailableUsers(talent.user_id)).users.length,
       0,
     );
   });
   test("creator management, legacy support, posting restrictions and profile authorization work through REST and sockets", async () => {
     const pm = await makeUser("project_manager"),
       staff = await makeUser("staff"),
-      engineer = await makeUser("engineer"),
+      talent = await makeUser("talent"),
       otherPm = await makeUser("project_manager");
     const group = await chat.createChat(
-      [staff.user_id, engineer.user_id, otherPm.user_id],
+      [staff.user_id, talent.user_id, otherPm.user_id],
       pm.user_id,
       "support",
       "Legacy support",
     );
-    for (const actor of [staff, engineer, otherPm]) {
+    for (const actor of [staff, talent, otherPm]) {
       assert.equal(
         (
           await request(actor, `/${group.chats_id}`, "PATCH", {
@@ -740,7 +740,7 @@ if (!databaseUrl) {
     );
     await chat.sendMessage(group.chats_id, pm.user_id, "Creator announcement");
     const profile = await request(
-      engineer,
+      talent,
       `/${group.chats_id}/members/${staff.user_id}/profile`,
     );
     assert.equal(profile.status, 200);
@@ -787,7 +787,7 @@ if (!databaseUrl) {
   test("added and re-added members see full history with no historic unread alerts; removal revokes realtime access", async () => {
     const pm = await makeUser("project_manager"),
       staff = await makeUser("staff"),
-      engineer = await makeUser("engineer");
+      talent = await makeUser("talent");
     const group = await chat.createChat(
       [staff.user_id],
       pm.user_id,
@@ -799,35 +799,35 @@ if (!databaseUrl) {
       pm.user_id,
       "Older group history",
     );
-    await management.addMembers(group.chats_id, pm.user_id, [engineer.user_id]);
+    await management.addMembers(group.chats_id, pm.user_id, [talent.user_id]);
     assert.ok(
       (
-        await chat.getChatMessages(group.chats_id, engineer.user_id)
+        await chat.getChatMessages(group.chats_id, talent.user_id)
       ).messages.some((message) => message.messages_id === old.messages_id),
     );
     assert.equal(
-      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+      (await chat.getChatDetails(group.chats_id, talent.user_id))
         .unread_count,
       0,
     );
     assert.equal(
-      await Notification.count({ where: { user_id: engineer.user_id } }),
+      await Notification.count({ where: { user_id: talent.user_id } }),
       0,
     );
-    await chat.markMessagesAsRead(group.chats_id, engineer.user_id);
+    await chat.markMessagesAsRead(group.chats_id, talent.user_id);
     const privateMessage = await chat.sendMessage(
       group.chats_id,
       pm.user_id,
       "Before clear",
     );
-    await management.clearHistory(group.chats_id, engineer.user_id);
-    const receiver = await connect(engineer);
+    await management.clearHistory(group.chats_id, talent.user_id);
+    const receiver = await connect(talent);
     const revoked = event(receiver, "membership_revoked");
     assert.equal(
       (
         await request(
           pm,
-          `/${group.chats_id}/members/${engineer.user_id}`,
+          `/${group.chats_id}/members/${talent.user_id}`,
           "DELETE",
         )
       ).status,
@@ -835,7 +835,7 @@ if (!databaseUrl) {
     );
     assert.equal((await revoked).chat_id, group.chats_id);
     assert.equal(
-      (await request(engineer, `/${group.chats_id}/messages`)).status,
+      (await request(talent, `/${group.chats_id}/messages`)).status,
       404,
     );
     assert.equal(
@@ -856,9 +856,9 @@ if (!databaseUrl) {
     });
     await new Promise((resolve) => setTimeout(resolve, 60));
     assert.equal(leaked, false);
-    await management.addMembers(group.chats_id, pm.user_id, [engineer.user_id]);
+    await management.addMembers(group.chats_id, pm.user_id, [talent.user_id]);
     const history = (
-      await chat.getChatMessages(group.chats_id, engineer.user_id)
+      await chat.getChatMessages(group.chats_id, talent.user_id)
     ).messages;
     assert.ok(history.some((message) => message.content === "While removed"));
     assert.ok(
@@ -867,15 +867,15 @@ if (!databaseUrl) {
       ),
     );
     assert.equal(
-      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+      (await chat.getChatDetails(group.chats_id, talent.user_id))
         .unread_count,
       0,
     );
-    await chat.markMessagesAsRead(group.chats_id, engineer.user_id, [
+    await chat.markMessagesAsRead(group.chats_id, talent.user_id, [
       privateMessage.messages_id,
     ]);
     assert.equal(
-      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+      (await chat.getChatDetails(group.chats_id, talent.user_id))
         .unread_count,
       0,
     );
@@ -1638,7 +1638,7 @@ if (!databaseUrl) {
   test("deleting history before a member's clear or join baseline does not reduce new unread counts", async () => {
     const pm = await makeUser("project_manager"),
       staff = await makeUser("staff"),
-      engineer = await makeUser("engineer");
+      talent = await makeUser("talent");
     const group = await chat.createChat(
       [staff.user_id],
       pm.user_id,
@@ -1651,7 +1651,7 @@ if (!databaseUrl) {
       "Old unread history",
     );
     await management.clearHistory(group.chats_id, staff.user_id);
-    await management.addMembers(group.chats_id, pm.user_id, [engineer.user_id]);
+    await management.addMembers(group.chats_id, pm.user_id, [talent.user_id]);
     await chat.sendMessage(group.chats_id, pm.user_id, "New unread message");
     await chat.deleteMessage(old.messages_id, pm.user_id);
     assert.equal(
@@ -1659,7 +1659,7 @@ if (!databaseUrl) {
       1,
     );
     assert.equal(
-      (await chat.getChatDetails(group.chats_id, engineer.user_id))
+      (await chat.getChatDetails(group.chats_id, talent.user_id))
         .unread_count,
       1,
     );

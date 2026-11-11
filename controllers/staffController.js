@@ -970,7 +970,7 @@ const submitInvoice = async (req, res) => {
     const invoice = await Invoice.create({
       invoice_number: `INV-${moment().format("YYYYMMDD")}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
       submitted_by: req.user.user_id,
-      invoice_type: getRoleKey(req.user) === "engineer" ? "engineer" : "staff",
+      invoice_type: getRoleKey(req.user) === "talent" ? "talent" : "staff",
       period,
       amount: Number(amount),
       currency: String(currency).toUpperCase(),

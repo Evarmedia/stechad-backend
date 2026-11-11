@@ -60,11 +60,11 @@ router.use(authenticate);
  *           format: uuid
  *         description: Filter by project manager ID
  *       - in: query
- *         name: engineer_id
+ *         name: talent_id
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Filter by engineer ID
+ *         description: Filter by talent ID
  *     responses:
  *       200:
  *         description: Projects retrieved successfully
@@ -263,7 +263,7 @@ router.get('/:projects_id', authorize('admin', 'project_manager'), getProjectByI
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       404:
- *         description: Job or Engineer not found
+ *         description: Job or Talent not found
  *         content:
  *           application/json:
  *             schema:
@@ -371,7 +371,7 @@ router.post('/', authorize('admin', 'project_manager'), createProject);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/:projects_id', authorize('admin', 'project_manager', 'engineer'), updateProject);
+router.put('/:projects_id', authorize('admin', 'project_manager', 'talent'), updateProject);
 
 /**
  * @swagger

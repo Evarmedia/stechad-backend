@@ -7,15 +7,15 @@ const express = require('express');
  */
 
 const { authenticate, authorize } = require('../middleware/auth');
-const { exportEngineers, exportJobs, exportApplications } = require('../controllers/exportController');
+const { exportTalents, exportJobs, exportApplications } = require('../controllers/exportController');
 
 const router = express.Router();
 
 /**
  * @swagger
- * /export/engineers:
+ * /export/talents:
  *   get:
- *     summary: Export engineers data to CSV/Excel
+ *     summary: Export talents data to CSV/Excel
  *     tags: [Data Export]
  *     parameters:
  *       - in: query
@@ -56,7 +56,7 @@ const router = express.Router();
  *         description: Filter by registration date to
  *     responses:
  *       200:
- *         description: Engineers data exported successfully
+ *         description: Talents data exported successfully
  *         content:
  *           application/csv:
  *             schema:
@@ -76,7 +76,7 @@ const router = express.Router();
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/Engineer'
+ *                     $ref: '#/components/schemas/Talent'
  *       403:
  *         description: Access denied
  *         content:
@@ -90,7 +90,7 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/engineers', authenticate, authorize('admin'), exportEngineers);
+router.get('/talents', authenticate, authorize('admin'), exportTalents);
 
 /**
  * @swagger
@@ -192,7 +192,7 @@ router.get('/jobs', authenticate, authorize('admin', 'project_manager'), exportJ
  *         schema:
  *           type: string
  *         description: Comma-separated list of fields to include
- *         example: "id,job_id,engineer_id,status,proposed_rate,created_at"
+ *         example: "id,job_id,talent_id,status,proposed_rate,created_at"
  *       - in: query
  *         name: status
  *         schema:
@@ -205,10 +205,10 @@ router.get('/jobs', authenticate, authorize('admin', 'project_manager'), exportJ
  *           type: integer
  *         description: Filter by specific job ID
  *       - in: query
- *         name: engineer_id
+ *         name: talent_id
  *         schema:
  *           type: integer
- *         description: Filter by specific engineer ID
+ *         description: Filter by specific talent ID
  *       - in: query
  *         name: date_from
  *         schema:

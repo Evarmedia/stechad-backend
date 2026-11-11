@@ -255,7 +255,7 @@ const createApplicationStatusNotification = async (
   }
 
   return await createNotification({
-    user_id: application.engineer_id,
+    user_id: application.talent_id,
     title: "Application Status Update",
     message,
     type,
@@ -272,11 +272,11 @@ const createApplicationStatusNotification = async (
 /**
  * Create notification for new job posting
  * @param {Object} job - The job object
- * @param {Array} engineerIds - Array of engineer user IDs to notify
+ * @param {Array} talentIds - Array of talent user IDs to notify
  */
-const createNewJobNotification = async (job, engineerIds) => {
-  const notifications = engineerIds.map((engineer_id) => ({
-    user_id: engineer_id,
+const createNewJobNotification = async (job, talentIds) => {
+  const notifications = talentIds.map((talent_id) => ({
+    user_id: talent_id,
     title: "New Job Opportunity",
     message: `A new job "${job.title}" at ${job.company} matches your profile`,
     type: "info",
@@ -294,11 +294,11 @@ const createNewJobNotification = async (job, engineerIds) => {
 /**
  * Create notification for project assignment
  * @param {Object} project - The project object
- * @param {string} engineer_id - The engineer user ID
+ * @param {string} talent_id - The talent user ID
  */
-const createProjectAssignmentNotification = async (project, engineer_id) => {
+const createProjectAssignmentNotification = async (project, talent_id) => {
   return await createNotification({
-    user_id: engineer_id,
+    user_id: talent_id,
     title: "New Project Assignment",
     message: `You have been assigned to project: ${project.title}`,
     type: "info",
@@ -315,28 +315,28 @@ const createProjectAssignmentNotification = async (project, engineer_id) => {
  * @param {Object} params
  * @param {Object} params.job - Job instance with poster included
  * @param {Object} params.application - Application instance
- * @param {Object} params.engineer - Engineer instance with user included
+ * @param {Object} params.talent - Talent instance with user included
  */
-const notifyJobPosterOfApplication = async ({ job, application, engineer }) => {
+const notifyJobPosterOfApplication = async ({ job, application, talent }) => {
   try {
     const pmUserId = job?.poster?.user_id;
     const pmEmail = job?.poster?.email;
 
     if (!pmUserId || !pmEmail) return;
 
-    const engineerName = `${engineer.user?.first_name || ""} ${engineer.user?.last_name || ""}`.trim() || "Engineer";
+    const talentName = `${talent.user?.first_name || ""} ${talent.user?.last_name || ""}`.trim() || "Talent";
     const pmName = job.poster?.first_name || "there";
 
     await createNotification({
       user_id: pmUserId,
       title: "New Job Application",
-      message: `${engineerName} just applied for your job "${job.title}"`,
+      message: `${talentName} just applied for your job "${job.title}"`,
       type: "info",
       action_url: `/jobs/${job.jobs_id}/applicants`,
       metadata: {
         job_id: job.jobs_id,
         application_id: application.applications_id,
-        engineer_id: engineer.engineer_id,
+        talent_id: talent.talent_id,
       },
     });
 
@@ -348,7 +348,7 @@ const notifyJobPosterOfApplication = async ({ job, application, engineer }) => {
         pm_name: pmName,
         job_title: job.title || "your job",
         company: job.company || "",
-        engineer_name: engineerName,
+        talent_name: talentName,
         application_url: `${process.env.APP_URL || "https://app.stechad.com"}/jobs/${job.jobs_id}/applicants`,
       },
     });

@@ -37,7 +37,8 @@
     "socket.io": "^4.8.1",
     "sqlite3": "^5.1.6",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "umzug": "^2.3.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2",

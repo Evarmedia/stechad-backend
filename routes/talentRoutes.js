@@ -2,12 +2,12 @@ const express = require('express');
 /**
  * @swagger
  * tags:
- *   name: Engineers
- *   description: Engineer-specific endpoints for profile management, job applications, and projects
+ *   name: Talents
+ *   description: Talent-specific endpoints for profile management, job applications, and projects
  */
 
 const {
-  getEngineers,
+  getTalents,
   completeOnboarding,
   getDashboard,
   updateProfile,
@@ -17,7 +17,7 @@ const {
   getApplications,
   getProjects,
   getProjectDetails,
-} = require('../controllers/engineerController');
+} = require('../controllers/talentController');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validateApplication } = require('../middleware/validation');
 
@@ -25,15 +25,15 @@ const { upload } = require('../middleware/upload')
 
 const router = express.Router();
 
-// All routes require authentication and engineer role
+// All routes require authentication and talent role
 router.use(authenticate);
 
 /**
  * @swagger
- * /engineers/all:
+ * /talents/all:
  *   get:
- *     summary: Get all engineers with pagination(Admin/PM)
- *     tags: [Engineers]
+ *     summary: Get all talents with pagination(Admin/PM)
+ *     tags: [Talents]
  *     parameters:
  *       - in: query
  *         name: page
@@ -56,20 +56,20 @@ router.use(authenticate);
  *           enum: [available, busy, unavailable]
  *     responses:
  *       200:
- *         description: Engineers retrieved successfully
+ *         description: Talents retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.get('/all', authorize('project_manager', 'admin'), getEngineers);
+router.get('/all', authorize('project_manager', 'admin'), getTalents);
 
 /**
  * @swagger
- * /engineers/onboarding:
+ * /talents/onboarding:
  *   put:
- *     summary: Complete engineer onboarding (supports file upload & form fields)
- *     tags: [Engineers]
+ *     summary: Complete talent onboarding (supports file upload & form fields)
+ *     tags: [Talents]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -84,7 +84,7 @@ router.get('/all', authorize('project_manager', 'admin'), getEngineers);
  *               cv_file:
  *                 type: string
  *                 format: binary
- *                 description: Upload the engineer's CV (PDF, DOCX, etc.)
+ *                 description: Upload the talent's CV (PDF, DOCX, etc.)
  *
  *               date_of_birth:
  *                 type: string
@@ -188,26 +188,26 @@ router.get('/all', authorize('project_manager', 'admin'), getEngineers);
  *                 data:
  *                   type: object
  *                   properties:
- *                     engineer:
- *                       $ref: '#/components/schemas/Engineer'
+ *                     talent:
+ *                       $ref: '#/components/schemas/Talent'
  *                     cv_url:
  *                       type: string
  *                       example: "https://storage.googleapis.com/bucket/cv123.pdf?X-Goog-Signature=..."
  *
  *       404:
- *         description: Engineer profile not found
+ *         description: Talent profile not found
  *       500:
  *         description: Onboarding failed
  */
 // UPDATE: Added upload.single('cv_file') middleware to handle file upload
-router.put('/onboarding', authorize('engineer'), upload.single('cv_file'), completeOnboarding);
+router.put('/onboarding', authorize('talent'), upload.single('cv_file'), completeOnboarding);
 
 /**
  * @swagger
- * /engineers/dashboard:
+ * /talents/dashboard:
  *   get:
- *     summary: Get engineer dashboard data with statistics and recent activities
- *     tags: [Engineers]
+ *     summary: Get talent dashboard data with statistics and recent activities
+ *     tags: [Talents]
  *     responses:
  *       200:
  *         description: Dashboard data retrieved successfully
@@ -222,8 +222,8 @@ router.put('/onboarding', authorize('engineer'), upload.single('cv_file'), compl
  *                 data:
  *                   type: object
  *                   properties:
- *                     engineer:
- *                       $ref: '#/components/schemas/Engineer'
+ *                     talent:
+ *                       $ref: '#/components/schemas/Talent'
  *                     statistics:
  *                       type: object
  *                       properties:
@@ -251,14 +251,14 @@ router.put('/onboarding', authorize('engineer'), upload.single('cv_file'), compl
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/dashboard', authorize('engineer'), getDashboard);
+router.get('/dashboard', authorize('talent'), getDashboard);
 
 /**
  * @swagger
- * /engineers/profile:
+ * /talents/profile:
  *   put:
- *     summary: Update engineer profile (supports avatar & CV upload). Stores GCS object names; returns temporary signed URLs.
- *     tags: [Engineers]
+ *     summary: Update talent profile (supports avatar & CV upload). Stores GCS object names; returns temporary signed URLs.
+ *     tags: [Talents]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -333,8 +333,8 @@ router.get('/dashboard', authorize('engineer'), getDashboard);
  *                 data:
  *                   type: object
  *                   properties:
- *                     engineer:
- *                       $ref: '#/components/schemas/Engineer'
+ *                     talent:
+ *                       $ref: '#/components/schemas/Talent'
  *                     avatar_url:
  *                       type: string
  *                       nullable: true
@@ -344,7 +344,7 @@ router.get('/dashboard', authorize('engineer'), getDashboard);
  *                       nullable: true
  *                       description: Temporary signed URL for the CV (may be omitted if no CV)
  *       404:
- *         description: Engineer profile not found
+ *         description: Talent profile not found
  *         content:
  *           application/json:
  *             schema:
@@ -357,14 +357,14 @@ router.get('/dashboard', authorize('engineer'), getDashboard);
  *               $ref: '#/components/schemas/Error'
  */
 // UPDATE: Added upload.fields() middleware to handle both avatar and cv file uploads
-router.put('/profile', authorize('engineer'), upload.fields([{name:'avatar', maxCount: 1}, {name:'cv_file', maxCount: 1}]), updateProfile);
+router.put('/profile', authorize('talent'), upload.fields([{name:'avatar', maxCount: 1}, {name:'cv_file', maxCount: 1}]), updateProfile);
 
 /**
  * @swagger
- * /engineers/jobs/{jobs_id}:
+ * /talents/jobs/{jobs_id}:
  *   get:
  *     summary: Get specific job details
- *     tags: [Engineers]
+ *     tags: [Talents]
  *     parameters:
  *       - in: path
  *         name: jobs_id
@@ -398,14 +398,14 @@ router.put('/profile', authorize('engineer'), upload.fields([{name:'avatar', max
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/jobs/:jobs_id', authorize('engineer'), getJobDetails);
+router.get('/jobs/:jobs_id', authorize('talent'), getJobDetails);
 
 /**
  * @swagger
- * /engineers/jobs/{jobs_id}/apply:
+ * /talents/jobs/{jobs_id}/apply:
  *   post:
  *     summary: Apply for a specific job
- *     tags: [Engineers]
+ *     tags: [Talents]
  *     parameters:
  *       - in: path
  *         name: jobs_id
@@ -465,14 +465,14 @@ router.get('/jobs/:jobs_id', authorize('engineer'), getJobDetails);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/jobs/:jobs_id/apply', authorize('engineer'), applyForJob);
+router.post('/jobs/:jobs_id/apply', authorize('talent'), applyForJob);
 
 /**
  * @swagger
- * /engineers/applications:
+ * /talents/applications:
  *   get:
- *     summary: Get engineer's job applications with pagination
- *     tags: [Engineers]
+ *     summary: Get talent's job applications with pagination
+ *     tags: [Talents]
  *     parameters:
  *       - in: query
  *         name: page
@@ -532,14 +532,14 @@ router.post('/jobs/:jobs_id/apply', authorize('engineer'), applyForJob);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/applications', authorize('engineer'), getApplications);
+router.get('/applications', authorize('talent'), getApplications);
 
 /**
  * @swagger
- * /engineers/projects:
+ * /talents/projects:
  *   get:
- *     summary: Get engineer's current and past projects
- *     tags: [Engineers]
+ *     summary: Get talent's current and past projects
+ *     tags: [Talents]
  *     parameters:
  *       - in: query
  *         name: page
@@ -599,14 +599,14 @@ router.get('/applications', authorize('engineer'), getApplications);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/projects', authorize('engineer'), getProjects);
+router.get('/projects', authorize('talent'), getProjects);
 
 /**
  * @swagger
- * /engineers/projects/{projects_id}:
+ * /talents/projects/{projects_id}:
  *   get:
  *     summary: Get specific project details
- *     tags: [Engineers]
+ *     tags: [Talents]
  *     parameters:
  *       - in: path
  *         name: projects_id
@@ -640,6 +640,6 @@ router.get('/projects', authorize('engineer'), getProjects);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/projects/:id', authorize('engineer'), getProjectDetails);
+router.get('/projects/:id', authorize('talent'), getProjectDetails);
 
 module.exports = router;

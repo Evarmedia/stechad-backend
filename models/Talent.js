@@ -2,11 +2,11 @@ const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const User = require("./User");
 
-class Engineer extends Model {}
+class Talent extends Model {}
 
-Engineer.init(
+Talent.init(
   {
-    engineer_id: {
+    talent_id: {
       type: DataTypes.UUID,
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
@@ -115,12 +115,12 @@ Engineer.init(
   },
   {
     sequelize,
-    modelName: "Engineer",
-    tableName: "engineers",
+    modelName: "Talent",
+    tableName: "talents",
     timestamps: true,
     createdAt: "created_at",
     updatedAt: "updated_at",
   },
 );
 
-module.exports = Engineer;
+module.exports = Talent;

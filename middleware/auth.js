@@ -70,7 +70,7 @@ const authorize = (...roles) => {
 const hasPermission = async (user, permissionKey) => {
   const roleKey = getRoleKey(user);
   if (roleKey === "super_admin") return true;
-  if (roleKey === "engineer") return ["view_dashboard", "submit_expenses"].includes(permissionKey);
+  if (roleKey === "talent") return ["view_dashboard", "submit_expenses"].includes(permissionKey);
   if (Array.isArray(user.workforce_permissions) && user.workforce_permissions.includes(permissionKey)) return true;
   const roleColumn = roleKey === "project_manager" ? "project_manager" : roleKey;
   if (!["admin", "project_manager", "staff"].includes(roleColumn)) return false;

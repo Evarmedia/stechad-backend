@@ -39,7 +39,7 @@ Project.init(
     //     key: 'jobs_id',
     //   },
     // },
-    // engineer_user_id: {
+    // talent_user_id: {
     //   type: DataTypes.UUID,
     //   references: {
     //     model: User,

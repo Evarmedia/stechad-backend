@@ -861,7 +861,7 @@ paths:
     post:
       tags: [Staff]
       summary: Submit a workforce invoice
-      description: Creates a pending staff or engineer invoice and notifies invoice approvers.
+      description: Creates a pending staff or talent invoice and notifies invoice approvers.
       requestBody:
         required: true
         content:

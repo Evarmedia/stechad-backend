@@ -5,7 +5,7 @@ const SYSTEM_ROLE_KEYS = Object.freeze([
   "super_admin",
   "admin",
   "project_manager",
-  "engineer",
+  "talent",
   "staff",
 ]);
 

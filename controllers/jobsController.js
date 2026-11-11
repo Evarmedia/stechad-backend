@@ -1,4 +1,4 @@
-const { User, Job, Application, ProjectManager, Engineer } = require('../models');
+const { User, Job, Application, ProjectManager, Talent } = require('../models');
 const { Op } = require('sequelize');
 const { getV4ReadSignedUrl } = require('../config/gcpStorage');
 const { getRoleKey } = require('../utils/roleUtils');
@@ -125,8 +125,8 @@ const getJobById = async (req, res) => {
           attributes: ["applications_id", "status", "applied_at"],
           include: [
             {
-              // 🔧 FIX: applicant is Engineer, not User
-              model: Engineer,
+              // 🔧 FIX: applicant is Talent, not User
+              model: Talent,
               as: "applicant",
               include: [
                 {
@@ -191,8 +191,8 @@ const getJobApplicants = async (req, res) => {
 
       include: [
         {
-          // 🔧 FIX: applicant is Engineer, not User
-          model: Engineer,
+          // 🔧 FIX: applicant is Talent, not User
+          model: Talent,
           as: "applicant",
           include: [
             {
@@ -212,12 +212,12 @@ const getJobApplicants = async (req, res) => {
     const applicationsWithUrls = await Promise.all(
       applications.rows.map(async (app) => {
         const data = app.toJSON();
-        const engineer = data?.applicant;
+        const talent = data?.applicant;
 
-        if (engineer) {
-          engineer.cv_url = engineer.cv_object_name
+        if (talent) {
+          talent.cv_url = talent.cv_object_name
             ? await getV4ReadSignedUrl(
-                engineer.cv_object_name,
+                talent.cv_object_name,
                 SIGNED_URL_TTL_SECONDS
               )
             : null;

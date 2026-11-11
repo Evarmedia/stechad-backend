@@ -18,7 +18,7 @@ const options = {
     info: {
       title: 'Engineering Platform API',
       version: '1.0.0',
-      description: 'A comprehensive API for an engineering talent platform connecting engineers with project managers',
+      description: 'A comprehensive API for an engineering talent platform connecting talents with project managers',
       contact: {
         name: 'Engineering Platform Team',
         email: 'support@engineeringplatform.com'
@@ -43,7 +43,7 @@ const options = {
             user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
             email: { type: 'string', format: 'email', example: 'mosimishak@gmail.com' },
             role_id: { type: 'string', format: 'uuid', description: 'Foreign key to the roles table.' },
-            role: { type: 'string', example: 'engineer', description: 'Serialized role key resolved from role_id; it is not stored on users.' },
+            role: { type: 'string', example: 'talent', description: 'Serialized role key resolved from role_id; it is not stored on users.' },
             role_details: { $ref: '#/components/schemas/Role' },
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },
@@ -68,10 +68,10 @@ const options = {
             permissions: { type: 'array', items: {type: 'string'}, example: [{edit: 'true'}]}
           }
         },
-        Engineer: {
+        Talent: {
           type: 'object',
           properties: {
-            engineer_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174001' },
+            talent_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174001' },
             user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
             date_of_birth: { type: 'string', format: 'date', example: '1990-01-01' },
             open_to_nearby_cities: { type: 'boolean', example: true },
@@ -149,9 +149,9 @@ const options = {
           properties: {
             applications_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174005' },
             job_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174004' },
-            engineer_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
+            talent_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
             job_title: { type: 'string', example: 'Senior React Developer' },
-            engineer_name: { type: 'string', example: 'John Doe' },
+            talent_name: { type: 'string', example: 'John Doe' },
             status: { type: 'string', enum: ['pending', 'reviewed', 'accepted', 'rejected'], example: 'pending' },
             experience: { type: 'string', example: '5 years of React development experience' },
             skills: { type: 'array', items: { type: 'string' }, example: ['React', 'TypeScript', 'Node.js'] },
@@ -171,7 +171,7 @@ const options = {
             title: { type: 'string', example: 'E-commerce Website Development' },
             description: { type: 'string', example: 'Building a modern e-commerce platform...' },
             job_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174004' },
-            engineer_user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
+            talent_user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
             status: { type: 'string', enum: ['planning', 'in_progress', 'completed', 'on_hold', 'cancelled'], example: 'in_progress' },
             priority: { type: 'string', enum: ['high', 'medium', 'low', 'critical'], example: 'medium' },
             progress: { type: 'integer', minimum: 0, maximum: 100, example: 65 },

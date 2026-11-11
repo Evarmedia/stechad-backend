@@ -12,7 +12,7 @@ Invoice.init(
     invoice_type: {
       type: DataTypes.TEXT,
       allowNull: false,
-      validate: { isIn: [["engineer", "staff", "project"]] },
+      validate: { isIn: [["talent", "staff", "project"]] },
     },
     period: { type: DataTypes.STRING, allowNull: false },
     client_name: { type: DataTypes.STRING, allowNull: true },

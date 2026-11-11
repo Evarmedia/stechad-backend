@@ -52,11 +52,11 @@ router.use(authenticate);
  *           format: uuid
  *         description: Filter by job ID
  *       - in: query
- *         name: engineer_id
+ *         name: talent_id
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Filter by engineer ID
+ *         description: Filter by talent ID
  *     responses:
  *       200:
  *         description: Applications retrieved successfully

@@ -1,6 +1,6 @@
 const {
   User,
-  Engineer,
+  Talent,
   ProjectManager,
   Admin,
   Job,
@@ -56,14 +56,14 @@ const getDashboard = async (req, res) => {
   try {
     // Get overall platform statistics
     const totalUsers = await User.count();
-    const totalEngineers = await Engineer.count();
+    const totalTalents = await Talent.count();
     const totalProjectManagers = await ProjectManager.count();
     const totalJobs = await Job.count();
     const totalApplications = await Application.count();
     const totalProjects = await Project.count();
 
     // Get recent activity
-    const recentEngineers = await Engineer.findAll({
+    const recentTalents = await Talent.findAll({
       limit: 5,
       order: [["created_at", "DESC"]],
       // attributes: [
@@ -114,7 +114,7 @@ const getDashboard = async (req, res) => {
     const dashboardData = {
       statistics: {
         totalUsers,
-        totalEngineers,
+        totalTalents,
         totalProjectManagers,
         totalJobs,
         totalApplications,
@@ -123,7 +123,7 @@ const getDashboard = async (req, res) => {
         newJobsThisMonth,
       },
       recentActivity: {
-        recentEngineers,
+        recentTalents,
         recentJobs,
         recentProjects,
       },
@@ -173,7 +173,7 @@ const getStats = async (req, res) => {
       new: await User.count({
         where: { created_at: { [Op.gte]: dateFilter } },
       }),
-      engineers: await Engineer.count(),
+      talents: await Talent.count(),
       projectManagers: await ProjectManager.count(),
       admins: await Admin.count(),
     };
@@ -737,7 +737,7 @@ const createHoliday = async (req, res) => {
     const { name, date, type = "Public holiday", region, description } = req.body;
     if (!name || !date) return res.status(400).json({ success: false, message: "Holiday name and date are required" });
     const holiday = await Holiday.create({ name, date, type, region: region || null, description: description || null, created_by: req.user.user_id });
-    const recipients = await User.findAll({ where: { "$role.role_key$": { [Op.in]: ["staff", "project_manager", "engineer", "admin", "super_admin"] }, is_active: true }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
+    const recipients = await User.findAll({ where: { "$role.role_key$": { [Op.in]: ["staff", "project_manager", "talent", "admin", "super_admin"] }, is_active: true }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
     await Notification.bulkCreate(recipients.map((user) => ({ user_id: user.user_id, title: "Holiday calendar updated", message: `${name} has been added for ${date}.`, type: "info", action_url: "/dashboard/staff/holidays", metadata: { holiday_id: holiday.holiday_id } })));
     return res.status(201).json({ success: true, message: "Holiday created successfully", data: holiday });
   } catch (error) {
@@ -1116,13 +1116,13 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// Get specific engineer details
-const getEngineerDetails = async (req, res) => {
+// Get specific talent details
+const getTalentDetails = async (req, res) => {
   try {
-    const { engineer_id } = req.params;
+    const { talent_id } = req.params;
 
-    const engineer = await Engineer.findOne({
-      where: { engineer_id },
+    const talent = await Talent.findOne({
+      where: { talent_id },
       include: [
         { model: User, as: "user" },
         {
@@ -1130,45 +1130,45 @@ const getEngineerDetails = async (req, res) => {
           as: "applications",
           include: [{ model: Job, as: "job" }],
         },
-        { model: Project, as: "engineer_projects", include: [{ model: User }] },
+        { model: Project, as: "talent_projects", include: [{ model: User }] },
       ],
     });
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(404).json({
         success: false,
-        message: "Engineer not found",
+        message: "Talent not found",
       });
     }
 
     res.json({
       success: true,
-      data: engineer,
+      data: talent,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to get engineer details",
+      message: "Failed to get talent details",
       error: error.message,
     });
   }
 };
 
-// Vet / Unvet an engineer
-const updateEngineerVetting = async (req, res) => {
+// Vet / Unvet a talent
+const updateTalentVetting = async (req, res) => {
   try {
-    const { engineer_id, is_vetted, remark } = req.body;
+    const { talent_id, is_vetted, remark } = req.body;
 
-    const engineer = await Engineer.findByPk(engineer_id);
+    const talent = await Talent.findByPk(talent_id);
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(404).json({
         success: false,
-        message: "Engineer not found",
+        message: "Talent not found",
       });
     }
 
-    await engineer.update({
+    await talent.update({
       is_vetted,
       vetted_at: is_vetted ? new Date() : null,
       vetted_by: is_vetted ? req.user.user_id : null,
@@ -1176,11 +1176,11 @@ const updateEngineerVetting = async (req, res) => {
     });
 
     // 🔧 Re-fetch with correct includes
-    const updatedEngineer = await Engineer.findByPk(engineer_id, {
+    const updatedTalent = await Talent.findByPk(talent_id, {
       include: [
         {
           model: User,
-          as: "user", // ✅ engineer's own user profile
+          as: "user", // ✅ talent's own user profile
           attributes: ["first_name", "last_name", "email", "phone_number", "country"],
         },
         {
@@ -1194,41 +1194,41 @@ const updateEngineerVetting = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: is_vetted
-        ? "Engineer vetted successfully"
-        : "Engineer vetting removed",
-      data: updatedEngineer,
+        ? "Talent vetted successfully"
+        : "Talent vetting removed",
+      data: updatedTalent,
     });
   } catch (error) {
-    console.error("Failed to update engineer vetting:", error);
+    console.error("Failed to update talent vetting:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to update engineer vetting status",
+      message: "Failed to update talent vetting status",
       error: error.message,
     });
   }
 };
 
-// Delete engineer account
-const deleteEngineer = async (req, res) => {
+// Delete talent account
+const deleteTalent = async (req, res) => {
   try {
-    const { engineer_id } = req.params;
+    const { talent_id } = req.params;
 
-    const engineer = await Engineer.findByPk(engineer_id, {
+    const talent = await Talent.findByPk(talent_id, {
       include: [{ model: User, as: "user" }],
     });
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(404).json({
         success: false,
-        message: "Engineer not found",
+        message: "Talent not found",
       });
     }
 
     // Check for active projects
     const activeProjects = await Project.count({
       where: {
-        engineer_id: engineer.user_id,
+        talent_id: talent.user_id,
         status: ["planning", "in_progress"],
       },
     });
@@ -1236,22 +1236,22 @@ const deleteEngineer = async (req, res) => {
     if (activeProjects > 0) {
       return res.status(400).json({
         success: false,
-        message: "Cannot delete engineer with active projects",
+        message: "Cannot delete talent with active projects",
       });
     }
 
-    // Delete engineer and user
-    await engineer.destroy();
-    await engineer.user.destroy();
+    // Delete talent and user
+    await talent.destroy();
+    await talent.user.destroy();
 
     res.json({
       success: true,
-      message: "Engineer deleted successfully",
+      message: "Talent deleted successfully",
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to delete engineer",
+      message: "Failed to delete talent",
       error: error.message,
     });
   }
@@ -1492,7 +1492,7 @@ const getProjectManagerDetails = async (req, res) => {
           include: [
             {
               model: User,
-              as: "engineer", // Engineer associated with the Project
+              as: "talent", // Talent associated with the Project
             },
           ],
         },
@@ -1567,13 +1567,13 @@ const deleteProjectManager = async (req, res) => {
   }
 };
 
-// Get engineers pending vetting
-const getEngineerVetting = async (req, res) => {
+// Get talents pending vetting
+const getTalentVetting = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const offset = (page - 1) * limit;
 
-    const engineers = await Engineer.findAndCountAll({
+    const talents = await Talent.findAndCountAll({
       where: { is_vetted: false, is_onboarded: true },
       include: [
         {
@@ -1596,11 +1596,11 @@ const getEngineerVetting = async (req, res) => {
     res.json({
       success: true,
       data: {
-        engineers: engineers.rows,
+        talents: talents.rows,
         pagination: {
           currentPage: parseInt(page),
-          totalPages: Math.ceil(engineers.count / limit),
-          totalItems: engineers.count,
+          totalPages: Math.ceil(talents.count / limit),
+          totalItems: talents.count,
           itemsPerPage: parseInt(limit),
         },
       },
@@ -1608,7 +1608,7 @@ const getEngineerVetting = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to get engineers pending vetting",
+      message: "Failed to get talents pending vetting",
       error: error.message,
     });
   }
@@ -1719,14 +1719,14 @@ module.exports = {
   updateRole,
   deleteRole,
   updateProfile,
-  getEngineerDetails,
-  updateEngineerVetting,
-  deleteEngineer,
+  getTalentDetails,
+  updateTalentVetting,
+  deleteTalent,
   getProjectManagers,
   inviteProjectManager,
   getProjectManagerDetails,
   deleteProjectManager,
-  getEngineerVetting,
+  getTalentVetting,
   getSettings,
   updateSettings,
   // getPmsProjectById,

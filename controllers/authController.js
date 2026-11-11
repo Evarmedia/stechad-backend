@@ -1,4 +1,4 @@
-const { User, Engineer, ProjectManager, Admin, Invite, RolePermission } = require("../models");
+const { User, Talent, ProjectManager, Admin, Invite, RolePermission } = require("../models");
 const { generateTokens } = require("../utils/generateTokens");
 const sendEmail = require("../utils/sendEmail");
 const { generateOTP, generateOTPExpiry } = require("../utils/otpGenerator");
@@ -66,20 +66,20 @@ const formatUserResponse = async (user) => {
     }
   }
 
-  // Add Engineer CV URL if exists
-  if (data.engineer) {
-    data.engineer = associationToPlainObject(data.engineer);
-    if (data.engineer.cv_object_name) {
+  // Add Talent CV URL if exists
+  if (data.talent) {
+    data.talent = associationToPlainObject(data.talent);
+    if (data.talent.cv_object_name) {
       try {
-        data.engineer.cv_url = await getV4ReadSignedUrl(
-          data.engineer.cv_object_name,
+        data.talent.cv_url = await getV4ReadSignedUrl(
+          data.talent.cv_object_name,
           SIGNED_URL_TTL_SECONDS
         );
       } catch (e) {
-        data.engineer.cv_url = null;
+        data.talent.cv_url = null;
       }
     } else {
-      data.engineer.cv_url = null;
+      data.talent.cv_url = null;
     }
   }
 
@@ -112,18 +112,18 @@ passport.use(
         let user = await User.findOne({ where: { email } });
 
         if (!user) {
-          const engineerRole = await findRoleByKey("engineer");
-          if (!engineerRole) throw new Error("Engineer system role is not seeded");
+          const talentRole = await findRoleByKey("talent");
+          if (!talentRole) throw new Error("Talent system role is not seeded");
           // Create a new user if they don't exist
           user = await User.create({
             email,
             first_name,
             last_name,
-            role_id: engineerRole.role_id,
+            role_id: talentRole.role_id,
           });
 
-          // Create role-specific record (for engineers)
-          await Engineer.create({ user_id: user.user_id });
+          // Create role-specific record (for talents)
+          await Talent.create({ user_id: user.user_id });
           user = await User.findByPk(user.user_id);
         }
 
@@ -215,7 +215,7 @@ const signup = async (req, res) => {
       }
     }
 
-    const roleKey = googleSignIn ? "engineer" : role;
+    const roleKey = googleSignIn ? "talent" : role;
     const assignedRole = await findRoleByKey(roleKey);
     if (!assignedRole || !assignedRole.is_system) {
       return res.status(400).json({ success: false, message: "A valid system role is required" });
@@ -232,8 +232,8 @@ const signup = async (req, res) => {
     });
 
     // Create role-specific records based on the role provided (for normal signup or Google login)
-    if (roleKey === "engineer") {
-      await Engineer.create({ user_id: user.user_id });
+    if (roleKey === "talent") {
+      await Talent.create({ user_id: user.user_id });
     } else if (roleKey === "project_manager") {
       await ProjectManager.create({ user_id: user.user_id, status: "active" });
     } else if (roleKey === "admin") {
@@ -258,7 +258,7 @@ const signup = async (req, res) => {
     // Format user response with signed URLs
     const createdUser = await User.findByPk(user.user_id, {
       include: [
-        { model: Engineer, as: "engineer" },
+        { model: Talent, as: "talent" },
         { model: ProjectManager, as: "project_manager" },
         { model: Admin, as: "admin" },
       ],
@@ -296,7 +296,7 @@ const login = async (req, res) => {
       where: { email },
       include: [
         ROLE_INCLUDE,
-        { model: Engineer, as: "engineer" },
+        { model: Talent, as: "talent" },
         { model: ProjectManager, as: "project_manager" },
         { model: Admin, as: "admin" },
       ],
@@ -748,7 +748,7 @@ const getMe = async (req, res) => {
   try {
     const user = await User.findByPk(req.user.user_id, {
       include: [
-        { model: Engineer, as: "engineer" },
+        { model: Talent, as: "talent" },
         { model: ProjectManager, as: "project_manager" },
         { model: Admin, as: "admin" },
       ],

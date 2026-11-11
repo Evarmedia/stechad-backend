@@ -31,7 +31,7 @@ const validateRegistration = [
   body('password').isLength({ min: 6 }),
   // body('first_name').notEmpty().trim(),
   // body('last_name').notEmpty().trim(),
-  body('role').equals('engineer').withMessage('Only engineers can register directly; workforce roles require an invitation'),
+  body('role').equals('talent').withMessage('Only talents can register directly; workforce roles require an invitation'),
   handleValidationErrors
 ];
 
@@ -78,9 +78,9 @@ const validateJobCreation = [
 // Application validation
 const validateApplication = [
   body('job_id').isUUID(),
-  body('engineer_id').isUUID(),
+  body('talent_id').isUUID(),
   // body('job_title').notEmpty().trim(),
-  // body('engineer_name').notEmpty().trim(),
+  // body('talent_name').notEmpty().trim(),
   // body('cover_letter').optional().trim(),
   // body('proposed_rate').optional().isNumeric(),
   // body('availability').optional().trim(),

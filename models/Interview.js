@@ -1,6 +1,6 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const Engineer = require("./Engineer"); // Import Engineer model for relationship
+const Talent = require("./Talent"); // Import Talent model for relationship
 const ProjectManager = require("./ProjectManager"); // Import ProjectManager model for relationship
 const Job = require("./Job"); // Import Job model for relationship
 
@@ -17,8 +17,8 @@ Interview.init(
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: Engineer,
-        key: 'engineer_id',
+        model: Talent,
+        key: 'talent_id',
       },
     },
     candidate_name: {

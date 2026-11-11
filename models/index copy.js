@@ -1,6 +1,6 @@
 // Models
 const User = require("./User");
-const Engineer = require("./Engineer");
+const Talent = require("./Talent");
 const ProjectManager = require("./ProjectManager");
 const Admin = require("./Admin");
 const Job = require("./Job");
@@ -16,21 +16,21 @@ const { Referral, Reward, UserReward } = require("./Referral");
 
 // Define relationships between models
 
-// User - Engineer (One-to-One)
-User.hasOne(Engineer, {
+// User - Talent (One-to-One)
+User.hasOne(Talent, {
   foreignKey: "user_id",
-  as: "engineer",
+  as: "talent",
   onDelete: "CASCADE",
 });
-Engineer.belongsTo(User, { foreignKey: "user_id", as: "user" });
+Talent.belongsTo(User, { foreignKey: "user_id", as: "user" });
 
-// Engineer - User(who is an admin that vetted the engineer) (Many-to-One)
-Engineer.belongsTo(User, {
+// Talent - User(who is an admin that vetted the talent) (Many-to-One)
+Talent.belongsTo(User, {
   foreignKey: "vetted_by",
   as: "vettedBy",
   onDelete: "SET NULL",
 });
-User.hasMany(Engineer, { foreignKey: "vetted_by", as: "vettedEngineers" });
+User.hasMany(Talent, { foreignKey: "vetted_by", as: "vettedTalents" });
 
 // User - ProjectManager (One-to-One)
 User.hasOne(ProjectManager, {
@@ -61,13 +61,13 @@ Job.hasMany(Application, {
 });
 Application.belongsTo(Job, { foreignKey: "job_id", as: "job" });
 
-// Engineer(user) - Application (One-to-Many)
-Engineer.hasMany(Application, {
-  foreignKey: "engineer_id",
+// Talent(user) - Application (One-to-Many)
+Talent.hasMany(Application, {
+  foreignKey: "talent_id",
   as: "applications",
   onDelete: "CASCADE",
 });
-Application.belongsTo(User, { foreignKey: "engineer_id", as: "applicant" });
+Application.belongsTo(User, { foreignKey: "talent_id", as: "applicant" });
 
 // ProjectManager - Project (One-to-Many) ✅
 ProjectManager.hasMany(Project, {
@@ -94,41 +94,41 @@ Project.belongsTo(ProjectManager, {
 ProjectManager.hasMany(Job, { foreignKey: "posted_by", as: "posted_jobs" });
 
 // User - Project (One-to-Many)
-// User.hasMany(Project, { foreignKey: 'engineer_user_id', onDelete: 'SET NULL', onUpdate: 'CASCADE' });
-// Project.belongsTo(User, { foreignKey: 'engineer_user_id', as: 'engineer' });
+// User.hasMany(Project, { foreignKey: 'talent_user_id', onDelete: 'SET NULL', onUpdate: 'CASCADE' });
+// Project.belongsTo(User, { foreignKey: 'talent_user_id', as: 'talent' });
 // Project.belongsTo(User, { foreignKey: 'project_managers_user_id', as: 'pm', onDelete: 'SET NULL' });
 
-// Project ↔ Engineer (Many-to-Many) ✅✅
+// Project ↔ Talent (Many-to-Many) ✅✅
 
-// Project.belongsToMany(Engineer, {
-//   through: "project_engineers",
+// Project.belongsToMany(Talent, {
+//   through: "project_talents",
 //   foreignKey: "projects_id",
-//   otherKey: "engineers_id",
-//   as: "engineers",
+//   otherKey: "talents_id",
+//   as: "talents",
 // });
 
-// Engineer.belongsToMany(Project, {
-//   through: "project_engineers",
-//   foreignKey: "engineers_id",
+// Talent.belongsToMany(Project, {
+//   through: "project_talents",
+//   foreignKey: "talents_id",
 //   otherKey: "projects_id",
 //   as: "projects",
 // });
-Engineer.belongsToMany(Project, {
-  through: "engineer_project",
-  as: "engineer_projects",
-  foreignKey: "engineer_id",
+Talent.belongsToMany(Project, {
+  through: "talent_project",
+  as: "talent_projects",
+  foreignKey: "talent_id",
   otherKey: "projects_id",
 });
-Project.belongsToMany(Engineer, {
-  through: "engineer_project",
-  as: "engineers",
+Project.belongsToMany(Talent, {
+  through: "talent_project",
+  as: "talents",
   foreignKey: "projects_id",
-  otherKey: "engineer_id",
+  otherKey: "talent_id",
 });
 
-// // Engineer - Interview (One-to-Many)
-// Engineer.hasMany(Interview, { foreignKey: 'candidate_id', as: 'interviews', onDelete: 'CASCADE' });
-// Interview.belongsTo(Engineer, { foreignKey: 'candidate_id', as: 'candidate' });
+// // Talent - Interview (One-to-Many)
+// Talent.hasMany(Interview, { foreignKey: 'candidate_id', as: 'interviews', onDelete: 'CASCADE' });
+// Interview.belongsTo(Talent, { foreignKey: 'candidate_id', as: 'candidate' });
 
 // // ProjectManager - Interview (One-to-Many)
 // ProjectManager.hasMany(Interview, { foreignKey: 'interviewer_id', as: 'interviews', onDelete: 'CASCADE' });
@@ -138,10 +138,10 @@ Project.belongsToMany(Engineer, {
 // Job.hasMany(Interview, { foreignKey: 'job_id', as: 'interviews', onDelete: 'CASCADE' });
 // Interview.belongsTo(Job, { foreignKey: 'job_id', as: 'job' });
 
-Interview.belongsTo(Engineer, {
+Interview.belongsTo(Talent, {
   as: "candidate",
   foreignKey: "candidate_id",
-  targetKey: "engineer_id",
+  targetKey: "talent_id",
   onDelete: "CASCADE",
 });
 Interview.belongsTo(ProjectManager, {
@@ -156,10 +156,10 @@ Interview.belongsTo(Job, {
   targetKey: "jobs_id",
 });
 
-Engineer.hasMany(Interview, {
+Talent.hasMany(Interview, {
   as: "interviews",
   foreignKey: "candidate_id",
-  sourceKey: "engineer_id",
+  sourceKey: "talent_id",
 });
 ProjectManager.hasMany(Interview, {
   as: "interviews",
@@ -265,7 +265,7 @@ Message.hasMany(Message, { foreignKey: "reply_to", as: "replies" });
 
 module.exports = {
   User,
-  Engineer,
+  Talent,
   ProjectManager,
   Admin,
   Job,

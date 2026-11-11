@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const path = require('path');
-const { Interview, Engineer, ProjectManager, Job, User } = require('../models');
+const { Interview, Talent, ProjectManager, Job, User } = require('../models');
 const notificationUtil = require('../utils/notificationUtil'); // assumes sendNotification()
 const sendEmail = require('../utils/sendEmail');
 const { getRoleKey } = require('../utils/roleUtils');
@@ -15,22 +15,22 @@ function ensureRole(user, roles = []) {
 }
 
 // POST /api/interviews
-// PM/Admin schedules an interview for an engineer on a job
-// Body: { engineer_id, job_id, date_time, duration?, zoom_link?, phone_number?, notes? }
+// PM/Admin schedules an interview for a talent on a job
+// Body: { talent_id, job_id, date_time, duration?, zoom_link?, phone_number?, notes? }
 async function scheduleInterview(req, res) {
   try {
     if (!ensureRole(req.user, ['project_manager', 'admin'])) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
 
-    const { engineer_id, job_id, date_time, duration = 30, zoom_link, phone_number, notes } = req.body;
-    if (!engineer_id || !job_id || !date_time) {
-      return res.status(400).json({ success: false, message: 'engineer_id, job_id and date_time are required' });
+    const { talent_id, job_id, date_time, duration = 30, zoom_link, phone_number, notes } = req.body;
+    if (!talent_id || !job_id || !date_time) {
+      return res.status(400).json({ success: false, message: 'talent_id, job_id and date_time are required' });
     }
 
     // Load entities & derive denorm fields
-    const engineer = await Engineer.findOne({ where: { engineer_id }, include: [{ model: User, as: 'user' }] });
-    if (!engineer) return res.status(404).json({ success: false, message: 'Engineer not found' });
+    const talent = await Talent.findOne({ where: { talent_id }, include: [{ model: User, as: 'user' }] });
+    if (!talent) return res.status(404).json({ success: false, message: 'Talent not found' });
 
     const pm = await ProjectManager.findOne({ where: { user_id: req.user.user_id }, include: [{ model: User, as: 'user' }] });
     if (!pm && !['admin', 'super_admin'].includes(getRoleKey(req.user))) {
@@ -40,10 +40,10 @@ async function scheduleInterview(req, res) {
     const job = await Job.findOne({ where: { jobs_id: job_id } });
     if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
 
-    // Prevent multiple active interviews for the same engineer & job
+    // Prevent multiple active interviews for the same talent & job
     const existingInterview = await Interview.findOne({
       where: {
-        candidate_id: engineer.engineer_id,
+        candidate_id: talent.talent_id,
         job_id,
         status: { [Op.notIn]: ['cancelled', 'completed'] },
       },
@@ -56,15 +56,15 @@ async function scheduleInterview(req, res) {
       });
     }
 
-    const candidate_name  = `${engineer.user?.first_name ?? ''} ${engineer.user?.last_name ?? ''}`.trim();
-    const candidate_email = engineer.user?.email;
+    const candidate_name  = `${talent.user?.first_name ?? ''} ${talent.user?.last_name ?? ''}`.trim();
+    const candidate_email = talent.user?.email;
     const interviewer_id  = pm ? pm.project_managers_id : null;
     const interviewer_email = pm?.user?.email || req.user.email || null;
     const job_title = job.title;
     const pm_name = `${pm?.user?.first_name ?? ''} ${pm?.user?.last_name ?? ''}`.trim() || 'Hiring Team';
 
     const interview = await Interview.create({
-      candidate_id: engineer.engineer_id,
+      candidate_id: talent.talent_id,
       candidate_name,
       candidate_email,
       interviewer_id: interviewer_id ?? null,
@@ -82,7 +82,7 @@ async function scheduleInterview(req, res) {
     // Notifications (best-effort)
     try {
       await notificationUtil.sendNotification({
-        user_id: engineer.user_id,
+        user_id: talent.user_id,
         title: 'Interview Scheduled',
         message: `Your interview for "${job_title}" is scheduled on ${new Date(date_time).toLocaleString()}`,
         type: 'interview',
@@ -102,12 +102,12 @@ async function scheduleInterview(req, res) {
       console.warn('Notification error(scheduleInterview):', e?.message || e);
     }
 
-    // Email confirmation to engineer (best-effort)
+    // Email confirmation to talent (best-effort)
     if (candidate_email) {
       try {
         const htmlFilePath = path.join(__dirname, '../templates/interviewScheduled.html');
         const replacements = {
-          engineerName: candidate_name || 'there',
+          talentName: candidate_name || 'there',
           jobTitle: job_title || 'your role',
           interviewDateTime: new Date(date_time).toLocaleString(),
           duration: `${duration} minutes`,
@@ -155,7 +155,7 @@ async function getAllInterviews(req, res) {
       where,
       order: [['date_time', 'DESC']],
       include: [
-        { model: Engineer, as: 'candidate', include: [{ model: User, as: 'user' }] },
+        { model: Talent, as: 'candidate', include: [{ model: User, as: 'user' }] },
         { model: ProjectManager, as: 'interviewer', include: [{ model: User, as: 'user' }] },
         { model: Job, as: 'job' },
       ],
@@ -168,14 +168,14 @@ async function getAllInterviews(req, res) {
 }
 
 // GET /api/interviews/:id
-// Allowed: Admin, PM, or the assigned Engineer
+// Allowed: Admin, PM, or the assigned Talent
 async function getInterviewById(req, res) {
   try {
     const { interviews_id } = req.params;
     const interview = await Interview.findOne({
       where: { interviews_id: interviews_id },
       include: [
-        { model: Engineer, as: 'candidate', include: [{ model: User, as: 'user' }] },
+        { model: Talent, as: 'candidate', include: [{ model: User, as: 'user' }] },
         { model: ProjectManager, as: 'interviewer', include: [{ model: User, as: 'user' }] },
         { model: Job, as: 'job' },
       ],
@@ -186,8 +186,8 @@ async function getInterviewById(req, res) {
     const roleKey = getRoleKey(req.user);
     const isAdmin = ['admin', 'super_admin'].includes(roleKey);
     const isPM    = roleKey === 'project_manager' && interview.interviewer_id != null;
-    const isEngineer = roleKey === 'engineer' && interview.candidate_id === interview.candidate?.engineer_id && interview.candidate?.user_id === req.user.user_id;
-    if (!(isAdmin || isPM || isEngineer)) {
+    const isTalent = roleKey === 'talent' && interview.candidate_id === interview.candidate?.talent_id && interview.candidate?.user_id === req.user.user_id;
+    if (!(isAdmin || isPM || isTalent)) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
 
@@ -198,15 +198,15 @@ async function getInterviewById(req, res) {
 }
 
 // GET /api/interviews/me
-// For any logged-in user: return interviews where they are PM interviewer or Engineer candidate
+// For any logged-in user: return interviews where they are PM interviewer or Talent candidate
 async function getMyInterviews(req, res) {
   try {
-    if (getRoleKey(req.user) === 'engineer') {
-      const eng = await Engineer.findOne({ where: { user_id: req.user.user_id } });
-      if (!eng) return res.json({ success: true, data: [] });
+    if (getRoleKey(req.user) === 'talent') {
+      const talentProfile = await Talent.findOne({ where: { user_id: req.user.user_id } });
+      if (!talentProfile) return res.json({ success: true, data: [] });
 
       const rows = await Interview.findAll({
-        where: { candidate_id: eng.engineer_id },
+        where: { candidate_id: talentProfile.talent_id },
         order: [['date_time', 'DESC']],
       });
       return res.json({ success: true, data: rows });
@@ -239,14 +239,14 @@ async function getMyInterviews(req, res) {
 // Update: cancel | reschedule | complete (+ notes/zoom_link/phone_number/duration)
 // Rules:
 //  - PM/Admin can set any status or reschedule
-//  - Engineer can set status to 'completed' or 'cancelled' (their own interview)
+//  - Talent can set status to 'completed' or 'cancelled' (their own interview)
 async function updateInterview(req, res) {
   try {
     const { interviews_id } = req.params;
     const interview = await Interview.findOne({
       where: { interviews_id: interviews_id },
       include: [
-        { model: Engineer, as: 'candidate', include: [{ model: User, as: 'user' }] },
+        { model: Talent, as: 'candidate', include: [{ model: User, as: 'user' }] },
         { model: ProjectManager, as: 'interviewer', include: [{ model: User, as: 'user' }] },
         { model: Job, as: 'job' },
       ]
@@ -257,20 +257,20 @@ async function updateInterview(req, res) {
     const pm = await ProjectManager.findOne({ where: { user_id: req.user.user_id } });
     const isPM = getRoleKey(req.user) === 'project_manager' && pm && interview.interviewer_id === pm.project_managers_id;
 
-    const eng = await Engineer.findOne({ where: { user_id: req.user.user_id } });
-    const isEngineer = getRoleKey(req.user) === 'engineer' && eng && interview.candidate_id === eng.engineer_id;
+    const talentProfile = await Talent.findOne({ where: { user_id: req.user.user_id } });
+    const isTalent = getRoleKey(req.user) === 'talent' && talentProfile && interview.candidate_id === talentProfile.talent_id;
 
     const { status, date_time, duration, zoom_link, phone_number, notes } = req.body;
     const wasRescheduled = date_time !== undefined || status === 'rescheduled';
 
     // Authorization matrix
-    if (isEngineer) {
-      // engineers can only mark their own interview as completed/cancelled; cannot reschedule date_time
+    if (isTalent) {
+      // talents can only mark their own interview as completed/cancelled; cannot reschedule date_time
       if (status && !['completed', 'cancelled'].includes(status)) {
-        return res.status(403).json({ success: false, message: 'Engineers can only cancel, contact a PM or your interviewer with Date and time you like to recschedule to via email' });
+        return res.status(403).json({ success: false, message: 'Talents can only cancel, contact a PM or your interviewer with Date and time you like to recschedule to via email' });
       }
       if (date_time) {
-        return res.status(403).json({ success: false, message: 'Engineers cannot reschedule date/time' });
+        return res.status(403).json({ success: false, message: 'Talents cannot reschedule date/time' });
       }
     } else if (!(isPM || isAdmin)) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
@@ -289,7 +289,7 @@ async function updateInterview(req, res) {
     // Notifications
     try {
       const payload = {
-        user_id: interview.engineer?.user_id,
+        user_id: interview.talent?.user_id,
         title: 'Interview Updated',
         message: `Interview ${status ? `status: ${status}. ` : ''}${date_time ? `Rescheduled to ${new Date(date_time).toLocaleString()}.` : ''}`.trim(),
         type: 'interview',
@@ -313,7 +313,7 @@ async function updateInterview(req, res) {
         const htmlFilePath = path.join(__dirname, '../templates/interviewScheduled.html');
         const pmName = `${interview.interviewer?.user?.first_name ?? ''} ${interview.interviewer?.user?.last_name ?? ''}`.trim() || 'Hiring Team';
         const replacements = {
-          engineerName: `${interview.candidate?.user?.first_name ?? ''} ${interview.candidate?.user?.last_name ?? ''}`.trim() || 'there',
+          talentName: `${interview.candidate?.user?.first_name ?? ''} ${interview.candidate?.user?.last_name ?? ''}`.trim() || 'there',
           jobTitle: interview.job?.title || interview.job_title || 'your role',
           interviewDateTime: new Date(interview.date_time).toLocaleString(),
           duration: `${interview.duration ?? duration ?? 30} minutes`,

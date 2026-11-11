@@ -153,7 +153,7 @@ router.get('/google/callback',
       user_id: req.user.user_id,
       role: req.user.role?.role_key,
     });
-    res.redirect(`${frontendUrl}/dashboard/engineer?token=${token}`);
+    res.redirect(`${frontendUrl}/dashboard/talent?token=${token}`);
   }
 );
 
@@ -199,8 +199,8 @@ router.get('/google/callback',
  *                 example: Mosimabale
  *               role:
  *                 type: string
- *                 enum: [engineer]
- *                 example: engineer
+ *                 enum: [talent]
+ *                 example: talent
  *               referral_code:
  *                 type: string
  *                 description: Referral code (optional)

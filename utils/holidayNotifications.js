@@ -10,7 +10,7 @@ const sendUpcomingHolidayNotifications = async () => {
   });
   const due = holidays.map((holiday) => ({ holiday, days: moment(holiday.date).startOf("day").diff(today, "days") })).filter(({ days }) => [1, 7].includes(days));
   if (!due.length) return 0;
-  const users = await User.findAll({ where: { is_active: true, "$role.role_key$": { [Op.in]: ["engineer", "project_manager", "staff", "admin", "super_admin"] } }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
+  const users = await User.findAll({ where: { is_active: true, "$role.role_key$": { [Op.in]: ["talent", "project_manager", "staff", "admin", "super_admin"] } }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
   let created = 0;
   for (const { holiday, days } of due) {
     const title = `Holiday in ${days} day${days === 1 ? "" : "s"}`;

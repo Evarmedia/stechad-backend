@@ -35,11 +35,11 @@ router.use(authenticate)
  *           schema:
  *             type: object
  *             required:
- *               - engineer_id
+ *               - talent_id
  *               - job_id
  *               - date_time
  *             properties:
- *               engineer_id:
+ *               talent_id:
  *                 type: string
  *                 example: "1f2e3d4c-5b6a-7d8e-9f00-1a2b3c4d5e6f"
  *               job_id:
@@ -118,7 +118,7 @@ router.get('/', authorize('admin', 'project_manager'), getAllInterviews);
  * @swagger
  * /interviews/me:
  *   get:
- *     summary: Get my interviews (Engineer/PM)
+ *     summary: Get my interviews (Talent/PM)
  *     tags:
  *       - Interviews
  *     security:
@@ -137,7 +137,7 @@ router.get('/me', getMyInterviews);
  * @swagger
  * /interviews/{interviews_id}:
  *   get:
- *     summary: Get interview by ID (Admin/PM/Assigned Engineer)
+ *     summary: Get interview by ID (Admin/PM/Assigned Talent)
  *     tags:
  *       - Interviews
  *     security:
@@ -167,7 +167,7 @@ router.get('/:interviews_id', getInterviewById);
  *     summary: Update interview (cancel/reschedule/complete)
  *     description: |
  *       - PM/Admin can reschedule and set any status.  
- *       - Engineer can only set status to **completed** or **cancelled** for their own interview.
+ *       - Talent can only set status to **completed** or **cancelled** for their own interview.
  *     tags:
  *       - Interviews
  *     security:

@@ -75,7 +75,7 @@ router.use(authenticate, authorize('admin'));
  *                     role_distribution:
  *                       type: object
  *                       properties:
- *                         engineers:
+ *                         talents:
  *                           type: integer
  *                           example: 800
  *                         project_managers:
@@ -293,12 +293,12 @@ router.get('/applications', getApplicationAnalytics);
  *                       type: number
  *                       format: decimal
  *                       example: 4.6
- *                     top_performing_engineers:
+ *                     top_performing_talents:
  *                       type: array
  *                       items:
  *                         type: object
  *                         properties:
- *                           engineer_id:
+ *                           talent_id:
  *                             type: integer
  *                           name:
  *                             type: string

@@ -1,6 +1,6 @@
 const {
   User,
-  Engineer,
+  Talent,
   Job,
   Application,
   Project,
@@ -17,10 +17,10 @@ const {
   notifyJobPosterOfApplication,
 } = require("../utils/notificationUtil");
 
-// Complete engineer onboarding (multipart/form-data)
+// Complete talent onboarding (multipart/form-data)
 const completeOnboarding = async (req, res) => {
   try {
-    // console.log('🟢 [BACKEND] ========== STEP 1: Fetching user and engineer records ==========');
+    // console.log('🟢 [BACKEND] ========== STEP 1: Fetching user and talent records ==========');
     const user = await User.findByPk(req.user.user_id);
 
     if (!user) {
@@ -32,21 +32,21 @@ const completeOnboarding = async (req, res) => {
     }
     // console.log('  ✓ User found:', user.user_id, user.email);
 
-    const engineer = await Engineer.findOne({
+    const talent = await Talent.findOne({
       where: { user_id: req.user.user_id },
     });
 
-    if (!engineer) {
-      // console.error('🔴 [BACKEND] Engineer profile not found for user:', req.user.user_id);
+    if (!talent) {
+      // console.error('🔴 [BACKEND] Talent profile not found for user:', req.user.user_id);
       return res.status(404).json({
         success: false,
-        message: "Engineer profile not found",
+        message: "Talent profile not found",
       });
     }
-    // console.log('  ✓ Engineer profile found:', engineer.engineer_id);
+    // console.log('  ✓ Talent profile found:', talent.talent_id);
 
     // --- 1. Track old CV for cleanup ---
-    const oldCvObjectName = engineer.cv_object_name;
+    const oldCvObjectName = talent.cv_object_name;
     let newCvObjectName = null;
 
     // --- 2. Upload CV file if provided ---
@@ -103,8 +103,8 @@ const completeOnboarding = async (req, res) => {
     // console.log('    - languages:', languages);
     // console.log('    - specialization:', specialization);
 
-    // --- 4. Update engineer ---
-    // console.log('🟢 [BACKEND] ========== STEP 4: Preparing engineer updates ==========');
+    // --- 4. Update talent ---
+    // console.log('🟢 [BACKEND] ========== STEP 4: Preparing talent updates ==========');
     try {
       // 🔴 CRITICAL: Convert ENUM values to lowercase for PostgreSQL
       const processedLanguageProficiency = language_proficiency
@@ -118,7 +118,7 @@ const completeOnboarding = async (req, res) => {
       // console.log('    - language_proficiency: "' + language_proficiency + '" → "' + processedLanguageProficiency + '"');
       // console.log('    - skill_level: "' + skill_level + '" → "' + processedSkillLevel + '"');
 
-      const engineerUpdates = {
+      const talentUpdates = {
         date_of_birth: date_of_birth || null,
         open_to_nearby_cities: toBool(open_to_nearby_cities),
         languages: toTextArray(languages) || [],
@@ -143,27 +143,27 @@ const completeOnboarding = async (req, res) => {
         ...(newCvObjectName && { cv_object_name: newCvObjectName }),
       };
 
-      // console.log('  📤 Prepared updates for Engineer:');
-      // console.log('    - date_of_birth:', engineerUpdates.date_of_birth);
-      // console.log('    - languages:', engineerUpdates.languages);
-      // console.log('    - language_proficiency:', engineerUpdates.language_proficiency);
-      // console.log('    - specialization:', engineerUpdates.specialization);
-      // console.log('    - skill_level:', engineerUpdates.skill_level);
-      // console.log('    - years_of_experience:', engineerUpdates.years_of_experience);
+      // console.log('  📤 Prepared updates for Talent:');
+      // console.log('    - date_of_birth:', talentUpdates.date_of_birth);
+      // console.log('    - languages:', talentUpdates.languages);
+      // console.log('    - language_proficiency:', talentUpdates.language_proficiency);
+      // console.log('    - specialization:', talentUpdates.specialization);
+      // console.log('    - skill_level:', talentUpdates.skill_level);
+      // console.log('    - years_of_experience:', talentUpdates.years_of_experience);
 
-      // console.log('  🔵 Executing engineer.update()...');
-      await engineer.update(engineerUpdates);
-      // console.log('  ✅ Engineer update successful');
-    } catch (engineerUpdateError) {
-      // console.error('🔴 [BACKEND] ❌ Engineer update FAILED:');
-      // console.error('  Error name:', engineerUpdateError.name);
-      // console.error('  Error message:', engineerUpdateError.message);
-      if (engineerUpdateError.parent) {
-        // console.error('  Parent error:', engineerUpdateError.parent.message);
-        console.error("  SQL:", engineerUpdateError.sql);
+      // console.log('  🔵 Executing talent.update()...');
+      await talent.update(talentUpdates);
+      // console.log('  ✅ Talent update successful');
+    } catch (talentUpdateError) {
+      // console.error('🔴 [BACKEND] ❌ Talent update FAILED:');
+      // console.error('  Error name:', talentUpdateError.name);
+      // console.error('  Error message:', talentUpdateError.message);
+      if (talentUpdateError.parent) {
+        // console.error('  Parent error:', talentUpdateError.parent.message);
+        console.error("  SQL:", talentUpdateError.sql);
       }
-      // console.error('  Full error:', engineerUpdateError);
-      throw engineerUpdateError;
+      // console.error('  Full error:', talentUpdateError);
+      throw talentUpdateError;
     }
 
     // Update user with personal info (only if provided)
@@ -242,7 +242,7 @@ const completeOnboarding = async (req, res) => {
 
     // Reload user with all associations for complete data
     const userWithAssociations = await User.findByPk(req.user.user_id, {
-      include: [{ model: Engineer, as: "engineer" }],
+      include: [{ model: Talent, as: "talent" }],
     });
 
     // Format user response with signed URLs
@@ -288,8 +288,8 @@ const completeOnboarding = async (req, res) => {
   }
 };
 
-// Get all engineers with pagination - list
-const getEngineers = async (req, res) => {
+// Get all talents with pagination - list
+const getTalents = async (req, res) => {
   try {
     const { page, limit, is_onboarded, availability } = req.query;
 
@@ -307,8 +307,8 @@ const getEngineers = async (req, res) => {
         page && limit ? (parseInt(page) - 1) * parseInt(limit) : undefined,
     };
 
-    // Fetch engineers with pagination and filtering
-    const engineers = await Engineer.findAndCountAll({
+    // Fetch talents with pagination and filtering
+    const talents = await Talent.findAndCountAll({
       where: Object.keys(where).length > 0 ? where : undefined,
       include: [{ model: User, as: "user" }],
       ...pagination,
@@ -316,27 +316,27 @@ const getEngineers = async (req, res) => {
     });
 
     // Get signed URLs for CVs
-    const engineersWithCvUrl = await Promise.all(
-      engineers.rows.map(async (engineer) => {
+    const talentsWithCvUrl = await Promise.all(
+      talents.rows.map(async (talent) => {
         // If there's a CV object name, generate the signed URL
-        if (engineer.cv_object_name) {
-          const cvUrl = await getV4ReadSignedUrl(engineer.cv_object_name);
-          return { ...engineer.dataValues, cv_url: cvUrl };
+        if (talent.cv_object_name) {
+          const cvUrl = await getV4ReadSignedUrl(talent.cv_object_name);
+          return { ...talent.dataValues, cv_url: cvUrl };
         }
-        return engineer;
+        return talent;
       })
     );
 
     res.json({
       success: true,
       data: {
-        engineers: engineersWithCvUrl, // Add CV URL to the engineer data
+        talents: talentsWithCvUrl, // Add CV URL to the talent data
         pagination: {
           currentPage: page ? parseInt(page) : undefined,
           totalPages: limit
-            ? Math.ceil(engineers.count / parseInt(limit))
+            ? Math.ceil(talents.count / parseInt(limit))
             : undefined,
-          totalItems: engineers.count,
+          totalItems: talents.count,
           itemsPerPage: limit ? parseInt(limit) : undefined,
         },
       },
@@ -344,27 +344,27 @@ const getEngineers = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to get engineers",
+      message: "Failed to get talents",
       error: error.message,
     });
   }
 };
 
-// Get engineer dashboard
+// Get talent dashboard
 const getDashboard = async (req, res) => {
   try {
     /* ===============================
-       GET ENGINEER PROFILE
+       GET TALENT PROFILE
        =============================== */
-    const engineer = await Engineer.findOne({
+    const talent = await Talent.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: "user" }],
     });
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(404).json({
         success: false,
-        message: "Engineer profile not found",
+        message: "Talent profile not found",
       });
     }
 
@@ -372,11 +372,11 @@ const getDashboard = async (req, res) => {
        APPLICATION STATS
        =============================== */
     const totalApplicationsCount = await Application.count({
-      where: { engineer_id: engineer.engineer_id },
+      where: { talent_id: talent.talent_id },
     });
 
     const recentApplications = await Application.findAll({
-      where: { engineer_id: engineer.engineer_id },
+      where: { talent_id: talent.talent_id },
       include: [{ model: Job, as: "job" }],
       limit: 5,
       order: [["created_at", "DESC"]],
@@ -387,7 +387,7 @@ const getDashboard = async (req, res) => {
     /* ===============================
        PROJECT STATS (M2M FIX)
        =============================== */
-    const allProjects = await engineer.getEngineer_projects({
+    const allProjects = await talent.getTalent_projects({
       where: {},
     });
 
@@ -406,12 +406,12 @@ const getDashboard = async (req, res) => {
        INTERVIEW STATS
        =============================== */
     const interviewCount = await Interview.count({
-      where: { candidate_id: engineer.engineer_id },
+      where: { candidate_id: talent.talent_id },
     });
 
     const scheduledInterviewCount = await Interview.count({
       where: {
-        candidate_id: engineer.engineer_id,
+        candidate_id: talent.talent_id,
         status: "scheduled",
       },
     });
@@ -419,7 +419,7 @@ const getDashboard = async (req, res) => {
     /* ===============================
        FORMAT USER
        =============================== */
-    const formattedUser = await formatUserResponse(engineer.user);
+    const formattedUser = await formatUserResponse(talent.user);
 
     /* ===============================
        RESPONSE
@@ -428,7 +428,7 @@ const getDashboard = async (req, res) => {
       success: true,
       data: {
         user: formattedUser,
-        engineer,
+        talent,
         statistics: {
           totalApplicationsCount,
           recentApplicationsCount,
@@ -443,7 +443,7 @@ const getDashboard = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Engineer dashboard error:", error);
+    console.error("Talent dashboard error:", error);
 
     return res.status(500).json({
       success: false,
@@ -453,7 +453,7 @@ const getDashboard = async (req, res) => {
   }
 };
 
-// Update engineer profile (multipart/form-data)
+// Update talent profile (multipart/form-data)
 const updateProfile = async (req, res) => {
   try {
     // console.log("📝 [updateProfile] Starting profile update");
@@ -462,26 +462,26 @@ const updateProfile = async (req, res) => {
     // console.log("📝 [updateProfile] req.files:", req.files ? Object.keys(req.files) : "none");
     // console.log("📝 [updateProfile] req.file:", req.file ? `${req.file.fieldname} - ${req.file.size} bytes` : "none");
 
-    const engineer = await Engineer.findOne({
+    const talent = await Talent.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: "user" }],
     });
 
-    if (!engineer) {
+    if (!talent) {
       console.warn(
-        "⚠️ [updateProfile] Engineer profile not found for user:",
+        "⚠️ [updateProfile] Talent profile not found for user:",
         req.user.user_id
       );
       return res
         .status(404)
-        .json({ success: false, message: "Engineer profile not found" });
+        .json({ success: false, message: "Talent profile not found" });
     }
 
-    // console.log("✅ [updateProfile] Engineer found, id:", engineer.engineers_id);
+    // console.log("✅ [updateProfile] Talent found, id:", talent.talents_id);
 
     // Keep old object names so we can delete after successful update
-    const oldAvatarObjectName = engineer.user?.avatar_object_name || null;
-    const oldCvObjectName = engineer?.cv_object_name || null;
+    const oldAvatarObjectName = talent.user?.avatar_object_name || null;
+    const oldCvObjectName = talent?.cv_object_name || null;
 
     // console.log("📝 [updateProfile] Old avatar:", oldAvatarObjectName);
     // console.log("📝 [updateProfile] Old CV:", oldCvObjectName);
@@ -500,7 +500,7 @@ const updateProfile = async (req, res) => {
       country,
     } = req.body;
 
-    const engineerUpdates = {};
+    const talentUpdates = {};
     const userUpdates = {};
 
     // ---- file uploads (optional) ----
@@ -533,38 +533,38 @@ const updateProfile = async (req, res) => {
         "resumes"
       );
       // console.log("✅ [updateProfile] CV uploaded:", objectName);
-      engineerUpdates.cv_object_name = objectName;
+      talentUpdates.cv_object_name = objectName;
     }
 
-    // ---- engineer fields ----
+    // ---- talent fields ----
     if (date_of_birth !== undefined) {
       // console.log("📝 [updateProfile] Updating date_of_birth:", date_of_birth);
-      engineerUpdates.date_of_birth = date_of_birth;
+      talentUpdates.date_of_birth = date_of_birth;
     }
     const yoe = toInt(years_of_experience);
     if (yoe !== undefined) {
       // console.log("📝 [updateProfile] Updating years_of_experience:", yoe);
-      engineerUpdates.years_of_experience = yoe;
+      talentUpdates.years_of_experience = yoe;
     }
 
     const projTypes = toTextArray(project_types);
     if (projTypes !== undefined) {
       // console.log("📝 [updateProfile] Updating project_types:", projTypes);
-      engineerUpdates.project_types = projTypes;
+      talentUpdates.project_types = projTypes;
     }
 
     if (availability !== undefined) {
       // console.log("📝 [updateProfile] Updating availability:", availability);
-      engineerUpdates.availability = availability;
+      talentUpdates.availability = availability;
     }
     const specArr = toTextArray(specialization);
     if (specArr !== undefined) {
       // console.log("📝 [updateProfile] Updating specialization:", specArr);
-      engineerUpdates.specialization = specArr;
+      talentUpdates.specialization = specArr;
     }
     if (skill_level !== undefined) {
       // console.log("📝 [updateProfile] Updating skill_level:", skill_level);
-      engineerUpdates.skill_level = skill_level;
+      talentUpdates.skill_level = skill_level;
     }
 
     // ---- user fields ----
@@ -590,19 +590,19 @@ const updateProfile = async (req, res) => {
     }
 
     // Persist updates
-    // console.log("📝 [updateProfile] Applying engineer updates:", Object.keys(engineerUpdates));
-    if (Object.keys(engineerUpdates).length)
-      await engineer.update(engineerUpdates);
+    // console.log("📝 [updateProfile] Applying talent updates:", Object.keys(talentUpdates));
+    if (Object.keys(talentUpdates).length)
+      await talent.update(talentUpdates);
 
     // console.log("📝 [updateProfile] Applying user updates:", Object.keys(userUpdates));
     if (Object.keys(userUpdates).length)
-      await engineer.user.update(userUpdates);
+      await talent.user.update(userUpdates);
 
     // Cleanup old files **after** DB points to new ones
     if (
       req.files?.avatar?.[0] &&
       oldAvatarObjectName &&
-      oldAvatarObjectName !== engineer.user.avatar_object_name
+      oldAvatarObjectName !== talent.user.avatar_object_name
     ) {
       try {
         // console.log("🗑️ [updateProfile] Deleting old avatar:", oldAvatarObjectName);
@@ -615,7 +615,7 @@ const updateProfile = async (req, res) => {
       try {
         if (
           oldAvatarObjectName &&
-          oldAvatarObjectName !== engineer.user.avatar_object_name
+          oldAvatarObjectName !== talent.user.avatar_object_name
         ) {
           // console.log("🗑️ [updateProfile] Deleting old avatar (single file):", oldAvatarObjectName);
           await deleteFromGCP(oldAvatarObjectName);
@@ -629,7 +629,7 @@ const updateProfile = async (req, res) => {
     if (
       req.files?.cv_file?.[0] &&
       oldCvObjectName &&
-      oldCvObjectName !== engineer.cv_object_name
+      oldCvObjectName !== talent.cv_object_name
     ) {
       try {
         // console.log("🗑️ [updateProfile] Deleting old CV:", oldCvObjectName);
@@ -644,16 +644,16 @@ const updateProfile = async (req, res) => {
     }
 
     // Re-fetch and attach signed URLs for immediate use
-    const fresh = await Engineer.findOne({
+    const fresh = await Talent.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: "user" }],
     });
 
-    // console.log("📝 [updateProfile] Re-fetching fresh engineer data");
+    // console.log("📝 [updateProfile] Re-fetching fresh talent data");
 
     // Get full user with all associations
     const userWithAssociations = await User.findByPk(req.user.user_id, {
-      include: [{ model: Engineer, as: "engineer" }],
+      include: [{ model: Talent, as: "talent" }],
     });
 
     // Format user response with signed URLs
@@ -749,19 +749,19 @@ const applyForJob = async (req, res) => {
     }
 
     /* ===============================
-       GET ENGINEER PROFILE
+       GET TALENT PROFILE
        =============================== */
-    const engineer = await Engineer.findOne({
+    const talent = await Talent.findOne({
       where: { user_id: req.user.user_id },
       include: [{ model: User, as: "user" }],
     });
 
-    // console.log("Engineer from job aplication bkend ==>", engineer);
+    // console.log("Talent from job aplication bkend ==>", talent);
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(403).json({
         success: false,
-        message: "Only engineers can apply for jobs",
+        message: "Only talents can apply for jobs",
       });
     }
 
@@ -771,7 +771,7 @@ const applyForJob = async (req, res) => {
     const existingApplication = await Application.findOne({
       where: {
         job_id: jobs_id,
-        engineer_id: engineer.engineer_id,
+        talent_id: talent.talent_id,
       },
     });
 
@@ -782,17 +782,17 @@ const applyForJob = async (req, res) => {
       });
     }
 
-    // console.log("engineer ID ==>", engineer.engineer_id);
+    // console.log("talent ID ==>", talent.talent_id);
     /* ===============================
        CREATE APPLICATION
        =============================== */
     const application = await Application.create({
       job_id: jobs_id,
-      engineer_id: engineer.engineer_id, // ✅ correct FK
+      talent_id: talent.talent_id, // ✅ correct FK
       job_title: job.title,
-      engineer_name: `${engineer.user?.first_name} ${engineer.user?.last_name}`,
-      experience: engineer.years_of_experience,
-      skills: engineer.specialization,
+      talent_name: `${talent.user?.first_name} ${talent.user?.last_name}`,
+      experience: talent.years_of_experience,
+      skills: talent.specialization,
     });
 
     /* ===============================
@@ -801,7 +801,7 @@ const applyForJob = async (req, res) => {
     await job.increment("applications_count");
 
     // Notify the job poster via in-app notification + email
-    await notifyJobPosterOfApplication({ job, application, engineer });
+    await notifyJobPosterOfApplication({ job, application, talent });
 
     return res.status(201).json({
       success: true,
@@ -819,27 +819,27 @@ const applyForJob = async (req, res) => {
   }
 };
 
-// Get engineer's applications - list
+// Get talent's applications - list
 const getApplications = async (req, res) => {
   try {
     const { page, limit, status } = req.query;
 
-    const engineer = await Engineer.findOne({
+    const talent = await Talent.findOne({
       where: { user_id: req.user.user_id },
     });
 
-    // console.log("Engineer Found ==>", engineer);
-    // console.log("Engineer ID ==>", engineer ? engineer.engineer_id : "N/A");
+    // console.log("Talent Found ==>", talent);
+    // console.log("Talent ID ==>", talent ? talent.talent_id : "N/A");
     // console.log("User ID", req.user.user_id)
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(404).json({
         success: false,
-        message: "Engineer profile not found",
+        message: "Talent profile not found",
       });
     }
 
-    const where = { engineer_id: engineer.engineer_id };
+    const where = { talent_id: talent.talent_id };
     if (status) where.status = status;
 
     const pagination = {
@@ -855,7 +855,7 @@ const getApplications = async (req, res) => {
           as: "job",
         },
         {
-          model: Engineer,
+          model: Talent,
           as: "applicant", // ✅ correct association
           include: [
             {
@@ -888,7 +888,7 @@ const getApplications = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Failed to get engineer applications:", error);
+    console.error("Failed to get talent applications:", error);
 
     return res.status(500).json({
       success: false,
@@ -898,29 +898,29 @@ const getApplications = async (req, res) => {
   }
 };
 
-// Get engineer's projects - list
+// Get talent's projects - list
 const getProjects = async (req, res) => {
   try {
     const { page, limit, status } = req.query;
 
     /* ===============================
-       GET ENGINEER
+       GET TALENT
        =============================== */
-    const engineer = await Engineer.findOne({
+    const talent = await Talent.findOne({
       where: { user_id: req.user.user_id },
     });
 
-    if (!engineer) {
+    if (!talent) {
       return res.status(404).json({
         success: false,
-        message: "Engineer profile not found",
+        message: "Talent profile not found",
       });
     }
 
     /* ===============================
        FETCH PROJECTS VIA M2M
        =============================== */
-    let projects = await engineer.getEngineer_projects({
+    let projects = await talent.getTalent_projects({
       order: [["created_at", "DESC"]],
     });
 
@@ -961,7 +961,7 @@ const getProjects = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Failed to get engineer projects:", error);
+    console.error("Failed to get talent projects:", error);
 
     return res.status(500).json({
       success: false,
@@ -977,7 +977,7 @@ const getProjectDetails = async (req, res) => {
     const { projects_id } = req.params;
 
     const project = await Project.findOne({
-      where: { projects_id, engineer_user_id: req.user.user_id },
+      where: { projects_id, talent_user_id: req.user.user_id },
       include: [
         { model: User, as: "poster", attributes: ["first_name", "last_name"] },
         { model: Job, as: "job" },
@@ -1005,7 +1005,7 @@ const getProjectDetails = async (req, res) => {
 };
 
 module.exports = {
-  getEngineers,
+  getTalents,
   completeOnboarding,
   getDashboard,
   updateProfile,

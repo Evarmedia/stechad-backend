@@ -117,31 +117,31 @@ router.put('/profile', upload.single('avatar'), adminController.updateProfile);
 
 /**
  * @swagger
- * /admin/engineers/{engineer_id}:
+ * /admin/talents/{talent_id}:
  *   get:
- *     summary: Get specific engineer details
+ *     summary: Get specific talent details
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: engineer_id
+ *         name: talent_id
  *         required: true
  *         schema:
  *           type: string
  *     responses:
  *       200:
- *         description: Engineer details retrieved successfully
+ *         description: Talent details retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
+router.get('/talents/:talent_id', adminController.getTalentDetails);
 
 /**
  * @swagger
- * /admin/engineers/toggle-vet:
+ * /admin/talents/toggle-vet:
  *   put:
- *     summary: Vet an engineer
+ *     summary: Vet a talent
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
@@ -152,20 +152,20 @@ router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
  *           schema:
  *             type: object
  *             properties:
- *               engineer_id:
+ *               talent_id:
  *                 type: string
  *                 example: enginer-id-ssishw
- *                 description: ID of the engineer to vet
+ *                 description: ID of the talent to vet
  *               is_vetted:
  *                 type: boolean
  *                 example: true
  *               remark:
  *                 type: string
  *                 example: "Experienced but not Fluent in French"
- *                 description: Vetting status of the engineer
+ *                 description: Vetting status of the talent
  *     responses:
  *       200:
- *         description: Engineer vetted successfully
+ *         description: Talent vetted successfully
  *         content:
  *           application/json:
  *             schema:
@@ -176,11 +176,11 @@ router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Engineer vetted successfully
+ *                   example: Talent vetted successfully
  *                 data:
- *                   $ref: '#/components/schemas/Engineer'
+ *                   $ref: '#/components/schemas/Talent'
  *       404:
- *         description: Engineer not found
+ *         description: Talent not found
  *         content:
  *           application/json:
  *             schema:
@@ -191,9 +191,9 @@ router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: Engineer not found
+ *                   example: Talent not found
  *       500:
- *         description: Failed to vet engineer
+ *         description: Failed to vet talent
  *         content:
  *           application/json:
  *             schema:
@@ -204,37 +204,37 @@ router.get('/engineers/:engineer_id', adminController.getEngineerDetails);
  *                   example: false
  *                 message:
  *                   type: string
- *                   example: Failed to vet engineer
+ *                   example: Failed to vet talent
  *                 error:
  *                   type: string
  *                   example: Error message
  */
 router.put(
-  "/engineers/toggle-vet",
-  adminController.updateEngineerVetting
+  "/talents/toggle-vet",
+  adminController.updateTalentVetting
 );
 
 /**
  * @swagger
- * /admin/engineers/{engineer_id}:
+ * /admin/talents/{talent_id}:
  *   delete:
- *     summary: Delete engineer account
+ *     summary: Delete talent account
  *     tags: [Admin]
  *     parameters:
  *       - in: path
- *         name: engineer_id
+ *         name: talent_id
  *         required: true
  *         schema:
  *           type: string
  *     responses:
  *       200:
- *         description: Engineer deleted successfully
+ *         description: Talent deleted successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.delete('/engineers/:engineer_id', adminController.deleteEngineer);
+router.delete('/talents/:talent_id', adminController.deleteTalent);
 
 /**
  * @swagger
@@ -358,9 +358,9 @@ router.delete('/project-managers/:project_managers_id', adminController.deletePr
 
 /**
  * @swagger
- * /admin/engineer-vetting:
+ * /admin/talent-vetting:
  *   get:
- *     summary: Get engineers pending vetting
+ *     summary: Get talents pending vetting
  *     tags: [Admin]
  *     parameters:
  *       - in: query
@@ -375,13 +375,13 @@ router.delete('/project-managers/:project_managers_id', adminController.deletePr
  *           default: 10
  *     responses:
  *       200:
- *         description: Pending vetting engineers retrieved successfully
+ *         description: Pending vetting talents retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.get('/engineer-vetting', adminController.getEngineerVetting);
+router.get('/talent-vetting', adminController.getTalentVetting);
 
 /**
  * @swagger

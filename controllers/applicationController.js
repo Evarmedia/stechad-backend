@@ -1,4 +1,4 @@
-const { Application, Job, User, Engineer, ProjectManager } = require('../models');
+const { Application, Job, User, Talent, ProjectManager } = require('../models');
 const { Op } = require('sequelize');
 const { createNotification } = require('../utils/notificationUtil');
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
@@ -7,12 +7,12 @@ const SIGNED_URL_TTL_SECONDS = 3600;
 // Get all applications with filtering and pagination - list
 const getApplications = async (req, res) => {
   try {
-    const { page, limit, status, job_id, engineer_id } = req.query;
+    const { page, limit, status, job_id, talent_id } = req.query;
 
     let where = {};
     if (status) where.status = status;
     if (job_id) where.job_id = job_id;
-    if (engineer_id) where.engineer_id = engineer_id;
+    if (talent_id) where.talent_id = talent_id;
 
     const pagination = {
       limit: limit ? parseInt(limit) : undefined,
@@ -38,9 +38,9 @@ const getApplications = async (req, res) => {
           ],
         },
 
-        // 🔧 FIX: applicant is Engineer, NOT User
+        // 🔧 FIX: applicant is Talent, NOT User
         {
-          model: Engineer,
+          model: Talent,
           as: "applicant",
           include: [
             {
@@ -62,18 +62,18 @@ const getApplications = async (req, res) => {
       applications.rows.map(async (app) => {
         const data = app.toJSON();
 
-        const engineer = data?.applicant;
-        if (engineer?.cv_object_name) {
+        const talent = data?.applicant;
+        if (talent?.cv_object_name) {
           try {
-            engineer.cv_url = await getV4ReadSignedUrl(
-              engineer.cv_object_name,
+            talent.cv_url = await getV4ReadSignedUrl(
+              talent.cv_object_name,
               SIGNED_URL_TTL_SECONDS
             );
           } catch (err) {
-            engineer.cv_url = null;
+            talent.cv_url = null;
           }
-        } else if (engineer) {
-          engineer.cv_url = null;
+        } else if (talent) {
+          talent.cv_url = null;
         }
 
         return data;
@@ -128,8 +128,8 @@ const getApplicationById = async (req, res) => {
           as: 'applicant',
           attributes: ['first_name', 'last_name', 'email'],
           include: [{
-            model: Engineer,
-            as: 'engineer'
+            model: Talent,
+            as: 'talent'
           }]
         }
       ]
@@ -188,9 +188,9 @@ const updateApplicationStatus = async (req, res) => {
           ],
         },
 
-        // 🔧 FIX: applicant is Engineer, not User
+        // 🔧 FIX: applicant is Talent, not User
         {
-          model: Engineer,
+          model: Talent,
           as: "applicant",
           include: [
             {
@@ -312,10 +312,10 @@ const getApplicationStats = async (req, res) => {
           attributes: ["title"],
         },
         {
-          // 🔧 FIX: applicant is Engineer, not User
-          model: Engineer,
+          // 🔧 FIX: applicant is Talent, not User
+          model: Talent,
           as: "applicant",
-          attributes: ["engineer_id"], // keep light
+          attributes: ["talent_id"], // keep light
           include: [
             {
               model: User,

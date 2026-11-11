@@ -7,7 +7,7 @@ const SYSTEM_ROLES = Object.freeze([
   { role_key: "super_admin", name: "Super Admin", description: "Full platform access, including system administration." },
   { role_key: "admin", name: "Admin", description: "Platform and workforce administration access." },
   { role_key: "project_manager", name: "Project Manager", description: "Project, hiring, team, and delivery management access." },
-  { role_key: "engineer", name: "Engineer", description: "Engineering talent profile and project delivery access." },
+  { role_key: "talent", name: "Talent", description: "Engineering talent profile and project delivery access." },
   { role_key: "staff", name: "Staff", description: "Workforce self-service access." },
 ]);
 

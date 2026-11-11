@@ -1,8 +1,8 @@
-const { User, Engineer, ProjectManager, Job, Application, Project } = require('../models');
+const { User, Talent, ProjectManager, Job, Application, Project } = require('../models');
 const { Op } = require('sequelize');
 
-// Export engineers data
-const exportEngineers = async (req, res) => {
+// Export talents data
+const exportTalents = async (req, res) => {
   try {
     const {
       format = 'json',
@@ -33,8 +33,8 @@ const exportEngineers = async (req, res) => {
     }
 
     // Define which fields to include
-    let engineerAttributes = [
-      'engineer_id', 'specialization', 'skill_level', 'years_of_experience',
+    let talentAttributes = [
+      'talent_id', 'specialization', 'skill_level', 'years_of_experience',
       'certifications', 'project_types', 'availability', 'is_vetted', 'created_at'
     ];
 
@@ -45,7 +45,7 @@ const exportEngineers = async (req, res) => {
 
     if (fields) {
       const requestedFields = fields?.split(',').map(field => field.trim());
-      engineerAttributes = engineerAttributes.filter(attr => 
+      talentAttributes = talentAttributes.filter(attr =>
         requestedFields.includes(attr) || requestedFields.includes('*')
       );
       userAttributes = userAttributes.filter(attr => 
@@ -53,9 +53,9 @@ const exportEngineers = async (req, res) => {
       );
     }
 
-    const engineers = await Engineer.findAll({
+    const talents = await Talent.findAll({
       where,
-      attributes: engineerAttributes,
+      attributes: talentAttributes,
       include: [{
         model: User,
         as: 'user',
@@ -66,10 +66,10 @@ const exportEngineers = async (req, res) => {
     });
 
     // Format data for export
-    const exportData = engineers.map(engineer => {
+    const exportData = talents.map(talent => {
       const data = {
-        ...engineer.toJSON(),
-        ...engineer.user.toJSON()
+        ...talent.toJSON(),
+        ...talent.user.toJSON()
       };
       delete data.user;
       return data;
@@ -96,7 +96,7 @@ const exportEngineers = async (req, res) => {
       ].join('\n');
 
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename=engineers.csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=talents.csv');
       return res.send(csvContent);
     }
 
@@ -234,7 +234,7 @@ const exportApplications = async (req, res) => {
       fields,
       status,
       job_id,
-      engineer_id,
+      talent_id,
       date_from,
       date_to
     } = req.query;
@@ -250,8 +250,8 @@ const exportApplications = async (req, res) => {
       where.job_id = job_id;
     }
 
-    if (engineer_id) {
-      where.engineer_id = engineer_id;
+    if (talent_id) {
+      where.talent_id = talent_id;
     }
 
     if (date_from || date_to) {
@@ -263,7 +263,7 @@ const exportApplications = async (req, res) => {
 
     // Define which fields to include
     let applicationAttributes = [
-      'applications_id', 'job_title', 'engineer_name', 'status',
+      'applications_id', 'job_title', 'talent_name', 'status',
       'experience', 'skills', 'feedback', 'applied_at', 'reviewed_at'
     ];
 
@@ -288,8 +288,8 @@ const exportApplications = async (req, res) => {
           as: 'applicant',
           attributes: ['first_name', 'last_name', 'email'],
           include: [{
-            model: Engineer,
-            as: 'engineer',
+            model: Talent,
+            as: 'talent',
             attributes: ['specialization', 'years_of_experience']
           }]
         }
@@ -304,8 +304,8 @@ const exportApplications = async (req, res) => {
       data.job_location = data.job.location;
       data.applicant_name = `${data.applicant.first_name} ${data.applicant.last_name}`;
       data.applicant_email = data.applicant.email;
-      data.applicant_specialization = data.applicant.engineer?.specialization?.join(', ') || '';
-      data.applicant_experience = data.applicant.engineer?.years_of_experience || 0;
+      data.applicant_specialization = data.applicant.talent?.specialization?.join(', ') || '';
+      data.applicant_experience = data.applicant.talent?.years_of_experience || 0;
       delete data.job;
       delete data.applicant;
       return data;
@@ -351,7 +351,7 @@ const exportApplications = async (req, res) => {
 };
 
 module.exports = {
-  exportEngineers,
+  exportTalents,
   exportJobs,
   exportApplications
 };

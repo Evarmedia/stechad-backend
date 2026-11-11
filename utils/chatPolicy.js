@@ -35,12 +35,12 @@ async function contactFilter(userId, context = "direct", transaction) {
   if (["admin", "super_admin"].includes(role)) return {};
   const roles =
     role === "project_manager"
-      ? ["engineer", "staff", "project_manager"]
+      ? ["talent", "staff", "project_manager"]
       : role === "staff"
         ? ["staff", "project_manager"]
         : [];
   if (roles.length) return { "$role.role_key$": { [Op.in]: roles } };
-  if (role !== "engineer") return { user_id: { [Op.in]: [] } };
+  if (role !== "talent") return { user_id: { [Op.in]: [] } };
   // Actual incoming direct messages survive personal clearing and soft deletion.
   const incoming = await Message.findAll({
     attributes: ["sender_id"],

@@ -1,6 +1,6 @@
 const {
   User,
-  Engineer,
+  Talent,
   ProjectManager,
   Job,
   Application,
@@ -152,7 +152,7 @@ const getDashboard = async (req, res) => {
           ],
         },
         {
-          model: Engineer,
+          model: Talent,
           as: "applicant",
           include: [
             {
@@ -466,8 +466,8 @@ const getPmProjects = async (req, res) => {
           include: [{ model: User, as: "user" }],
         },
         {
-          model: Engineer,
-          as: "engineers",
+          model: Talent,
+          as: "talents",
           through: { attributes: [] },
           required: false,
           include: [

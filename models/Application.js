@@ -1,7 +1,7 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const Job = require("./Job");
-const Engineer = require("./Engineer");
+const Talent = require("./Talent");
 const User = require("./User");
 
 class Application extends Model {}
@@ -21,19 +21,19 @@ Application.init(
         key: "jobs_id",
       },
     },
-    engineer_id: {
+    talent_id: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
-        model: Engineer,
-        key: "engineer_id",
+        model: Talent,
+        key: "talent_id",
       },
     },
     job_title: {
       type: DataTypes.TEXT,
       allowNull: false,
     },
-    engineer_name: {
+    talent_name: {
       type: DataTypes.TEXT,
     },
     status: {

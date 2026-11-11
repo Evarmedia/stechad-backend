@@ -1,7 +1,10 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const Sequelize = require('sequelize');
+const Umzug = require('umzug');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -15,7 +18,7 @@ const PORT = process.env.PORT || 5000;
 const sequelize = require('./config/database');
 const { Reward } = require('./models');
 const authRoutes = require('./routes/authRoutes');
-const engineerRoutes = require('./routes/engineerRoutes');
+const talentRoutes = require('./routes/talentRoutes');
 const pmRoutes = require('./routes/pmRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const jobsRoutes = require('./routes/jobsRoutes');
@@ -33,6 +36,21 @@ const { startHolidayNotificationScheduler } = require('./utils/holidayNotificati
 const { startAttendanceCloseScheduler } = require('./utils/attendanceScheduler');
 const { migrateRoleStorage } = require('./utils/roleMigration');
 const { migrateChatStorage } = require('./utils/chatMigration');
+
+const migrationRunner = new Umzug({
+  migrations: {
+    path: path.join(__dirname, 'migrations'),
+    pattern: /^\d+.*\.js$/,
+    params: [sequelize.getQueryInterface(), Sequelize],
+  },
+  storage: 'sequelize',
+  storageOptions: {
+    sequelize,
+    tableName: 'SequelizeMeta',
+    schema: sequelize.schema || sequelize.options.schema || 'public',
+  },
+  logging: false,
+});
 
 
 const passport = require('passport');
@@ -102,7 +120,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/engineers', engineerRoutes);
+app.use('/api/talents', talentRoutes);
 app.use('/api/pm', pmRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/jobs', jobsRoutes);
@@ -157,15 +175,18 @@ const startServer = async () => {
     await migrateRoleStorage();
     console.log('Role storage migrated');
     await migrateChatStorage();
-    
-    if (process.env.DB_SYNC_ALTER !== "disabled") {
-      const alterSchema = process.env.DB_SYNC_ALTER !== "false";
 
-      await sequelize.sync({
-        alter: alterSchema,
-        force: false,
-      });
-    }
+    await migrationRunner.up();
+    console.log('Migration completed');
+
+    // if (process.env.DB_SYNC_ALTER !== "disabled") {
+    //   const alterSchema = process.env.DB_SYNC_ALTER !== "false";
+
+    //   await sequelize.sync({
+    //     alter: alterSchema,
+    //     force: false,
+    //   });
+    // }
     console.log('Database synchronized');
     await migrateChatStorage();
     // Reconcile once more so fresh databases created by sync receive the same

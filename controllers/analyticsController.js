@@ -1,6 +1,6 @@
 const {
   User,
-  Engineer,
+  Talent,
   ProjectManager,
   Job,
   Application,
@@ -65,7 +65,7 @@ const getUserAnalytics = async (req, res) => {
     });
 
     // Role distribution
-    const engineers = await Engineer.count();
+    const talents = await Talent.count();
     const projectManagers = await ProjectManager.count();
     const admins = await User.count({ where: { "$role.role_key$": "admin" }, include: [ROLE_INCLUDE] });
 
@@ -113,7 +113,7 @@ const getUserAnalytics = async (req, res) => {
         active_users: activeUsers,
         user_growth: parseFloat(userGrowth),
         role_distribution: {
-          engineers,
+          talents,
           project_managers: projectManagers,
           admins,
         },
@@ -475,10 +475,10 @@ const getPlatformAnalytics = async (req, res) => {
           ).toFixed(1)
         : 0;
 
-    // Top performing engineers (by completed projects)
-    const topEngineers = await Project.findAll({
+    // Top performing talents (by completed projects)
+    const topTalents = await Project.findAll({
       attributes: [
-        "engineer_user_id",
+        "talent_user_id",
         [
           Project.sequelize.fn("COUNT", Project.sequelize.col("projects_id")),
           "projects_completed",
@@ -486,9 +486,9 @@ const getPlatformAnalytics = async (req, res) => {
       ],
       where: {
         status: "completed",
-        engineer_user_id: { [Op.not]: null },
+        talent_user_id: { [Op.not]: null },
       },
-      group: ["engineer_user_id"],
+      group: ["talent_user_id"],
       order: [
         [
           Project.sequelize.fn("COUNT", Project.sequelize.col("projects_id")),
@@ -499,31 +499,31 @@ const getPlatformAnalytics = async (req, res) => {
       raw: true,
     });
 
-    const engineerIds = topEngineers.map(
-      (engineer) => engineer.engineer_user_id
+    const talentIds = topTalents.map(
+      (talent) => talent.talent_user_id
     );
 
-    const engineers = await User.findAll({
-      where: { user_id: { [Op.in]: engineerIds } },
+    const talents = await User.findAll({
+      where: { user_id: { [Op.in]: talentIds } },
       include: [
         {
-          model: Engineer,
-          as: "engineer",
+          model: Talent,
+          as: "talent",
           attributes: ["years_of_experience"],
         },
       ],
       raw: false,
     });
 
-    const topEngineersWithDetails = topEngineers.map((engineer) => {
-      const engineerDetails = engineers.find(
-        (e) => e.user_id === engineer.engineer_user_id
+    const topTalentsWithDetails = topTalents.map((talent) => {
+      const talentDetails = talents.find(
+        (e) => e.user_id === talent.talent_user_id
       );
       return {
-        engineer_id: engineer.engineer_user_id,
-        name: `${engineerDetails.first_name} ${engineerDetails.last_name}`,
-        projects_completed: engineer.projects_completed,
-        experience_years: engineerDetails.engineer?.years_of_experience || 0,
+        talent_id: talent.talent_user_id,
+        name: `${talentDetails.first_name} ${talentDetails.last_name}`,
+        projects_completed: talent.projects_completed,
+        experience_years: talentDetails.talent?.years_of_experience || 0,
       };
     });
 
@@ -547,7 +547,7 @@ const getPlatformAnalytics = async (req, res) => {
         completed_projects: completedProjects,
         total_users: totalUsers,
         new_users: newUsers,
-        top_performing_engineers: topEngineersWithDetails,
+        top_performing_talents: topTalentsWithDetails,
       },
     });
   } catch (error) {

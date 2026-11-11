@@ -17,7 +17,7 @@ router.use(authenticate);
  * @swagger
  * /upload/resume:
  *   post:
- *     summary: Upload engineer resume (PDF only)
+ *     summary: Upload talent resume (PDF only)
  *     tags: [File Upload]
  *     requestBody:
  *       required: true
@@ -29,7 +29,7 @@ router.use(authenticate);
  *               resume:
  *                 type: string
  *                 format: binary
- *                 description: PDF file containing the engineer's resume
+ *                 description: PDF file containing the talent's resume
  *     responses:
  *       200:
  *         description: Resume uploaded successfully

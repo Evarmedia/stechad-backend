@@ -10,7 +10,7 @@ The migration also repairs a message sequence counter left behind by an older de
 
 ## Authorization
 
-New direct contacts: admins/super admins can select all active users; PMs can select engineers, staff and PMs; staff can select staff and PMs; engineers can select active senders of actual incoming direct messages. Existing direct threads remain replyable. Empty chats and shared groups do not qualify engineers; soft deletion and personal clearing preserve eligibility.
+New direct contacts: admins/super admins can select all active users; PMs can select talents, staff and PMs; staff can select staff and PMs; talents can select active senders of actual incoming direct messages. Existing direct threads remain replyable. Empty chats and shared groups do not qualify talents; soft deletion and personal clearing preserve eligibility.
 
 Group/support creation requires an admin, super admin or PM. Only the creator, while still in one of those roles, can manage the group. Adding members uses that creator's allowed contacts. Groups are limited to 100 members including the creator, who cannot remove themselves. Ownership transfer is not supported. All current members can view the roster and basic profiles; removed members cannot read, send, type or receive further chat events. Re-added members see history after their own clear boundary, with an unread baseline at re-addition. Posting restrictions apply to REST and Socket.IO.
 
@@ -49,6 +49,6 @@ Notification writes are in the send transaction, one per active recipient and me
 
 ## Verification
 
-Run `CHAT_TEST_DATABASE_URL='<isolated PostgreSQL URL>' npm test`. The integration suite creates and drops only its randomly named schemas. It covers role/forged-request matrices, engineer eligibility, REST/socket posting, creator restrictions including support chats, profiles, clear/search/quotes/notifications, concurrent sends, retry deduplication, member removal/re-add, upload validation, the 100-member cap, and legacy migration without automatic sync.
+Run `CHAT_TEST_DATABASE_URL='<isolated PostgreSQL URL>' npm test`. The integration suite creates and drops only its randomly named schemas. It covers role/forged-request matrices, talent eligibility, REST/socket posting, creator restrictions including support chats, profiles, clear/search/quotes/notifications, concurrent sends, retry deduplication, member removal/re-add, upload validation, the 100-member cap, and legacy migration without automatic sync.
 
 Frontend validation: production build; TypeScript diagnostics compared to the existing baseline; desktop and 320 px browser flows with separate role sessions and shared tabs. Browser checks include group settings/images/members, profiles, pickers, delayed history after clearing, revoked open views, notification links, focus suppression, audio unlock, persistent mute, and cross-tab chime deduplication. The production storage service and a production deployment are not exercised by local tests.
