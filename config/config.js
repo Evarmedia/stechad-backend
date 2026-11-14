@@ -26,7 +26,7 @@ module.exports = {
     url: process.env.DATABASE_URL,
     dialect: "postgres",
     timezone: "+01:00",
-    schema: process.env.DB_SCHEMA || "public", // Production schema
+    schema: process.env.DB_SCHEMA || "public",
     migrationStorageTableSchema: process.env.DB_SCHEMA || "public",
     dialectOptions: {
       ssl: {
