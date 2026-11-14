@@ -86,7 +86,18 @@ const corsOptions = {
 };
 
 // Security middleware
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "script-src": ["'self'", "https://cdn.jsdelivr.net"],
+        "style-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+      },
+    },
+  }),
+);
+
 app.use(cors(corsOptions));
 app.use(compression());
 // Trust the proxy to correctly handle X-Forwarded-For headers
@@ -112,11 +123,22 @@ app.use(express.urlencoded({ extended: true }));
 app.use(passport.initialize());
 
 // Swagger documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
-  explorer: true,
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Stechad Platform API Documentation'
-}));
+const swaggerCdn = 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.34.1';
+
+app.use(
+  '/api-docs',
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpecs, {
+    explorer: true,
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'Stechad Platform API Documentation',
+    customCssUrl: `${swaggerCdn}/swagger-ui.css`,
+    customJs: [
+      `${swaggerCdn}/swagger-ui-bundle.js`,
+      `${swaggerCdn}/swagger-ui-standalone-preset.js`,
+    ],
+  })
+);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -143,6 +165,10 @@ app.get('/api/health', (req, res) => {
 // Health check endpoint
 app.get('/', (req, res) => {
   res.status(200).json({ status: 'OK', message: 'Welcome to Stechad Base' });
+});
+
+app.get("/api-docs.json", (req, res) => {
+  res.json(swaggerSpecs);
 });
 
 // Error handling middleware
