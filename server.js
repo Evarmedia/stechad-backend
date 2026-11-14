@@ -166,51 +166,54 @@ const { initializeChatSocket } = require('./utils/chatSocket');
 app.set('io', io);
 initializeChatSocket(io);
 
-// Database connection and server start
+// Database initialization
+const initializeDatabase = async () => {
+  await sequelize.authenticate();
+  console.log('Database connected successfully');
+
+  await migrateRoleStorage();
+  console.log('Role storage migrated');
+
+  await migrateChatStorage();
+
+  await migrationRunner.up();
+  console.log('Migration completed');
+
+  await migrateChatStorage();
+  await migrateRoleStorage();
+  console.log('Role storage verified');
+
+  const existingRewards = await Reward.count();
+
+  if (existingRewards === 0) {
+    await createDefaultRewards();
+  }
+};
+
+// Traditional server startup
 const startServer = async () => {
   try {
-    await sequelize.authenticate();
-    console.log('Database connected successfully');
+    await initializeDatabase();
 
-    await migrateRoleStorage();
-    console.log('Role storage migrated');
-    await migrateChatStorage();
-
-    await migrationRunner.up();
-    console.log('Migration completed');
-
-    // if (process.env.DB_SYNC_ALTER !== "disabled") {
-    //   const alterSchema = process.env.DB_SYNC_ALTER !== "false";
-
-    //   await sequelize.sync({
-    //     alter: alterSchema,
-    //     force: false,
-    //   });
-    // }
-    console.log('Database synchronized');
-    await migrateChatStorage();
-    // Reconcile once more so fresh databases created by sync receive the same
-    // role foreign keys, indexes, and system-role seed as upgraded databases.
-    await migrateRoleStorage();
-    console.log('Role storage verified');
-
-    // Create default rewards if they don't exist
-    const existingRewards = await Reward.count();
-    if (existingRewards === 0) {
-      await createDefaultRewards();
-    }
     startHolidayNotificationScheduler();
     startAttendanceCloseScheduler();
-    
+
     server.listen(PORT, () => {
-      console.log(`Running in ${process.env.NODE_ENV} mode`)
-      console.log(`👀Server running on port ${PORT}`);
-      console.log(`🖥️ API docs at http://localhost:${PORT}/api-docs`);
+      console.log(`Running in ${process.env.NODE_ENV} mode`);
+      console.log(`Server running on port ${PORT}`);
+      console.log(`API docs at http://localhost:${PORT}/api-docs`);
     });
+
   } catch (error) {
     console.error('Unable to start server:', error);
     process.exit(1);
   }
 };
 
-startServer();
+// Start only when running as a standalone Node.js server
+if (!process.env.VERCEL && require.main === module) {
+  startServer();
+}
+
+// Export HTTP server for Vercel
+module.exports = server;
