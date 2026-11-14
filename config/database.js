@@ -4,6 +4,10 @@ const pg = require("pg");
 const env = process.env.NODE_ENV || "development";
 const config = require("./config")[env];
 
+if (env === "production" && !config.url) {
+  throw new Error("DATABASE_URL is required in production");
+}
+
 let sequelize;
 
 if (config.url) {
@@ -14,6 +18,12 @@ if (config.url) {
     logging: config.logging || false,
     timezone: config.timezone,
     schema: config.schema,
+    pool: {
+      max: 2,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
   });
 } else {
   sequelize = new Sequelize(config.database, config.username, config.password, {
