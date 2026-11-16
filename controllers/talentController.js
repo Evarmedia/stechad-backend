@@ -1,3 +1,4 @@
+const { normalizeBirthday } = require("../utils/birthday");
 const {
   User,
   Talent,
@@ -20,6 +21,10 @@ const {
 // Complete talent onboarding (multipart/form-data)
 const completeOnboarding = async (req, res) => {
   try {
+    if (req.body.date_of_birth !== undefined) {
+      try { req.body.date_of_birth = normalizeBirthday(req.body.date_of_birth); }
+      catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    }
     // console.log('🟢 [BACKEND] ========== STEP 1: Fetching user and talent records ==========');
     const user = await User.findByPk(req.user.user_id);
 
@@ -456,6 +461,10 @@ const getDashboard = async (req, res) => {
 // Update talent profile (multipart/form-data)
 const updateProfile = async (req, res) => {
   try {
+    if (req.body.date_of_birth !== undefined) {
+      try { req.body.date_of_birth = normalizeBirthday(req.body.date_of_birth); }
+      catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    }
     // console.log("📝 [updateProfile] Starting profile update");
     // console.log("📝 [updateProfile] req.user:", { user_id: req.user.user_id, role: req.user.role });
     // console.log("📝 [updateProfile] req.body keys:", Object.keys(req.body));

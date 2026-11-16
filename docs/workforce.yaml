@@ -89,7 +89,7 @@ components:
           format: email
         employee_id:
           type: string
-          pattern: '^STE\d{4}$'
+          pattern: '^[A-Z][A-Z0-9]{0,9}\d{4}$'
           example: STE0748
           description: Unique employee ID reserved when the invitation is created and copied to the user at acceptance.
         role:
@@ -112,7 +112,7 @@ components:
         first_name: { type: string }
         last_name: { type: string }
         phone_number: { type: string }
-        employee_id: { type: string, pattern: '^STE\d{4}$', example: STE0748 }
+        employee_id: { type: string, pattern: '^[A-Z][A-Z0-9]{0,9}\d{4}$', example: STE0748 }
         department_id: { type: string, format: uuid, nullable: true }
         job_title: { type: string, nullable: true }
         reports_to_user_id: { type: string, format: uuid, nullable: true }
@@ -332,7 +332,7 @@ paths:
     post:
       tags: [Workforce Admin]
       summary: Invite a workforce member
-      description: Reserves a unique STE#### employee ID, persists a one-hour invitation, and sends the acceptance email. Allowed roles are Admin, Project Manager, and Staff.
+      description: Reserves a unique employee ID using the configured EMPLOYEE_ID_PREFIX followed by four digits, persists a one-hour invitation, and sends the acceptance email. Allowed roles are Admin, Project Manager, and Staff.
       requestBody:
         required: true
         content:
@@ -946,13 +946,26 @@ paths:
     get:
       tags: [Staff]
       summary: Get upcoming workforce birthdays
-      description: Returns active workforce birthdays occurring within the next 60 days.
+      description: Returns active workforce birthdays within the next 60 days. Both date and monthDay use MM-DD without a year. February 29 is observed on February 28 in non-leap years.
       responses:
         '200':
           description: Upcoming birthdays retrieved successfully.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Success' }
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        date: { $ref: '#/components/schemas/Birthday' }
+                        monthDay: { $ref: '#/components/schemas/Birthday' }
+                        daysAway: { type: integer, minimum: 0, maximum: 60 }
   /staff/profile:
     get:
       tags: [Staff]
@@ -989,7 +1002,7 @@ paths:
                 website_url: { type: string, format: uri }
                 current_assignment: { type: string }
                 work_region: { type: string }
-                date_of_birth: { type: string, format: date }
+                date_of_birth: { $ref: '#/components/schemas/Birthday' }
                 avatar: { type: string, format: binary, description: 'Optional image file, maximum 2MB.' }
       responses:
         '200':

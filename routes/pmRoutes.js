@@ -83,11 +83,15 @@ router.get('/dashboard', pmController.getDashboard);
  *               country:
  *                 type: string
  *                 example: "UK"
+ *               date_of_birth:
+ *                 $ref: '#/components/schemas/Birthday'
  *               avatar:
  *                 type: string
  *                 format: binary
  *                 description: Optional profile image file (image/*)
  *     responses:
+ *       400:
+ *         description: Birthday must be a valid month and day in MM-DD format.
  *       200:
  *         description: Profile updated successfully
  *         content:

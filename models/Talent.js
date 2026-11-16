@@ -1,5 +1,6 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
+const { birthdayAttribute } = require("../utils/birthday");
 const User = require("./User");
 
 class Talent extends Model {}
@@ -16,9 +17,7 @@ Talent.init(
       allowNull: false,
       unique: true,
     },
-    date_of_birth: {
-      type: DataTypes.DATEONLY,
-    },
+    date_of_birth: birthdayAttribute(DataTypes),
     open_to_nearby_cities: {
       type: DataTypes.BOOLEAN,
     },

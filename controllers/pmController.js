@@ -1,3 +1,4 @@
+const { normalizeBirthday } = require("../utils/birthday");
 const {
   User,
   Talent,
@@ -206,6 +207,10 @@ const getDashboard = async (req, res) => {
 // Update project manager profile
 const updateProfile = async (req, res) => {
   try {
+    if (req.body.date_of_birth !== undefined) {
+      try { req.body.date_of_birth = normalizeBirthday(req.body.date_of_birth); }
+      catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    }
     const projectManager = await ProjectManager.findOne({
       where: { user_id: req.user.user_id },
       include: [
@@ -238,6 +243,7 @@ const updateProfile = async (req, res) => {
     ];
     
     const allowedUserUpdates = [
+      "date_of_birth",
       "first_name",
       "last_name",
       "phone_number",

@@ -37,6 +37,23 @@ const options = {
         }
       },
       schemas: {
+        Birthday: {
+          type: 'string',
+          nullable: true,
+          pattern: '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$',
+          example: '04-12',
+          description: 'Birthday as MM-DD, without a birth year. Must be a valid calendar day; February 29 is supported. Empty input clears an optional birthday. Legacy YYYY-MM-DD input is accepted with its year discarded.'
+        },
+        PlatformSettings: {
+          type: 'object',
+          properties: {
+            EMPLOYEE_ID_PREFIX: {
+              type: 'string', pattern: '^[A-Z][A-Z0-9]{0,9}$', example: 'STE', default: 'STE',
+              description: 'Prefix for newly allocated employee IDs (prefix plus four digits). Changing this leaves existing user IDs and reserved invitation IDs unchanged.'
+            }
+          },
+          additionalProperties: true
+        },
         User: {
           type: 'object',
           properties: {
@@ -48,7 +65,8 @@ const options = {
             first_name: { type: 'string', example: 'John' },
             last_name: { type: 'string', example: 'Doe' },
             phone_number: { type: 'string', example: '+1234567890' },
-            employee_id: { type: 'string', pattern: '^STE\\d{4}$', example: 'STE0748' },
+            employee_id: { type: 'string', pattern: '^[A-Z][A-Z0-9]{0,9}\\d{4}$', example: 'STE0748', description: 'Configured prefix followed by four digits.' },
+            date_of_birth: { $ref: '#/components/schemas/Birthday' },
             avatar_object_name: { type: 'string', example: 'profile-images/user-id__avatar.jpg' },
             avatar_url: { type: 'string', format: 'uri', description: 'Short-lived signed URL for the current avatar.' },
             is_active: { type: 'boolean', example: true },
@@ -73,7 +91,7 @@ const options = {
           properties: {
             talent_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174001' },
             user_id: { type: 'string', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' },
-            date_of_birth: { type: 'string', format: 'date', example: '1990-01-01' },
+            date_of_birth: { $ref: '#/components/schemas/Birthday' },
             open_to_nearby_cities: { type: 'boolean', example: true },
             languages: { type: 'array', items: { type: 'string' }, example: ['English', 'Spanish'] },
             language_proficiency: { type: 'string', enum: ['basic', 'conversational', 'fluent', 'native'], example: 'fluent' },

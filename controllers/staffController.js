@@ -1,3 +1,4 @@
+const { normalizeBirthday } = require("../utils/birthday");
 const moment = require("moment");
 const { Op } = require("sequelize");
 const {
@@ -1278,13 +1279,18 @@ const getBirthdays = async (req, res) => {
     const today = moment().startOf("day");
     const birthdays = users
       .map((user) => {
-        const monthDay = moment(user.date_of_birth).format("MM-DD");
-        let nextDate = moment(`${today.year()}-${monthDay}`, "YYYY-MM-DD");
-        if (nextDate.isBefore(today)) nextDate = nextDate.add(1, "year");
+        const monthDay = normalizeBirthday(user.date_of_birth);
+        const occurrence = (year) => {
+          const [month, day] = monthDay.split("-").map(Number);
+          const start = today.clone().year(year).month(month - 1).startOf("month");
+          return start.date(Math.min(day, start.daysInMonth()));
+        };
+        let nextDate = occurrence(today.year());
+        if (nextDate.isBefore(today)) nextDate = occurrence(today.year() + 1);
         return {
           id: user.user_id,
           name: `${user.first_name || ""} ${user.last_name || ""}`.trim(),
-          date: nextDate.format("YYYY-MM-DD"),
+          date: monthDay,
           monthDay,
           daysAway: nextDate.diff(today, "days"),
         };
@@ -1337,6 +1343,10 @@ const getProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
+    if (req.body.date_of_birth !== undefined) {
+      try { req.body.date_of_birth = normalizeBirthday(req.body.date_of_birth); }
+      catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    }
     const allowed = [
       "first_name",
       "last_name",

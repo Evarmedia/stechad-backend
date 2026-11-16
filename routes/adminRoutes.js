@@ -74,11 +74,15 @@ router.get('/stats', adminController.getStats);
  *                 type: string
  *               country:
  *                 type: string
+ *               date_of_birth:
+ *                 $ref: '#/components/schemas/Birthday'
  *               avatar:
  *                 type: string
  *                 format: binary
  *                 description: Avatar image file (optional). When uploaded, backend stores the GCS object name and returns a signed URL.
  *     responses:
+ *       400:
+ *         description: Birthday must be a valid month and day in MM-DD format.
  *       200:
  *         description: Profile updated successfully
  *         content:
@@ -388,6 +392,7 @@ router.get('/talent-vetting', adminController.getTalentVetting);
  * /admin/settings:
  *   get:
  *     summary: Get platform settings
+ *     description: Admin-only settings. EMPLOYEE_ID_PREFIX defaults to STE when not configured.
  *     tags: [Admin]
  *     responses:
  *       200:
@@ -395,7 +400,11 @@ router.get('/talent-vetting', adminController.getTalentVetting);
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Success'
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   $ref: '#/components/schemas/PlatformSettings'
  */
 router.get('/workforce', adminController.getWorkforce);
 router.post('/workforce/invite', adminController.inviteProjectManager);
@@ -425,6 +434,7 @@ router.get('/settings', adminController.getSettings);
  * /admin/settings:
  *   put:
  *     summary: Update platform settings
+ *     description: Admin-only settings update. EMPLOYEE_ID_PREFIX applies only to newly generated employee IDs; existing and reserved IDs are preserved.
  *     tags: [Admin]
  *     requestBody:
  *       required: true
@@ -432,10 +442,10 @@ router.get('/settings', adminController.getSettings);
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [settings]
  *             properties:
  *               settings:
- *                 type: object
- *                 additionalProperties: true
+ *                 $ref: '#/components/schemas/PlatformSettings'
  *     responses:
  *       200:
  *         description: Settings updated successfully
@@ -443,6 +453,10 @@ router.get('/settings', adminController.getSettings);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Success'
+ *       400:
+ *         description: Invalid settings object or employee ID prefix.
+ *       403:
+ *         description: Admin access required.
  */
 router.put('/settings', adminController.updateSettings);
 

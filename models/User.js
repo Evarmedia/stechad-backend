@@ -1,5 +1,6 @@
 const { Model, DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
+const { birthdayAttribute } = require("../utils/birthday");
 const bcrypt = require('bcryptjs');
 const Role = require("./Role");
 
@@ -61,10 +62,7 @@ User.init(
       type: DataTypes.DATEONLY,
       allowNull: true,
     },
-    date_of_birth: {
-      type: DataTypes.DATEONLY,
-      allowNull: true,
-    },
+    date_of_birth: birthdayAttribute(DataTypes),
     leave_allowance_days: {
       type: DataTypes.INTEGER,
       allowNull: false,

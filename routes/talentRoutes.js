@@ -87,8 +87,7 @@ router.get('/all', authorize('project_manager', 'admin'), getTalents);
  *                 description: Upload the talent's CV (PDF, DOCX, etc.)
  *
  *               date_of_birth:
- *                 type: string
- *                 example: "1996-04-12"
+ *                 $ref: '#/components/schemas/Birthday'
  *
  *               open_to_nearby_cities:
  *                 type: string
@@ -149,7 +148,7 @@ router.get('/all', authorize('project_manager', 'admin'), getTalents);
  *               open_to_training:
  *                 type: string
  *                 example: "true"
- * 
+ *
  *               is_freelancer:
  *                 type: string
  *                 description: Boolean value as string (true/false)
@@ -269,9 +268,7 @@ router.get('/dashboard', authorize('talent'), getDashboard);
  *             type: object
  *             properties:
  *               date_of_birth:
- *                 type: string
- *                 format: date
- *                 example: "1990-01-01"
+ *                 $ref: '#/components/schemas/Birthday'
  *               years_of_experience:
  *                 type: integer
  *                 example: 5
@@ -317,6 +314,8 @@ router.get('/dashboard', authorize('talent'), getDashboard);
  *                 format: binary
  *                 description: Optional CV file (PDF only)
  *     responses:
+ *       400:
+ *         description: Birthday must be a valid month and day in MM-DD format.
  *       200:
  *         description: Profile updated successfully
  *         content:

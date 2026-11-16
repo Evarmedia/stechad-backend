@@ -1,3 +1,4 @@
+const { normalizeBirthday } = require("../utils/birthday");
 const {
   User,
   Talent,
@@ -35,7 +36,7 @@ const zohoService = require("../utils/zohoService");
 const { notifyPermissionHolders } = require("../utils/workforceNotification");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
 const { buildLocationLabel } = require("../utils/geoapify");
-const { generateUniqueEmployeeId } = require("../utils/employeeId");
+const { generateUniqueEmployeeId, DEFAULT_EMPLOYEE_ID_PREFIX, EMPLOYEE_ID_PREFIX_PATTERN } = require("../utils/employeeId");
 const { ROLE_INCLUDE, getRoleKey, findRoleByIdentifier, findRoleByKey } = require("../utils/roleUtils");
 
 const sanitizeKpiCriteria = (criteria) => {
@@ -996,6 +997,10 @@ const deleteRole = async (req, res) => {
 // update admin profile
 const updateProfile = async (req, res) => {
   try {
+    if (req.body.date_of_birth !== undefined) {
+      try { req.body.date_of_birth = normalizeBirthday(req.body.date_of_birth); }
+      catch (error) { return res.status(400).json({ success: false, message: error.message }); }
+    }
     const admin = await Admin.findOne({
       where: { user_id: req.user.user_id },
       include: [
@@ -1049,6 +1054,7 @@ const updateProfile = async (req, res) => {
     const permArray = toTextArray(permissions);
     if (permArray !== undefined) adminUpdates.permissions = permArray;
 
+    if (req.body.date_of_birth !== undefined) userUpdates.date_of_birth = req.body.date_of_birth;
     if (first_name !== undefined) userUpdates.first_name = first_name;
     if (last_name !== undefined) userUpdates.last_name = last_name;
     if (phone_number !== undefined) userUpdates.phone_number = phone_number;
@@ -1619,7 +1625,7 @@ const getSettings = async (req, res) => {
   try {
     const settings = await Setting.findAll();
 
-    const settingsObject = {};
+    const settingsObject = { EMPLOYEE_ID_PREFIX: DEFAULT_EMPLOYEE_ID_PREFIX };
     settings.forEach((setting) => {
       let value = setting.value;
 
@@ -1659,6 +1665,13 @@ const getSettings = async (req, res) => {
 const updateSettings = async (req, res) => {
   try {
     const { settings } = req.body;
+    if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+      return res.status(400).json({ success: false, message: "settings must be an object" });
+    }
+    if (settings.EMPLOYEE_ID_PREFIX !== undefined &&
+        (typeof settings.EMPLOYEE_ID_PREFIX !== "string" || !EMPLOYEE_ID_PREFIX_PATTERN.test(settings.EMPLOYEE_ID_PREFIX))) {
+      return res.status(400).json({ success: false, message: "Employee ID prefix must contain 1–10 uppercase letters or digits, starting with a letter" });
+    }
 
     for (const [key, value] of Object.entries(settings)) {
       let type = "string";
