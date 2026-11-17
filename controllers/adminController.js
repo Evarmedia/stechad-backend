@@ -301,7 +301,7 @@ const getWorkforce = async (req, res) => {
         && user.browser_latitude !== null
         && user.browser_longitude !== null
         ? {
-          label: buildLocationLabel({ city: user.browser_location_city, state: user.browser_location_state, country: user.browser_location_country }),
+          label: buildLocationLabel({ state: user.browser_location_state, country: user.browser_location_country }),
           formattedAddress: user.browser_location_address || null,
           city: user.browser_location_city || null,
           state: user.browser_location_state || null,
@@ -325,7 +325,7 @@ const getWorkforce = async (req, res) => {
         status: user.is_active ? "Active" : "Inactive",
         employmentType: user.employment_type,
         permissions: user.workforce_permissions || [],
-        location: browserLocation?.label || (browserLocation ? "Location consent" : user.city || user.country || "Not shared"),
+        location: browserLocation?.label || (browserLocation ? "Location consent" : user.state || user.country || "Not shared"),
         browserLocation,
         attendance: presentUserIds.has(user.user_id) ? "Present" : "Not clocked in",
         joinedAt: user.created_at,
@@ -369,7 +369,7 @@ const getWorkforce = async (req, res) => {
       item: `${invoice.invoice_number}: ${invoice.currency} ${Number(invoice.amount).toFixed(2)}`,
       owner: personName(invoice.submitter),
       type: "invoice",
-      status: invoice.status.split("_").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "),
+      status: invoice.status.split("_").map((word) => word.charAt(0).toUpperCase() + word?.slice(1)).join(" "),
       description: invoice.notes || null,
     }));
 
@@ -721,7 +721,7 @@ const reviewWorkforceApproval = async (req, res) => {
     const ownerId = type === "invoice" ? record.submitted_by : record.user_id;
     await Notification.create({
       user_id: ownerId,
-      title: `${type.charAt(0).toUpperCase() + type.slice(1)} update`,
+      title: `${type?.charAt(0).toUpperCase() + type?.slice(1)} update`,
       message: `Your ${type} request is now ${action.replace("_", " ")}.${notes ? ` ${notes}` : ""}`,
       type: ["approved", "receipt_verified", "accounts_approved", "paid"].includes(action) ? "success" : "warning",
       action_url: type === "leave" ? "/dashboard/staff/leave" : type === "expense" ? "/dashboard/staff/expenses" : "/dashboard/staff/invoices",
