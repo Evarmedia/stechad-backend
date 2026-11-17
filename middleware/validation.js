@@ -1,4 +1,6 @@
 const { body, validationResult } = require('express-validator');
+const { normalizeEmail } = require('../utils/email');
+const { MIN_PASSWORD_LENGTH, PASSWORD_RULE } = require('../utils/passwordPolicy');
 
 // Handle validation errors
 const handleValidationErrors = (req, res, next) => {
@@ -9,8 +11,9 @@ const handleValidationErrors = (req, res, next) => {
 
     errors.array().forEach((err) => {
       // Only record first error per field
-      if (!formattedErrors[err.param]) {
-        formattedErrors[err.param] = err.msg;
+      const field = err.path || err.param;
+      if (!formattedErrors[field]) {
+        formattedErrors[field] = err.msg;
       }
     });
 
@@ -27,8 +30,9 @@ const handleValidationErrors = (req, res, next) => {
 
 // User registration validation
 const validateRegistration = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').isLength({ min: 6 }),
+  body('email').customSanitizer(normalizeEmail).isEmail().withMessage('Enter a valid email address'),
+  body('password').isString().bail().isLength({ min: MIN_PASSWORD_LENGTH }).withMessage(PASSWORD_RULE),
+  body('confirm_password').custom((value, { req }) => value === req.body.password).withMessage('Passwords do not match'),
   // body('first_name').notEmpty().trim(),
   // body('last_name').notEmpty().trim(),
   body('role').equals('talent').withMessage('Only talents can register directly; workforce roles require an invitation'),
@@ -37,9 +41,14 @@ const validateRegistration = [
 
 // User login validation
 const validateLogin = [
-  body('email').isEmail().normalizeEmail(),
-  body('password').notEmpty(),
+  body('email').customSanitizer(normalizeEmail).isEmail().withMessage('Enter a valid email address'),
+  body('password').isString().bail().notEmpty().withMessage('Password is required'),
   handleValidationErrors
+];
+
+const validateEmail = [
+  body('email').customSanitizer(normalizeEmail).isEmail().withMessage('Enter a valid email address'),
+  handleValidationErrors,
 ];
 
 // Job creation validation
@@ -90,6 +99,7 @@ const validateApplication = [
 module.exports = {
   validateRegistration,
   validateLogin,
+  validateEmail,
   validateJobCreation,
   validateApplication,
   handleValidationErrors

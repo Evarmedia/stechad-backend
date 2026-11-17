@@ -1,5 +1,19 @@
 # STECHAD backend
 
+## Email normalization and authentication
+
+Email addresses are trimmed and lowercased on writes and matched without case sensitivity during authentication, invitations, and password recovery. Dots and plus tags are preserved. Signup, invitation acceptance, and password changes require at least six characters and matching confirmation; password resets also reject the current password.
+
+Deploy both the backend and frontend. Migration `20261117140000-normalize-emails.js` runs during the normal backend startup migration step, or can be applied with `npm run db:migrate` using the target environment's database configuration. It normalizes users, invitations, and interview email snapshots, adds database constraints, and preserves password hashes. If multiple accounts resolve to the same lowercase address, the transaction rolls back and reports their user IDs; resolve those accounts before retrying. Undo removes the constraints and indexes but cannot restore original casing.
+
+Run authentication and migration regression tests against a disposable PostgreSQL database:
+
+```bash
+AUTH_TEST_DATABASE_URL='postgres://user:password@localhost/stechad_auth_test' npm test
+```
+
+Each run creates and removes isolated schemas. Outbound email is stubbed; no real OTP messages are sent. Without `AUTH_TEST_DATABASE_URL`, these integration tests are skipped.
+
 ## Seed the Super Admin
 
 The system permits exactly one `super_admin`. After the database schema has been synchronized, set the four `SUPER_ADMIN_*` values shown in `.env.example`, then run:

@@ -1,3 +1,4 @@
+const { emailWhere } = require("../utils/email");
 require("dotenv").config();
 
 const sequelize = require("../config/database");
@@ -43,7 +44,7 @@ const seedSuperAdmin = async () => {
       return { user: existingSuperAdmin, created: false };
     }
 
-    const userWithEmail = await User.findOne({ where: { email }, transaction });
+    const userWithEmail = await User.findOne({ where: emailWhere(email), transaction });
     if (userWithEmail) throw new Error("SUPER_ADMIN_EMAIL already belongs to a non-Super-Admin account");
 
     const user = await User.create({

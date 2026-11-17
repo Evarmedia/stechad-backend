@@ -16,6 +16,8 @@ const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { generateUniqueEmployeeId } = require("../utils/employeeId");
 const { ROLE_INCLUDE, getRoleKey, findRoleByKey } = require("../utils/roleUtils");
 
+const { emailWhere } = require("../utils/email");
+const { passwordError } = require("../utils/passwordPolicy");
 const passport = require("passport");
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
 
@@ -109,7 +111,7 @@ passport.use(
         const { email, first_name, last_name, id } = profile._json;
 
         // Check if the user exists in the database
-        let user = await User.findOne({ where: { email } });
+        let user = await User.findOne({ where: emailWhere(email) });
 
         if (!user) {
           const talentRole = await findRoleByKey("talent");
@@ -175,7 +177,7 @@ const signup = async (req, res) => {
 
     // If Google sign-in is being used, check if the user exists
     if (googleSignIn) {
-      const existingUser = await User.findOne({ where: { email } });
+      const existingUser = await User.findOne({ where: emailWhere(email) });
       if (existingUser) {
         // If the user exists, generate a token and return the user data
         const { token } = generateTokens({
@@ -195,7 +197,7 @@ const signup = async (req, res) => {
 
     // If Google sign-in is not used, check if user already exists
     if (!googleSignIn) {
-      const existingUser = await User.findOne({ where: { email } });
+      const existingUser = await User.findOne({ where: emailWhere(email) });
       if (existingUser) {
         return res.status(400).json({
           success: false,
@@ -293,7 +295,7 @@ const login = async (req, res) => {
 
     // Find user
     const user = await User.unscoped().findOne({
-      where: { email },
+      where: emailWhere(email),
       include: [
         ROLE_INCLUDE,
         { model: Talent, as: "talent" },
@@ -335,7 +337,7 @@ const login = async (req, res) => {
     });
 
     const inviteRecord = await Invite.findOne({
-      where: { email: user.email, status: "accepted" },
+      where: emailWhere(user.email, "Invite", { status: "accepted" }),
     });
 
     if (inviteRecord) {
@@ -386,7 +388,7 @@ const sendOtp = async (req, res) => {
   try {
     const { email, purpose } = req.body;
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: emailWhere(email) });
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -449,7 +451,7 @@ const verifyEmail = async (req, res) => {
 
     const user = await User.findOne({
       where: {
-        email,
+        ...emailWhere(email),
         reset_password_token: otp,
         reset_password_expires: {
           [Sequelize.Op.gt]: new Date(),
@@ -511,6 +513,9 @@ const resetPassword = async (req, res) => {
       });
     }
 
+    const policyError = passwordError(new_password);
+    if (policyError) return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
+
     // 2. Find user by valid OTP
     const user = await User.findOne({
       where: {
@@ -563,7 +568,9 @@ const editPassword = async (req, res) => {
   const { old_password, new_password, confirm_password } = req.body;
 
   try {
-    const user = await User.findByPk(req.user.user_id);
+    const policyError = passwordError(new_password);
+    if (policyError) return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
+    const user = await User.findByPk(req.user.user_id, { attributes: { include: ["password"] } });
 
     // Check if old password matches
     const isMatch = await user.comparePassword(old_password);
@@ -666,9 +673,15 @@ const acceptInvite = async (req, res) => {
       });
     }
 
+    const policyError = passwordError(new_password);
+    if (policyError) {
+      await transaction.rollback();
+      return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
+    }
+
     // 4️⃣ Prevent duplicate user creation
     const alreadyUser = await User.findOne({
-      where: { email: invitedUser.email },
+      where: emailWhere(invitedUser.email),
     });
 
     if (alreadyUser) {

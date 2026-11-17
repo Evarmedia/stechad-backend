@@ -3,6 +3,7 @@ const sequelize = require("../config/database");
 const { birthdayAttribute } = require("../utils/birthday");
 const bcrypt = require('bcryptjs');
 const Role = require("./Role");
+const { emailAttribute } = require("../utils/email");
 
 class User extends Model {}
 
@@ -13,11 +14,10 @@ User.init(
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
     },
-    email: {
-      type: DataTypes.TEXT,
+    email: emailAttribute(DataTypes, "email", {
       allowNull: false,
       unique: true,
-    },
+    }),
     password: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -221,6 +221,7 @@ User.beforeUpdate(async (user) => {
 
 // Instance methods
 User.prototype.comparePassword = async function(candidatePassword) {
+  if (typeof candidatePassword !== "string" || !this.password) return false;
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

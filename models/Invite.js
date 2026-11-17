@@ -3,6 +3,7 @@ const sequelize = require("../config/database");
 const User = require("./User");
 const Role = require("./Role");
 const bcrypt = require('bcryptjs');
+const { emailAttribute } = require("../utils/email");
 
 class Invite extends Model {}
 
@@ -13,10 +14,9 @@ Invite.init(
       primaryKey: true,
       defaultValue: DataTypes.UUIDV4,
     },
-    email: {
-      type: DataTypes.TEXT,
+    email: emailAttribute(DataTypes, "email", {
       allowNull: false,
-    },
+    }),
     first_name: {
       type: DataTypes.TEXT,
       allowNull: true,

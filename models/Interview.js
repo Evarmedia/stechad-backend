@@ -3,6 +3,7 @@ const sequelize = require("../config/database");
 const Talent = require("./Talent"); // Import Talent model for relationship
 const ProjectManager = require("./ProjectManager"); // Import ProjectManager model for relationship
 const Job = require("./Job"); // Import Job model for relationship
+const { emailAttribute } = require("../utils/email");
 
 class Interview extends Model {}
 
@@ -25,10 +26,9 @@ Interview.init(
       type: DataTypes.TEXT,
       allowNull: false,
     },
-    candidate_email: {
-      type: DataTypes.TEXT,
+    candidate_email: emailAttribute(DataTypes, "candidate_email", {
       allowNull: false,
-    },
+    }),
     interviewer_id: {
       type: DataTypes.UUID,
       allowNull: false,
@@ -37,10 +37,9 @@ Interview.init(
         key: 'project_managers_id',
       },
     },
-    interviewer_email: {
-      type: DataTypes.TEXT,
+    interviewer_email: emailAttribute(DataTypes, "interviewer_email", {
       allowNull: false,
-    },
+    }),
     job_id: {
       type: DataTypes.UUID,
       allowNull: false,

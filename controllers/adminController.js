@@ -1,3 +1,4 @@
+const { emailWhere } = require("../utils/email");
 const { normalizeBirthday } = require("../utils/birthday");
 const {
   User,
@@ -1358,7 +1359,7 @@ const inviteProjectManager = async (req, res) => {
     }
 
     // 1️⃣ Check if user already exists
-    const existingUser = await User.findOne({ where: { email } });
+    const existingUser = await User.findOne({ where: emailWhere(email) });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -1368,7 +1369,7 @@ const inviteProjectManager = async (req, res) => {
 
     // 2️⃣ Check for existing pending invite
     const existingInvite = await Invite.findOne({
-      where: { email, status: "pending" },
+      where: emailWhere(email, "Invite", { status: "pending" }),
       order: [["created_at", "DESC"]],
     });
 

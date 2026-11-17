@@ -18,7 +18,7 @@ const {
   getMe
 } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
-const { validateRegistration, validateLogin } = require('../middleware/validation');
+const { validateRegistration, validateLogin, validateEmail } = require('../middleware/validation');
 
 const passport = require('passport');
 const { generateTokens } = require('../utils/generateTokens')
@@ -360,7 +360,7 @@ router.post('/login', validateLogin, login);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/send-otp', sendOtp);
+router.post('/send-otp', validateEmail, sendOtp);
 
 /**
  * @swagger
@@ -413,7 +413,7 @@ router.post('/send-otp', sendOtp);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/verify-email', verifyEmail);
+router.post('/verify-email', validateEmail, verifyEmail);
 
 /**
  * @swagger
