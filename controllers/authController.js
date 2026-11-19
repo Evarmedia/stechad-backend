@@ -44,9 +44,9 @@ const formatUserResponse = async (user) => {
     const roleColumn = data.role === "project_manager" ? "project_manager" : data.role;
     const configured = await RolePermission.findAll({ order: [["permission_key", "ASC"]] });
     const defaults = {
-      admin: ["view_dashboard", "manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
-      project_manager: ["view_dashboard", "approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
-      staff: ["view_dashboard", "submit_expenses"],
+      admin: ["manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
+      project_manager: ["approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
+      staff: ["submit_expenses"],
     };
     const rolePermissions = configured.length
       ? configured.filter((permission) => Boolean(permission[roleColumn])).map((permission) => permission.permission_key)

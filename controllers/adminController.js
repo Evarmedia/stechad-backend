@@ -232,7 +232,6 @@ const getStats = async (req, res) => {
 const getWorkforce = async (req, res) => {
   try {
     const defaultPermissions = [
-      { permission_key: "view_dashboard", name: "View dashboard", admin: true, project_manager: true, staff: true },
       { permission_key: "manage_departments", name: "Manage departments", admin: true, project_manager: false, staff: false },
       { permission_key: "approve_leave", name: "Approve leave", admin: true, project_manager: true, staff: false },
       { permission_key: "approve_expenses", name: "Approve expenses", admin: true, project_manager: false, staff: false },

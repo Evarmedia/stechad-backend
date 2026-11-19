@@ -4,9 +4,9 @@ const { getRoleKey } = require('../utils/roleUtils');
 
 const permissionDefaults = {
   super_admin: ["*"],
-  admin: ["view_dashboard", "manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
-  project_manager: ["view_dashboard", "approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
-  staff: ["view_dashboard", "submit_expenses"],
+  admin: ["manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
+  project_manager: ["approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
+  staff: ["submit_expenses"],
 };
 
 // Verify JWT token
@@ -70,7 +70,7 @@ const authorize = (...roles) => {
 const hasPermission = async (user, permissionKey) => {
   const roleKey = getRoleKey(user);
   if (roleKey === "super_admin") return true;
-  if (roleKey === "talent") return ["view_dashboard", "submit_expenses"].includes(permissionKey);
+  if (roleKey === "talent") return ["submit_expenses"].includes(permissionKey);
   if (Array.isArray(user.workforce_permissions) && user.workforce_permissions.includes(permissionKey)) return true;
   const roleColumn = roleKey === "project_manager" ? "project_manager" : roleKey;
   if (!["admin", "project_manager", "staff"].includes(roleColumn)) return false;
