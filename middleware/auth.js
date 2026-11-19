@@ -2,12 +2,7 @@ const jwt = require('jsonwebtoken');
 const { User, RolePermission } = require('../models');
 const { getRoleKey } = require('../utils/roleUtils');
 
-const permissionDefaults = {
-  super_admin: ["*"],
-  admin: ["manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
-  project_manager: ["approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
-  staff: ["submit_expenses"],
-};
+const { hasPermission } = require("../utils/permissions");
 
 // Verify JWT token
 const authenticate = async (req, res, next) => {
@@ -32,7 +27,7 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    if (!user.is_active) {
+    if (!user.is_active || (decoded.session_version || 0) !== user.session_version) {
       return res.status(401).json({ 
         success: false, 
         message: 'Account has been deactivated' 
@@ -65,18 +60,6 @@ const authorize = (...roles) => {
     }
     next();
   };
-};
-
-const hasPermission = async (user, permissionKey) => {
-  const roleKey = getRoleKey(user);
-  if (roleKey === "super_admin") return true;
-  if (roleKey === "talent") return ["submit_expenses"].includes(permissionKey);
-  if (Array.isArray(user.workforce_permissions) && user.workforce_permissions.includes(permissionKey)) return true;
-  const roleColumn = roleKey === "project_manager" ? "project_manager" : roleKey;
-  if (!["admin", "project_manager", "staff"].includes(roleColumn)) return false;
-  const permission = await RolePermission.findOne({ where: { permission_key: permissionKey } });
-  if (!permission) return (permissionDefaults[roleKey] || []).includes(permissionKey);
-  return Boolean(permission[roleColumn]);
 };
 
 const authorizePermission = (permissionKey) => async (req, res, next) => {

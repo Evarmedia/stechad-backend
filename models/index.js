@@ -1,3 +1,5 @@
+const AuditLog = require("./AuditLog");
+const NotificationBroadcast = require("./NotificationBroadcast");
 // Models
 const User = require("./User");
 const Talent = require("./Talent");
@@ -353,6 +355,8 @@ UserReward.belongsTo(Referral, {
 });
 
 module.exports = {
+  AuditLog,
+  NotificationBroadcast,
   User,
   Talent,
   ProjectManager,

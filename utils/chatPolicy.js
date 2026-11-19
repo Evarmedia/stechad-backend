@@ -1,7 +1,7 @@
 const { Op } = require("sequelize");
 const { User, Message, ChatUserState } = require("../models");
 const sequelize = require("../config/database");
-const { getRoleKey } = require("./roleUtils");
+const { getRoleKey, isCustomRole } = require("./roleUtils");
 const chatError = (message, status = 400) =>
   Object.assign(new Error(message), { status });
 const managerRoles = ["admin", "super_admin", "project_manager"];
@@ -29,17 +29,18 @@ const requirePosting = (chat, userId) => {
 async function contactFilter(userId, context = "direct", transaction) {
   if (!["direct", "group"].includes(context))
     throw chatError("Invalid contact context");
-  const role = await actorRole(userId, transaction);
+  const actor = await User.findByPk(userId, { transaction });
+  const role = getRoleKey(actor);
   if (context === "group" && !managerRoles.includes(role))
     throw chatError("Only admins and PMs can create or manage groups", 403);
   if (["admin", "super_admin"].includes(role)) return {};
   const roles =
     role === "project_manager"
       ? ["talent", "staff", "project_manager"]
-      : role === "staff"
+      : role === "staff" || isCustomRole(actor)
         ? ["staff", "project_manager"]
         : [];
-  if (roles.length) return { "$role.role_key$": { [Op.in]: roles } };
+  if (roles.length) return { [Op.or]: [{ "$role.role_key$": { [Op.in]: roles } }, { "$role.is_system$": false }] };
   if (role !== "talent") return { user_id: { [Op.in]: [] } };
   // Actual incoming direct messages survive personal clearing and soft deletion.
   const incoming = await Message.findAll({

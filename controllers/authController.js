@@ -38,23 +38,8 @@ const formatUserResponse = async (user) => {
   const data = user.toJSON();
   if (data.admin) data.admin.is_super_admin = data.role === "super_admin";
 
-  if (data.role === "super_admin") {
-    data.effective_permissions = ["*"];
-  } else if (["admin", "project_manager", "staff"].includes(data.role)) {
-    const roleColumn = data.role === "project_manager" ? "project_manager" : data.role;
-    const configured = await RolePermission.findAll({ order: [["permission_key", "ASC"]] });
-    const defaults = {
-      admin: ["manage_departments", "approve_leave", "approve_expenses", "verify_receipts", "submit_expenses", "create_projects", "manage_staff", "manage_kpis", "approve_invoices"],
-      project_manager: ["approve_leave", "submit_expenses", "create_projects", "manage_kpis"],
-      staff: ["submit_expenses"],
-    };
-    const rolePermissions = configured.length
-      ? configured.filter((permission) => Boolean(permission[roleColumn])).map((permission) => permission.permission_key)
-      : defaults[data.role];
-    data.effective_permissions = [...new Set([...(rolePermissions || []), ...(data.workforce_permissions || [])])];
-  } else {
-    data.effective_permissions = [];
-  }
+  data.effective_permissions = await require("../utils/permissions").effectivePermissions(user);
+  if (user.password !== undefined) data.has_password = Boolean(user.password);
 
   // Add avatar URL if exists
   if (data.avatar_object_name) {
@@ -111,7 +96,8 @@ passport.use(
         const { email, first_name, last_name, id } = profile._json;
 
         // Check if the user exists in the database
-        let user = await User.findOne({ where: emailWhere(email) });
+        let user = await User.findOne({ where: emailWhere(email), paranoid: false });
+        if (user && (!user.is_active || user.deleted_at)) throw new Error("Account is unavailable");
 
         if (!user) {
           const talentRole = await findRoleByKey("talent");
@@ -129,6 +115,10 @@ passport.use(
           user = await User.findByPk(user.user_id);
         }
 
+        await sequelize.transaction(async (transaction) => {
+          await user.update({ is_verified: true, last_login: new Date() }, { transaction });
+          await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", target_id: user.user_id, actor: user }, transaction);
+        });
         // Returning user object
         done(null, user);
       } catch (error) {
@@ -151,6 +141,8 @@ const signup = async (req, res) => {
       googleSignIn, // Add this field to differentiate normal signup vs Google login
     } = req.body;
 
+    if (googleSignIn) return res.status(403).json({ success: false, message: "Use the Google authentication redirect to sign in" });
+    if (role !== "talent") return res.status(403).json({ success: false, message: "Accounts for this role require an administrator invitation" });
     if (!googleSignIn && role === "super_admin") {
       return res.status(403).json({
         success: false,
@@ -177,7 +169,7 @@ const signup = async (req, res) => {
 
     // If Google sign-in is being used, check if the user exists
     if (googleSignIn) {
-      const existingUser = await User.findOne({ where: emailWhere(email) });
+      const existingUser = await User.findOne({ where: emailWhere(email), paranoid: false });
       if (existingUser) {
         // If the user exists, generate a token and return the user data
         const { token } = generateTokens({
@@ -197,7 +189,7 @@ const signup = async (req, res) => {
 
     // If Google sign-in is not used, check if user already exists
     if (!googleSignIn) {
-      const existingUser = await User.findOne({ where: emailWhere(email) });
+      const existingUser = await User.findOne({ where: emailWhere(email), paranoid: false });
       if (existingUser) {
         return res.status(400).json({
           success: false,
@@ -305,6 +297,7 @@ const login = async (req, res) => {
     });
 
     if (!user) {
+      await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", outcome: "failure" });
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
@@ -313,6 +306,7 @@ const login = async (req, res) => {
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", target_id: user.user_id, outcome: "failure" });
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
@@ -328,12 +322,16 @@ const login = async (req, res) => {
     }
 
     // Update last login
-    await user.update({ last_login: new Date() });
+    await sequelize.transaction(async (transaction) => {
+      await user.update({ last_login: new Date(), is_verified: true }, { transaction });
+      await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", target_id: user.user_id, actor: user }, transaction);
+    });
 
     // Generate token
     const { token, refreshToken } = generateTokens({
       user_id: user.user_id,
       role: getRoleKey(user),
+      session_version: user.session_version,
     });
 
     const inviteRecord = await Invite.findOne({
@@ -369,6 +367,7 @@ const login = async (req, res) => {
 // User logout
 const logout = async (req, res) => {
   try {
+    await require("../utils/audit").recordAudit({ action: "auth.logout", target_type: "User", target_id: req.user.user_id });
     // blacklist the token here
     res.json({
       success: true,
@@ -572,10 +571,11 @@ const editPassword = async (req, res) => {
     if (policyError) return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
     const user = await User.findByPk(req.user.user_id, { attributes: { include: ["password"] } });
 
+    if (!user.password) return res.status(409).json({ success: false, message: "This account has no password. Use Forgot password to establish one first." });
     // Check if old password matches
     const isMatch = await user.comparePassword(old_password);
     if (!isMatch) {
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
         message: "Old password is incorrect",
       });
@@ -588,19 +588,20 @@ const editPassword = async (req, res) => {
       });
     }
 
-    // Update password
-    await user.update({
-      password: new_password,
+    if (await user.comparePassword(new_password)) return res.status(400).json({ success: false, message: "New password must be different from the current password" });
+    const tokens = await sequelize.transaction(async (transaction) => {
+      const current = await User.findByPk(user.user_id, { attributes: { include: ["password"] }, transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+      if (!await current.comparePassword(old_password)) throw Object.assign(new Error("Current password changed. Please try again."), { status: 409 });
+      await current.update({ password: new_password, session_version: current.session_version + 1, reset_password_token: null, reset_password_expires: null }, { transaction });
+      await require("../utils/audit").recordAudit({ action: "auth.password_changed", target_type: "User", target_id: user.user_id, actor: user }, transaction);
+      require("../utils/events").afterCommit(transaction, () => require("../utils/events").disconnectUser(user.user_id));
+      return generateTokens({ user_id: current.user_id, role: getRoleKey(current), session_version: current.session_version });
     });
-
-    res.json({
-      success: true,
-      message: "Password updated successfully",
-    });
+    res.json({ success: true, message: "Password updated successfully", data: tokens });
   } catch (error) {
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
-      message: "Failed to update password",
+      message: error.status ? error.message : "Failed to update password",
       error: error.message,
     });
   }
@@ -681,6 +682,7 @@ const acceptInvite = async (req, res) => {
 
     // 4️⃣ Prevent duplicate user creation
     const alreadyUser = await User.findOne({
+      paranoid: false,
       where: emailWhere(invitedUser.email),
     });
 
@@ -697,6 +699,8 @@ const acceptInvite = async (req, res) => {
     // ================================
 
     // 5️⃣ Create user
+    const { lockHierarchy, reportingUpdates } = require("../utils/reporting");
+    await lockHierarchy(transaction);
     const employeeId = invitedUser.employee_id || await generateUniqueEmployeeId({ transaction });
     const user = await User.create(
       {
@@ -711,6 +715,8 @@ const acceptInvite = async (req, res) => {
       },
       { transaction }
     );
+
+    await user.update(await reportingUpdates(user, { department_id: invitedUser.department_id || null, reporting_manager_mode: "department" }, transaction), { transaction });
 
     // 6️⃣ Create role-specific record
     if (invitedRoleKey === "project_manager") {
@@ -760,6 +766,7 @@ const acceptInvite = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const user = await User.findByPk(req.user.user_id, {
+      attributes: { include: ["password"] },
       include: [
         { model: Talent, as: "talent" },
         { model: ProjectManager, as: "project_manager" },

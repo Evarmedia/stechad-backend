@@ -6,12 +6,14 @@ const express = require('express');
  *   description: Admin endpoints for platform management and oversight
  */
 
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, authorizePermission, authorizeApprovalAction } = require('../middleware/auth');
 const adminController = require('../controllers/adminController');
 const { upload } = require('../middleware/upload');
 
 const router = express.Router();
 
+const { asyncRoute } = require('../utils/http');
+const users = require('../controllers/userManagementController');
 // All routes require authentication and admin role
 router.use(authenticate, authorize('super_admin', 'admin'));
 
@@ -29,6 +31,14 @@ router.use(authenticate, authorize('super_admin', 'admin'));
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
+router.get('/users', asyncRoute(users.getUsers));
+router.delete('/users/:id', asyncRoute(users.deleteUser));
+router.post('/users/:id/restore', asyncRoute(users.restoreUser));
+router.put('/users/:id/permissions', asyncRoute(users.updatePermissions));
+router.put('/users/:id/employee-id', asyncRoute(users.updateEmployeeId));
+router.get('/users/:id/attendance', asyncRoute(users.getAttendance));
+router.get('/audit-logs', asyncRoute(users.getAuditLogs));
+router.post('/notifications/broadcast', asyncRoute(users.broadcast));
 router.get('/dashboard', adminController.getDashboard);
 
 /**
@@ -306,7 +316,7 @@ router.get('/project-managers', adminController.getProjectManagers);
  *             schema:
  *               $ref: '#/components/schemas/Success'
  */
-router.post('/project-managers/invite', adminController.inviteProjectManager);
+router.post('/project-managers/invite', authorizePermission('manage_staff'), adminController.inviteProjectManager);
 
 /**
  * @swagger
@@ -407,20 +417,20 @@ router.get('/talent-vetting', adminController.getTalentVetting);
  *                   $ref: '#/components/schemas/PlatformSettings'
  */
 router.get('/workforce', adminController.getWorkforce);
-router.post('/workforce/invite', adminController.inviteProjectManager);
-router.put('/workforce/users/:user_id', adminController.updateWorkforceUser);
-router.put('/workforce/approvals/:type/:request_id', adminController.reviewWorkforceApproval);
+router.post('/workforce/invite', authorizePermission('manage_staff'), adminController.inviteProjectManager);
+router.put('/workforce/users/:user_id', authorizePermission('manage_staff'), adminController.updateWorkforceUser);
+router.put('/workforce/approvals/:type/:request_id', authorizeApprovalAction, adminController.reviewWorkforceApproval);
 router.get('/departments', adminController.getDepartments);
-router.post('/departments', adminController.createDepartment);
-router.put('/departments/:department_id', adminController.updateDepartment);
-router.delete('/departments/:department_id', adminController.deleteDepartment);
+router.post('/departments', authorizePermission('manage_departments'), adminController.createDepartment);
+router.put('/departments/:department_id', authorizePermission('manage_departments'), adminController.updateDepartment);
+router.delete('/departments/:department_id', authorizePermission('manage_departments'), adminController.deleteDepartment);
 router.post('/holidays', adminController.createHoliday);
 router.put('/holidays/:holiday_id', adminController.updateHoliday);
 router.delete('/holidays/:holiday_id', adminController.deleteHoliday);
-router.post('/kpis', adminController.createKpi);
-router.put('/kpis/:kpi_id', adminController.updateKpi);
-router.delete('/kpis/:kpi_id', adminController.deleteKpi);
-router.post('/kpis/:kpi_id/appraisals', adminController.recordKpiAppraisal);
+router.post('/kpis', authorizePermission('manage_kpis'), adminController.createKpi);
+router.put('/kpis/:kpi_id', authorizePermission('manage_kpis'), adminController.updateKpi);
+router.delete('/kpis/:kpi_id', authorizePermission('manage_kpis'), adminController.deleteKpi);
+router.post('/kpis/:kpi_id/appraisals', authorizePermission('manage_kpis'), adminController.recordKpiAppraisal);
 router.put('/role-permissions/:role_permission_id', adminController.updateRolePermission);
 router.get('/roles', authorize('super_admin'), adminController.getRoles);
 router.post('/roles', authorize('super_admin'), adminController.createRole);

@@ -13,7 +13,7 @@ const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toInt, toTextArray, toBool } = require("../utils/helpers");
 const { formatUserResponse } = require("./authController");
 const { generateTokens } = require("../utils/generateTokens");
-const { getRoleKey } = require("../utils/roleUtils");
+const { getRoleKey, ROLE_INCLUDE } = require("../utils/roleUtils");
 const {
   notifyJobPosterOfApplication,
 } = require("../utils/notificationUtil");
@@ -315,7 +315,7 @@ const getTalents = async (req, res) => {
     // Fetch talents with pagination and filtering
     const talents = await Talent.findAndCountAll({
       where: Object.keys(where).length > 0 ? where : undefined,
-      include: [{ model: User, as: "user" }],
+      include: [{ model: User, as: "user", required: true, include: [{ ...ROLE_INCLUDE, where: { role_key: "talent" } }] }],
       ...pagination,
       order: [["created_at", "DESC"]],
     });

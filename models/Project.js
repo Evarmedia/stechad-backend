@@ -25,6 +25,7 @@ Project.init(
       type: DataTypes.UUID,
       allowNull: true,
     },
+    created_by_user_id: { type: DataTypes.UUID, allowNull: true },
     title: {
       type: DataTypes.TEXT,
       allowNull: false,

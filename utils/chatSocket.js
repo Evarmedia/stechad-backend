@@ -15,7 +15,8 @@ const initializeChatSocket = (io) => {
       if (!token) throw new Error("Missing token");
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const user = await User.findByPk(decoded.user_id);
-      if (!user?.is_active) throw new Error("Inactive user");
+      if (!user?.is_active || (decoded.session_version || 0) !== user.session_version) throw new Error("Inactive user");
+      socket.sessionVersion = user.session_version;
       socket.userId = user.user_id;
       socket.user = {
         user_id: user.user_id,
@@ -50,6 +51,11 @@ const initializeChatSocket = (io) => {
     const handle = (event, handler) =>
       socket.on(event, async (data, acknowledge) => {
         try {
+          const currentUser = await User.findByPk(socket.userId);
+          if (!currentUser?.is_active || currentUser.session_version !== socket.sessionVersion) {
+            socket.disconnect(true);
+            throw Object.assign(new Error("Session is no longer valid"), { status: 401 });
+          }
           const result = await handler(data);
           if (typeof acknowledge === "function")
             acknowledge({ success: true, ...result });

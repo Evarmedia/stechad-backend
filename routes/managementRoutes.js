@@ -1,0 +1,18 @@
+const router = require("express").Router();
+const { authenticate, authorizePermission, authorizeAnyPermission } = require("../middleware/auth");
+const { asyncRoute } = require("../utils/http");
+const management = require("../controllers/managementController");
+const admin = require("../controllers/adminController");
+router.use(authenticate);
+router.get("/users", authorizeAnyPermission("manage_staff", "manage_departments", "manage_kpis"), asyncRoute(management.getUsers));
+router.put("/users/:user_id", authorizePermission("manage_staff"), asyncRoute(management.updateUser));
+router.get("/departments", authorizeAnyPermission("manage_departments", "manage_staff"), asyncRoute(management.getDepartments));
+router.post("/departments", authorizePermission("manage_departments"), admin.createDepartment);
+router.put("/departments/:department_id", authorizePermission("manage_departments"), admin.updateDepartment);
+router.delete("/departments/:department_id", authorizePermission("manage_departments"), admin.deleteDepartment);
+router.get("/kpis", authorizePermission("manage_kpis"), asyncRoute(management.getKpis));
+router.post("/kpis", authorizePermission("manage_kpis"), admin.createKpi);
+router.put("/kpis/:kpi_id", authorizePermission("manage_kpis"), admin.updateKpi);
+router.delete("/kpis/:kpi_id", authorizePermission("manage_kpis"), admin.deleteKpi);
+router.post("/kpis/:kpi_id/appraisals", authorizePermission("manage_kpis"), admin.recordKpiAppraisal);
+module.exports = router;

@@ -15,13 +15,14 @@ const refreshAccessToken = async (req, res) => {
       algorithms: ["HS256"],
     });
     const user = await User.findByPk(decoded.user_id);
-    if (!user?.is_active)
+    if (!user?.is_active || (decoded.session_version || 0) !== user.session_version)
       return res
         .status(401)
         .json({ success: false, message: "Session is no longer valid" });
     const tokens = generateTokens({
       user_id: user.user_id,
       role: getRoleKey(user),
+      session_version: user.session_version,
     });
     res.set("Cache-Control", "no-store");
     return res.json({ success: true, data: tokens });

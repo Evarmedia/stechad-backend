@@ -23,7 +23,7 @@ const getDashboard = async (req, res) => {
   try {
     const projectManager = await ProjectManager.findOne({
       where: { user_id: req.user.user_id },
-      include: [{ model: User, as: "user" }],
+      include: [{ model: User, paranoid: false, as: "user" }],
     });
 
     if (!projectManager) {
@@ -146,7 +146,7 @@ const getDashboard = async (req, res) => {
           where: { posted_by: req.user.user_id },
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "poster",
               attributes: ["first_name", "last_name"],
             },
@@ -157,7 +157,7 @@ const getDashboard = async (req, res) => {
           as: "applicant",
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: ["first_name", "last_name", "email"],
             },
@@ -469,7 +469,7 @@ const getPmProjects = async (req, res) => {
           model: ProjectManager,
           as: "project_manager",
           required: false,
-          include: [{ model: User, as: "user" }],
+          include: [{ model: User, paranoid: false, as: "user" }],
         },
         {
           model: Talent,
@@ -478,7 +478,7 @@ const getPmProjects = async (req, res) => {
           required: false,
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: ["first_name", "last_name"],
             },

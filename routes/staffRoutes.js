@@ -5,19 +5,20 @@ const staffController = require("../controllers/staffController");
 const adminController = require("../controllers/adminController");
 
 const router = express.Router();
+const { denyAdminPersonalWorkforce } = require("../utils/personalWorkforce");
 
-router.use(authenticate, authorize("staff", "project_manager", "talent", "admin", "super_admin"));
+router.use(authenticate);
 
 router.get("/dashboard", staffController.getDashboard);
 router.get("/approvals", authorizeAnyPermission("approve_leave", "approve_expenses", "verify_receipts", "approve_invoices"), staffController.getApprovalQueue);
 router.put("/approvals/:type/:request_id", authorizeApprovalAction, adminController.reviewWorkforceApproval);
-router.get("/attendance", staffController.getAttendance);
-router.post("/attendance/clock-in", staffController.clockIn);
-router.post("/attendance/clock-out", staffController.clockOut);
+router.get("/attendance", denyAdminPersonalWorkforce, staffController.getAttendance);
+router.post("/attendance/clock-in", denyAdminPersonalWorkforce, staffController.clockIn);
+router.post("/attendance/clock-out", denyAdminPersonalWorkforce, staffController.clockOut);
 router.get("/leave", staffController.getLeaveRequests);
 router.post("/leave", staffController.submitLeave);
-router.get("/expenses", staffController.getExpenses);
-router.post("/expenses", authorizePermission("submit_expenses"), upload.single("receipt"), staffController.submitExpense);
+router.get("/expenses", denyAdminPersonalWorkforce, staffController.getExpenses);
+router.post("/expenses", denyAdminPersonalWorkforce, authorizePermission("submit_expenses"), upload.single("receipt"), staffController.submitExpense);
 router.get("/invoices", staffController.getInvoices);
 router.post("/invoices", staffController.submitInvoice);
 router.get("/project-invoices/completed-projects", staffController.getCompletedProjectsForInvoice);

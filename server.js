@@ -140,6 +140,8 @@ app.use(
   })
 );
 
+const { auditContext, installAuditing } = require("./utils/audit");
+app.use("/api", auditContext);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/talents', talentRoutes);
@@ -156,6 +158,7 @@ app.use('/api/export', exportRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/workforce/management', require('./routes/managementRoutes'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -190,6 +193,7 @@ app.use('*', (req, res) => {
 // Share the same authenticated event delivery with REST chat endpoints.
 const { initializeChatSocket } = require('./utils/chatSocket');
 app.set('io', io);
+require('./utils/events').setRealtime(io);
 initializeChatSocket(io);
 
 // Database initialization
@@ -204,6 +208,7 @@ const initializeDatabase = async () => {
 
   await migrationRunner.up();
   console.log('Migration completed');
+  installAuditing(require('./models'));
 
   await migrateChatStorage();
   await migrateRoleStorage();

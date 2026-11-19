@@ -38,7 +38,7 @@ const { notifyPermissionHolders } = require("../utils/workforceNotification");
 const { getKpiCriteria, getKpiPeriod, formatKpiAppraisal } = require("../utils/kpiUtil");
 const { buildLocationLabel } = require("../utils/geoapify");
 const { generateUniqueEmployeeId, DEFAULT_EMPLOYEE_ID_PREFIX, EMPLOYEE_ID_PREFIX_PATTERN } = require("../utils/employeeId");
-const { ROLE_INCLUDE, getRoleKey, findRoleByIdentifier, findRoleByKey } = require("../utils/roleUtils");
+const { ROLE_INCLUDE, getRoleKey, findRoleByIdentifier, findRoleByKey, isWorkforceRole, directoryWhere, requireDirectoryTarget, personalFeaturePath } = require("../utils/roleUtils");
 
 const sanitizeKpiCriteria = (criteria) => {
   if (!Array.isArray(criteria)) return [];
@@ -58,8 +58,9 @@ const getDashboard = async (req, res) => {
   try {
     // Get overall platform statistics
     const totalUsers = await User.count();
-    const totalTalents = await Talent.count();
-    const totalProjectManagers = await ProjectManager.count();
+    const softDeletedUsers = await User.count({ paranoid: false, where: { deleted_at: { [Op.ne]: null } } });
+    const totalTalents = await Talent.count({ include: [{ model: User, as: "user", required: true }] });
+    const totalProjectManagers = await ProjectManager.count({ include: [{ model: User, as: "user", required: true }] });
     const totalJobs = await Job.count();
     const totalApplications = await Application.count();
     const totalProjects = await Project.count();
@@ -79,7 +80,8 @@ const getDashboard = async (req, res) => {
       include: [
         {
           model: User,
-          as: "user",
+          as: "user", required: true,
+          include: [{ ...ROLE_INCLUDE, where: { role_key: "talent" } }],
           attributes: ["first_name", "last_name", "country"],
         },
       ],
@@ -116,6 +118,7 @@ const getDashboard = async (req, res) => {
     const dashboardData = {
       statistics: {
         totalUsers,
+        softDeletedUsers,
         totalTalents,
         totalProjectManagers,
         totalJobs,
@@ -231,27 +234,11 @@ const getStats = async (req, res) => {
 
 const getWorkforce = async (req, res) => {
   try {
-    const defaultPermissions = [
-      { permission_key: "manage_departments", name: "Manage departments", admin: true, project_manager: false, staff: false },
-      { permission_key: "approve_leave", name: "Approve leave", admin: true, project_manager: true, staff: false },
-      { permission_key: "approve_expenses", name: "Approve expenses", admin: true, project_manager: false, staff: false },
-      { permission_key: "verify_receipts", name: "Verify expense receipts", admin: true, project_manager: false, staff: false },
-      { permission_key: "submit_expenses", name: "Submit expenses", admin: true, project_manager: true, staff: true },
-      { permission_key: "create_projects", name: "Create projects", admin: true, project_manager: true, staff: false },
-      { permission_key: "manage_staff", name: "Manage staff", admin: true, project_manager: false, staff: false },
-      { permission_key: "manage_kpis", name: "Manage KPIs and appraisals", admin: true, project_manager: true, staff: false },
-      { permission_key: "approve_invoices", name: "Approve invoices", admin: true, project_manager: false, staff: false },
-    ];
-    await Promise.all(defaultPermissions.map((permission) => RolePermission.findOrCreate({
-      where: { permission_key: permission.permission_key },
-      defaults: { ...permission, super_admin: true },
-    })));
-
-    const [allUsers, departments, leaveRequests, expenseClaims, invoices, holidays, kpis, permissions] = await Promise.all([
+    const [allUsers, departments, leaveRequests, expenseClaims, invoices, holidays, kpis, permissions, roles] = await Promise.all([
       User.findAll({
         order: [["created_at", "DESC"]],
-        where: { "$role.role_key$": { [Op.in]: ["staff", "admin", "project_manager", "super_admin"] } },
-        attributes: ["user_id", "first_name", "last_name", "email", "role_id", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "browser_location_address", "browser_location_city", "browser_location_state", "browser_location_country", "browser_location_country_code", "created_at"],
+        where: directoryWhere(true),
+        attributes: ["user_id", "first_name", "last_name", "email", "role_id", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "reporting_manager_mode", "employment_type", "workforce_permissions", "phone_number", "country", "city", "location_sharing_enabled", "location_permission_status", "browser_latitude", "browser_longitude", "browser_location_accuracy", "browser_location_updated_at", "browser_location_address", "browser_location_city", "browser_location_state", "browser_location_country", "browser_location_country_code", "created_at"],
         include: [
           ROLE_INCLUDE,
           { model: Department, as: "department", attributes: ["department_id", "name", "code"] },
@@ -267,32 +254,33 @@ const getWorkforce = async (req, res) => {
       }),
       LeaveRequest.findAll({
         where: { status: "pending" },
-        include: [{ model: User, as: "requester", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        include: [{ model: User, as: "requester", paranoid: false, attributes: ["user_id", "first_name", "last_name", "email"] }],
         order: [["created_at", "ASC"]],
       }),
       ExpenseClaim.findAll({
         where: { status: { [Op.in]: ["pending", "approved"] } },
-        include: [{ model: User, as: "claimant", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        include: [{ model: User, as: "claimant", paranoid: false, attributes: ["user_id", "first_name", "last_name", "email"] }],
         order: [["created_at", "ASC"]],
       }),
       Invoice.findAll({
         where: { status: { [Op.in]: ["pending", "approved", "accounts_approved"] } },
-        include: [{ model: User, as: "submitter", attributes: ["user_id", "first_name", "last_name", "email"] }],
+        include: [{ model: User, as: "submitter", paranoid: false, attributes: ["user_id", "first_name", "last_name", "email"] }],
         order: [["created_at", "ASC"]],
       }),
       Holiday.findAll({ order: [["date", "ASC"]] }),
       Kpi.findAll({
         include: [
-          { model: User, as: "assignee", attributes: ["user_id", "first_name", "last_name", "email"] },
+          { model: User, as: "assignee", paranoid: false, attributes: ["user_id", "first_name", "last_name", "email"] },
           { model: KpiAppraisal, as: "appraisals", separate: true, order: [["created_at", "DESC"]] },
         ],
         order: [["created_at", "DESC"]],
       }),
       RolePermission.findAll({ order: [["name", "ASC"]] }),
+      Role.findAll({ where: { role_key: { [Op.notIn]: ["talent", "super_admin"] } }, order: [["name", "ASC"]] }),
     ]);
 
     const today = new Date().toISOString().slice(0, 10);
-    const attendanceToday = await Attendance.findAll({ where: { work_date: today }, attributes: ["user_id"] });
+    const attendanceToday = await Attendance.findAll({ where: { work_date: today, status: { [Op.notIn]: ["absent", "cancelled"] } }, attributes: ["user_id"] });
     const presentUserIds = new Set(attendanceToday.map((entry) => entry.user_id));
     const staffDirectory = allUsers.map((user) => {
       const roleKey = getRoleKey(user);
@@ -311,6 +299,8 @@ const getWorkforce = async (req, res) => {
         : null;
       return ({
         id: user.user_id,
+        employment: Object.fromEntries(["user_id", "first_name", "last_name", "email", "is_active", "employee_id", "department_id", "job_title", "reports_to_user_id", "reporting_manager_mode", "employment_type"].map((field) => [field, user.get(field)])),
+        reportingManager: user.reporting_manager,
         name: `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email,
         email: user.email,
         employeeId: user.employee_id,
@@ -327,7 +317,7 @@ const getWorkforce = async (req, res) => {
         permissions: user.workforce_permissions || [],
         location: browserLocation?.label || (browserLocation ? "Location consent" : user.state || user.country || "Not shared"),
         browserLocation,
-        attendance: presentUserIds.has(user.user_id) ? "Present" : "Not clocked in",
+        attendance: ["admin", "super_admin"].includes(roleKey) ? "Not applicable" : presentUserIds.has(user.user_id) ? "Present" : "Not clocked in",
         joinedAt: user.created_at,
       });
     });
@@ -382,8 +372,9 @@ const getWorkforce = async (req, res) => {
     const activeStaff = staffDirectory.filter((member) => member.status === "Active").length;
     const latestKpiScores = kpis.map((kpi) => kpi.appraisals?.[0]?.overall_score).filter((score) => score !== undefined && score !== null).map(Number);
     const avgKpi = latestKpiScores.length ? Math.round(latestKpiScores.reduce((sum, score) => sum + score, 0) / latestKpiScores.length) : 0;
-    const presentWorkforce = staffDirectory.filter((member) => presentUserIds.has(member.id)).length;
-    const attendanceRate = activeStaff ? Math.min(100, Math.round((presentWorkforce / activeStaff) * 100)) : 0;
+    const trackedStaff = staffDirectory.filter((member) => member.status === "Active" && !["admin", "super_admin"].includes(member.roleKey));
+    const presentWorkforce = trackedStaff.filter((member) => presentUserIds.has(member.id)).length;
+    const attendanceRate = trackedStaff.length ? Math.min(100, Math.round((presentWorkforce / trackedStaff.length) * 100)) : 0;
     let zoho = { configured: false, organization: null };
     if (zohoService.isConfigured()) {
       try {
@@ -408,6 +399,7 @@ const getWorkforce = async (req, res) => {
       success: true,
       data: {
         staff: staffDirectory,
+        roles,
         departments,
         approvalsQueue,
         holidays,
@@ -483,142 +475,70 @@ const getDepartments = async (req, res) => {
 const createDepartment = async (req, res) => {
   try {
     const { name, code, description, manager_user_id, location } = req.body;
-
-    if (!name || !code) {
-      return res.status(400).json({
-        success: false,
-        message: "Department name and code are required",
-      });
-    }
-
-    const existingDepartment = await Department.findOne({
-      where: {
-        [Op.or]: [{ name }, { code }],
-      },
+    if (typeof name !== "string" || !name.trim() || typeof code !== "string" || !code.trim()) return res.status(400).json({ success: false, message: "Department name and code are required" });
+    const department = await sequelize.transaction(async (transaction) => {
+      const { lockHierarchy, updateDepartmentMembers } = require("../utils/reporting");
+      await lockHierarchy(transaction);
+      if (manager_user_id) requireDirectoryTarget(await User.findByPk(manager_user_id, { transaction }));
+      const row = await Department.create({ name: name.trim(), code: code.trim(), description: description || null, manager_user_id: manager_user_id || null, location: location || null }, { transaction });
+      await updateDepartmentMembers(row, row.manager_user_id, transaction);
+      return row;
     });
-
-    if (existingDepartment) {
-      return res.status(400).json({
-        success: false,
-        message: "A department with this name or code already exists",
-      });
-    }
-
-    if (manager_user_id) {
-      const manager = await User.findByPk(manager_user_id);
-      if (!manager) {
-        return res.status(404).json({
-          success: false,
-          message: "Assigned manager user not found",
-        });
-      }
-    }
-
-    const department = await Department.create({
-      name,
-      code,
-      description,
-      manager_user_id: manager_user_id || null,
-      location,
-      status: "active",
-    });
-
-    return res.status(201).json({
-      success: true,
-      message: "Department created successfully",
-      data: department,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create department",
-      error: error.message,
-    });
-  }
+    return res.status(201).json({ success: true, data: department });
+  } catch (error) { return res.status(error.status || (error.name === "SequelizeUniqueConstraintError" ? 409 : 500)).json({ success: false, message: error.message }); }
 };
-
 const updateDepartment = async (req, res) => {
   try {
-    const { department_id } = req.params;
-    const updates = req.body;
-
-    const department = await Department.findByPk(department_id);
-    if (!department) {
-      return res.status(404).json({
-        success: false,
-        message: "Department not found",
-      });
-    }
-
-    if (updates.manager_user_id) {
-      const manager = await User.findByPk(updates.manager_user_id);
-      if (!manager) {
-        return res.status(404).json({
-          success: false,
-          message: "Assigned manager user not found",
-        });
-      }
-    }
-
-    await department.update(updates);
-
-    return res.json({
-      success: true,
-      message: "Department updated successfully",
-      data: department,
+    const department = await sequelize.transaction(async (transaction) => {
+      const { lockHierarchy, updateDepartmentMembers } = require("../utils/reporting");
+      await lockHierarchy(transaction);
+      const row = await Department.findByPk(req.params.department_id, { transaction });
+      if (!row) throw Object.assign(new Error("Department not found"), { status: 404 });
+      const fields = ["name", "code", "description", "manager_user_id", "location", "status"];
+      const updates = Object.fromEntries(fields.filter((key) => req.body[key] !== undefined).map((key) => [key, req.body[key]]));
+      if (updates.manager_user_id && updates.manager_user_id !== row.manager_user_id) requireDirectoryTarget(await User.findByPk(updates.manager_user_id, { transaction }));
+      for (const key of ["name", "code"]) if (updates[key] !== undefined && (typeof updates[key] !== "string" || !updates[key].trim())) throw Object.assign(new Error("Department name and code cannot be empty"), { status: 400 });
+      if (Object.hasOwn(updates, "manager_user_id")) await updateDepartmentMembers(row, updates.manager_user_id || null, transaction);
+      await row.update({ ...updates, ...(Object.hasOwn(updates, "manager_user_id") ? { manager_user_id: updates.manager_user_id || null } : {}) }, { transaction });
+      return row;
     });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update department",
-      error: error.message,
-    });
-  }
+    return res.json({ success: true, data: department });
+  } catch (error) { return res.status(error.status || (error.name === "SequelizeUniqueConstraintError" ? 409 : 500)).json({ success: false, message: error.message }); }
 };
-
 const deleteDepartment = async (req, res) => {
   try {
-    const { department_id } = req.params;
-    const department = await Department.findByPk(department_id);
-
-    if (!department) {
-      return res.status(404).json({
-        success: false,
-        message: "Department not found",
-      });
-    }
-
-    await department.destroy();
-
-    return res.json({
-      success: true,
-      message: "Department deleted successfully",
+    await sequelize.transaction(async (transaction) => {
+      const { lockHierarchy } = require("../utils/reporting");
+      await lockHierarchy(transaction);
+      const row = await Department.findByPk(req.params.department_id, { transaction });
+      if (!row) throw Object.assign(new Error("Department not found"), { status: 404 });
+      await User.update({ reports_to_user_id: null }, { where: { department_id: row.department_id, reporting_manager_mode: "department" }, transaction });
+      await User.update({ department_id: null }, { where: { department_id: row.department_id }, transaction });
+      await row.destroy({ transaction });
     });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to delete department",
-      error: error.message,
-    });
-  }
+    return res.json({ success: true, message: "Department deleted" });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message }); }
 };
 
 const updateWorkforceUser = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
+    const { lockHierarchy, reportingUpdates } = require("../utils/reporting");
+    await lockHierarchy(transaction);
     const user = await User.findByPk(req.params.user_id, { transaction });
     if (!user) {
       await transaction.rollback();
       return res.status(404).json({ success: false, message: "Workforce user not found" });
     }
-    const allowedRoleKeys = ["super_admin", "admin", "project_manager", "staff"];
+    requireDirectoryTarget(user);
+    if (!isWorkforceRole(user)) throw Object.assign(new Error("Workforce user not found"), { status: 404 });
     const currentRoleKey = getRoleKey(user);
     const requestedRoleIdentifier = req.body.role_id ?? req.body.role ?? user.role_id;
     const nextRole = await findRoleByIdentifier(requestedRoleIdentifier, { transaction });
     const nextRoleKey = nextRole?.role_key;
-    if (!nextRole || !allowedRoleKeys.includes(nextRoleKey)) {
+    if (!nextRole || (!isWorkforceRole(nextRole) && nextRoleKey !== "super_admin")) {
       await transaction.rollback();
-      return res.status(400).json({ success: false, message: "Role must reference the seeded super_admin, admin, project_manager, or staff role" });
+      return res.status(400).json({ success: false, message: "Select an eligible workforce role" });
     }
     if ((nextRoleKey === "super_admin" || currentRoleKey === "super_admin") && getRoleKey(req.user) !== "super_admin") {
       await transaction.rollback();
@@ -636,26 +556,12 @@ const updateWorkforceUser = async (req, res) => {
       await transaction.rollback();
       return res.status(409).json({ success: false, message: "The sole Super Admin cannot be deactivated" });
     }
-    if (req.body.department_id && !(await Department.findByPk(req.body.department_id, { transaction }))) {
-      await transaction.rollback();
-      return res.status(404).json({ success: false, message: "Department not found" });
-    }
-    if (req.body.reports_to_user_id) {
-      const manager = await User.findByPk(req.body.reports_to_user_id, { transaction });
-      if (!manager || !allowedRoleKeys.includes(getRoleKey(manager))) {
-        await transaction.rollback();
-        return res.status(404).json({ success: false, message: "Reporting manager not found" });
-      }
-    }
-
     const fields = ["first_name", "last_name", "phone_number", "employee_id", "department_id", "job_title", "reports_to_user_id", "employment_type", "hire_date", "leave_allowance_days", "country", "city", "current_assignment", "work_region"];
     const updates = Object.fromEntries(fields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field] || null]));
-    if (req.body.workforce_permissions !== undefined) {
-      const knownPermissions = await RolePermission.findAll({ attributes: ["permission_key"], transaction });
-      const knownKeys = new Set(knownPermissions.map((permission) => permission.permission_key));
-      const requested = Array.isArray(req.body.workforce_permissions) ? req.body.workforce_permissions : [];
-      updates.workforce_permissions = requested.filter((permission) => knownKeys.has(permission));
-    }
+    if (["department_id", "reports_to_user_id", "reporting_manager_mode"].some((key) => Object.hasOwn(req.body, key))) Object.assign(updates, await reportingUpdates(user, req.body, transaction));
+    if (req.body.employee_id !== undefined) updates.employee_id = await require("../utils/employeeId").validateEmployeeId(req.body.employee_id, user.user_id, transaction);
+    if (req.body.workforce_permissions !== undefined) updates.workforce_permissions = require("../utils/permissions").normalizeGrants(req.body.workforce_permissions);
+    if (req.body.is_active !== undefined && typeof req.body.is_active !== "boolean") throw Object.assign(new Error("is_active must be a boolean"), { status: 400 });
     updates.role_id = nextRole.role_id;
     if (req.body.is_active !== undefined) updates.is_active = Boolean(req.body.is_active);
     await user.update(updates, { transaction });
@@ -671,7 +577,7 @@ const updateWorkforceUser = async (req, res) => {
     return res.json({ success: true, message: "Workforce user updated successfully", data: user });
   } catch (error) {
     await transaction.rollback();
-    return res.status(500).json({ success: false, message: "Failed to update workforce user", error: error.message });
+    return res.status(error.status || (error.name === "SequelizeUniqueConstraintError" ? 409 : 500)).json({ success: false, message: error.status ? error.message : "Failed to update workforce user", error: error.message });
   }
 };
 
@@ -714,7 +620,7 @@ const reviewWorkforceApproval = async (req, res) => {
         permissionKey: "verify_receipts",
         title: "Expense approved for receipt verification",
         message: `Expense claim ${record.expense_claim_id} is ready for accounts verification.`,
-        actionUrl: "/dashboard/staff/approvals",
+        actionUrl: "/approvals",
         metadata: { type, id: request_id, action },
       });
     }
@@ -738,8 +644,8 @@ const createHoliday = async (req, res) => {
     const { name, date, type = "Public holiday", region, description } = req.body;
     if (!name || !date) return res.status(400).json({ success: false, message: "Holiday name and date are required" });
     const holiday = await Holiday.create({ name, date, type, region: region || null, description: description || null, created_by: req.user.user_id });
-    const recipients = await User.findAll({ where: { "$role.role_key$": { [Op.in]: ["staff", "project_manager", "talent", "admin", "super_admin"] }, is_active: true }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
-    await Notification.bulkCreate(recipients.map((user) => ({ user_id: user.user_id, title: "Holiday calendar updated", message: `${name} has been added for ${date}.`, type: "info", action_url: "/dashboard/staff/holidays", metadata: { holiday_id: holiday.holiday_id } })));
+    const recipients = await User.findAll({ where: { is_active: true }, attributes: ["user_id", "role_id"], include: [ROLE_INCLUDE] });
+    await Notification.bulkCreate(recipients.map((user) => ({ user_id: user.user_id, title: "Holiday calendar updated", message: `${name} has been added for ${date}.`, type: "info", action_url: personalFeaturePath(user, "holidays"), metadata: { holiday_id: holiday.holiday_id } })));
     return res.status(201).json({ success: true, message: "Holiday created successfully", data: holiday });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to create holiday", error: error.message });
@@ -776,7 +682,7 @@ const createKpi = async (req, res) => {
     const criteria = sanitizeKpiCriteria(req.body.criteria);
     if (!assigned_to_user_id || !title || !criteria.length) return res.status(400).json({ success: false, message: "Assignee, title, and at least one success criterion are required" });
     const assignee = await User.findByPk(assigned_to_user_id);
-    if (!assignee || !["staff", "project_manager", "admin", "super_admin"].includes(getRoleKey(assignee))) return res.status(404).json({ success: false, message: "Staff assignee not found" });
+    if (!assignee || !assignee.is_active || !isWorkforceRole(assignee)) return res.status(404).json({ success: false, message: "Staff assignee not found" });
     if (!["Monthly", "Quarterly", "Annual"].includes(review_cycle)) return res.status(400).json({ success: false, message: "Review cycle must be Monthly, Quarterly, or Annual" });
     const kpi = await Kpi.create({
       assigned_to_user_id,
@@ -788,7 +694,7 @@ const createKpi = async (req, res) => {
       status,
       created_by: req.user.user_id,
     });
-    await Notification.create({ user_id: assigned_to_user_id, title: "New KPI assigned", message: `${title} has been assigned to you.`, type: "info", action_url: "/dashboard/staff/kpis", metadata: { kpi_id: kpi.kpi_id } });
+    await Notification.create({ user_id: assigned_to_user_id, title: "New KPI assigned", message: `${title} has been assigned to you.`, type: "info", action_url: personalFeaturePath(await User.findByPk(kpi.assigned_to_user_id), "kpis"), metadata: { kpi_id: kpi.kpi_id } });
     return res.status(201).json({ success: true, message: "KPI created successfully", data: kpi });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to create KPI", error: error.message });
@@ -801,6 +707,10 @@ const updateKpi = async (req, res) => {
     if (!kpi) return res.status(404).json({ success: false, message: "KPI not found" });
     const fields = ["assigned_to_user_id", "title", "description", "review_cycle", "status"];
     const updates = Object.fromEntries(fields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+    if (updates.assigned_to_user_id !== undefined && updates.assigned_to_user_id !== kpi.assigned_to_user_id) {
+      const assignee = await User.findByPk(updates.assigned_to_user_id);
+      if (!assignee?.is_active || !isWorkforceRole(assignee)) return res.status(404).json({ success: false, message: "Staff assignee not found" });
+    }
     if (req.body.criteria !== undefined) {
       const criteria = sanitizeKpiCriteria(req.body.criteria);
       if (!criteria.length) return res.status(400).json({ success: false, message: "At least one success criterion is required" });
@@ -809,7 +719,7 @@ const updateKpi = async (req, res) => {
     }
     if (updates.review_cycle && !["Monthly", "Quarterly", "Annual"].includes(updates.review_cycle)) return res.status(400).json({ success: false, message: "Review cycle must be Monthly, Quarterly, or Annual" });
     await kpi.update(updates);
-    await Notification.create({ user_id: kpi.assigned_to_user_id, title: "KPI updated", message: `${kpi.title} has been updated.`, type: "info", action_url: "/dashboard/staff/kpis", metadata: { kpi_id: kpi.kpi_id } });
+    await Notification.create({ user_id: kpi.assigned_to_user_id, title: "KPI updated", message: `${kpi.title} has been updated.`, type: "info", action_url: personalFeaturePath(await User.findByPk(kpi.assigned_to_user_id), "kpis"), metadata: { kpi_id: kpi.kpi_id } });
     return res.json({ success: true, message: "KPI updated successfully", data: kpi });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to update KPI", error: error.message });
@@ -853,7 +763,7 @@ const recordKpiAppraisal = async (req, res) => {
       title: `${period.label} KPI appraisal recorded`,
       message: `${kpi.title} was scored ${overallScore}%.`,
       type: "info",
-      action_url: "/dashboard/staff/kpis",
+      action_url: personalFeaturePath(await User.findByPk(kpi.assigned_to_user_id), "kpis"),
       metadata: { kpi_id: kpi.kpi_id, kpi_appraisal_id: appraisal.kpi_appraisal_id, period_key: period.key },
     });
     return res.status(created ? 201 : 200).json({ success: true, message: created ? "KPI appraisal recorded" : "KPI appraisal updated", data: formatKpiAppraisal(appraisal) });
@@ -898,9 +808,9 @@ const getRoles = async (req, res) => {
   try {
     const roles = await Role.findAll({
       order: [["is_system", "DESC"], ["name", "ASC"]],
-      attributes: ["role_id", "role_key", "name", "description", "is_system", "created_at", "updated_at"],
+      attributes: ["role_id", "role_key", "name", "description", "is_system", "permission_keys", "created_at", "updated_at"],
     });
-    return res.json({ success: true, data: roles });
+    return res.json({ success: true, data: roles, permission_catalog: require("../utils/permissions").catalog });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to get roles", error: error.message });
   }
@@ -924,11 +834,12 @@ const createRole = async (req, res) => {
     });
     if (duplicate) return res.status(409).json({ success: false, message: "A role with this name or key already exists" });
 
-    const role = await Role.create({ role_key: roleKey, name, description, is_system: false });
+    const permission_keys = require("../utils/permissions").normalizeGrants(req.body.permission_keys ?? []);
+    const role = await Role.create({ role_key: roleKey, name, description, is_system: false, permission_keys });
     return res.status(201).json({ success: true, message: "Role created successfully", data: role });
   } catch (error) {
-    const status = error.name === "SequelizeUniqueConstraintError" ? 409 : error.name === "SequelizeValidationError" ? 400 : 500;
-    const message = status === 409 ? "A role with this name or key already exists" : status === 400 ? "Role payload is invalid" : "Failed to create role";
+    const status = error.status || (error.name === "SequelizeUniqueConstraintError" ? 409 : error.name === "SequelizeValidationError" ? 400 : 500);
+    const message = error.status ? error.message : status === 409 ? "A role with this name or key already exists" : status === 400 ? "Role payload is invalid" : "Failed to create role";
     return res.status(status).json({ success: false, message, error: error.message });
   }
 };
@@ -940,11 +851,12 @@ const updateRole = async (req, res) => {
     if (role.is_system) return res.status(409).json({ success: false, message: "System roles cannot be edited" });
 
     const updates = {};
+    if (req.body.permission_keys !== undefined) updates.permission_keys = require("../utils/permissions").normalizeGrants(req.body.permission_keys);
     if (req.body.name !== undefined) updates.name = String(req.body.name || "").trim();
     if (req.body.role_key !== undefined) updates.role_key = normalizeRoleKey(req.body.role_key);
     if (req.body.description !== undefined) updates.description = String(req.body.description || "").trim() || null;
     if (!Object.keys(updates).length) {
-      return res.status(400).json({ success: false, message: "At least one of name, role_key, or description is required" });
+      return res.status(400).json({ success: false, message: "At least one role field or permission set is required" });
     }
     if ((updates.name !== undefined && !updates.name) || (updates.role_key !== undefined && !updates.role_key)) {
       return res.status(400).json({ success: false, message: "Role name and role key cannot be empty" });
@@ -964,8 +876,8 @@ const updateRole = async (req, res) => {
     await role.update(updates);
     return res.json({ success: true, message: "Role updated successfully", data: role });
   } catch (error) {
-    const status = error.name === "SequelizeUniqueConstraintError" ? 409 : error.name === "SequelizeValidationError" ? 400 : 500;
-    const message = status === 409 ? "A role with this name or key already exists" : status === 400 ? "Role payload is invalid" : "Failed to update role";
+    const status = error.status || (error.name === "SequelizeUniqueConstraintError" ? 409 : error.name === "SequelizeValidationError" ? 400 : 500);
+    const message = error.status ? error.message : status === 409 ? "A role with this name or key already exists" : status === 400 ? "Role payload is invalid" : "Failed to update role";
     return res.status(status).json({ success: false, message, error: error.message });
   }
 };
@@ -977,7 +889,7 @@ const deleteRole = async (req, res) => {
     if (role.is_system) return res.status(409).json({ success: false, message: "System roles cannot be deleted" });
 
     const [userCount, inviteCount] = await Promise.all([
-      User.unscoped().count({ where: { role_id: role.role_id } }),
+      User.unscoped().count({ where: { role_id: role.role_id }, paranoid: false }),
       Invite.unscoped().count({ where: { role_id: role.role_id } }),
     ]);
     if (userCount || inviteCount) {
@@ -1051,8 +963,7 @@ const updateProfile = async (req, res) => {
     }
 
     // 2) Coerce/assign other fields
-    const permArray = toTextArray(permissions);
-    if (permArray !== undefined) adminUpdates.permissions = permArray;
+    // Personal profile endpoints cannot change authorization data.
 
     if (req.body.date_of_birth !== undefined) userUpdates.date_of_birth = req.body.date_of_birth;
     if (first_name !== undefined) userUpdates.first_name = first_name;
@@ -1127,10 +1038,13 @@ const getTalentDetails = async (req, res) => {
   try {
     const { talent_id } = req.params;
 
+    const identity = await Talent.findByPk(talent_id, { include: [{ model: User, as: "user", paranoid: false, attributes: ["user_id"] }] });
+    if (!identity || getRoleKey(identity.user) === "super_admin") return res.status(404).json({ success: false, message: "Talent not found" });
+
     const talent = await Talent.findOne({
       where: { talent_id },
       include: [
-        { model: User, as: "user" },
+        { model: User, paranoid: false, as: "user" },
         {
           model: Application,
           as: "applications",
@@ -1140,7 +1054,7 @@ const getTalentDetails = async (req, res) => {
       ],
     });
 
-    if (!talent) {
+    if (!talent || getRoleKey(talent.user || await User.findByPk(talent.user_id, { paranoid: false })) === "super_admin") {
       return res.status(404).json({
         success: false,
         message: "Talent not found",
@@ -1167,7 +1081,7 @@ const updateTalentVetting = async (req, res) => {
 
     const talent = await Talent.findByPk(talent_id);
 
-    if (!talent) {
+    if (!talent || getRoleKey(talent.user || await User.findByPk(talent.user_id, { paranoid: false })) === "super_admin") {
       return res.status(404).json({
         success: false,
         message: "Talent not found",
@@ -1218,49 +1132,11 @@ const updateTalentVetting = async (req, res) => {
 // Delete talent account
 const deleteTalent = async (req, res) => {
   try {
-    const { talent_id } = req.params;
-
-    const talent = await Talent.findByPk(talent_id, {
-      include: [{ model: User, as: "user" }],
-    });
-
-    if (!talent) {
-      return res.status(404).json({
-        success: false,
-        message: "Talent not found",
-      });
-    }
-
-    // Check for active projects
-    const activeProjects = await Project.count({
-      where: {
-        talent_id: talent.user_id,
-        status: ["planning", "in_progress"],
-      },
-    });
-
-    if (activeProjects > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete talent with active projects",
-      });
-    }
-
-    // Delete talent and user
-    await talent.destroy();
-    await talent.user.destroy();
-
-    res.json({
-      success: true,
-      message: "Talent deleted successfully",
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete talent",
-      error: error.message,
-    });
-  }
+    const profile = await Talent.findByPk(req.params.talent_id);
+    if (!profile) return res.status(404).json({ success: false, message: "User profile not found" });
+    await require("../utils/userLifecycle").deleteUser(profile.user_id, req.user);
+    return res.json({ success: true, message: "Account deleted; history preserved" });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, blockers: error.blockers }); }
 };
 
 // Get all project managers - list
@@ -1286,6 +1162,8 @@ const getProjectManagers = async (req, res) => {
         {
           model: User,
           as: "user",
+          required: true,
+          include: [{ ...ROLE_INCLUDE, where: { role_key: "project_manager" } }],
         },
         {
           model: Project,
@@ -1347,10 +1225,9 @@ const inviteProjectManager = async (req, res) => {
   let transaction;
   try {
     const { email, first_name, last_name, department_id, job_title, role = "project_manager", role_id } = req.body;
-    const allowedRoles = ["admin", "project_manager", "staff"];
     const assignedRole = await findRoleByIdentifier(role_id || role);
     const roleKey = assignedRole?.role_key;
-    if (!email || !assignedRole || !assignedRole.is_system || !allowedRoles.includes(roleKey)) {
+    if (!email || !assignedRole || !isWorkforceRole(assignedRole)) {
       return res.status(400).json({ success: false, message: "A valid email and workforce role are required" });
     }
     if (department_id && !(await Department.findByPk(department_id))) {
@@ -1358,7 +1235,7 @@ const inviteProjectManager = async (req, res) => {
     }
 
     // 1️⃣ Check if user already exists
-    const existingUser = await User.findOne({ where: emailWhere(email) });
+    const existingUser = await User.findOne({ where: emailWhere(email), paranoid: false });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -1425,7 +1302,7 @@ const inviteProjectManager = async (req, res) => {
     const replacements = {
       firstname: first_name,
       // tempPassword,
-      role: roleKey.replace("_", " "),
+      role: assignedRole.name,
       employeeId: employee_id,
       year: new Date().getFullYear(),
       // url: `${process.env.FRONTEND_PROD_URL}/accept-invite?token=${token}`,
@@ -1448,7 +1325,7 @@ const inviteProjectManager = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `${roleKey.replace("_", " ")} invited successfully.`,
+      message: `${assignedRole.name} invited successfully.`,
       data: invitationResponse,
     });
   } catch (error) {
@@ -1486,18 +1363,21 @@ const getProjectManagerDetails = async (req, res) => {
       });
     }
 
+    const identity = await ProjectManager.findByPk(project_managers_id, { include: [{ model: User, as: "user", paranoid: false, attributes: ["user_id"] }] });
+    if (!identity || getRoleKey(identity.user) === "super_admin") return res.status(404).json({ success: false, message: "Project manager not found" });
+
     // Use the correct aliases in the include section
     const projectManager = await ProjectManager.findOne({
       where: { project_managers_id: project_managers_id },
       include: [
-        { model: User, as: "user" }, // ProjectManager's associated user
+        { model: User, paranoid: false, as: "user" }, // ProjectManager's associated user
         { model: Job, as: "posted_jobs" },
         {
           model: Project,
           as: "pm_projects", // Projects associated with the ProjectManager
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "talent", // Talent associated with the Project
             },
           ],
@@ -1505,7 +1385,7 @@ const getProjectManagerDetails = async (req, res) => {
       ],
     });
 
-    if (!projectManager) {
+    if (!projectManager || getRoleKey(projectManager.user) === "super_admin") {
       return res.status(404).json({
         success: false,
         message: "Project manager not found",
@@ -1528,49 +1408,11 @@ const getProjectManagerDetails = async (req, res) => {
 // Delete project manager account
 const deleteProjectManager = async (req, res) => {
   try {
-    const { project_managers_id } = req.params;
-
-    const projectManager = await ProjectManager.findByPk(project_managers_id, {
-      include: [{ model: User, as: "user" }],
-    });
-
-    if (!projectManager) {
-      return res.status(404).json({
-        success: false,
-        message: "Project manager not found",
-      });
-    }
-
-    // Check for active projects
-    const activeProjects = await Project.count({
-      where: {
-        project_managers_user_id: projectManager.user_id,
-        status: ["in_progress"],
-      },
-    });
-
-    if (activeProjects > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete project manager with active projects",
-      });
-    }
-
-    // Delete project manager and user
-    await projectManager.destroy();
-    await projectManager.user.destroy();
-
-    res.json({
-      success: true,
-      message: "Project manager deleted successfully",
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete project manager",
-      error: error.message,
-    });
-  }
+    const profile = await ProjectManager.findByPk(req.params.project_managers_id);
+    if (!profile) return res.status(404).json({ success: false, message: "User profile not found" });
+    await require("../utils/userLifecycle").deleteUser(profile.user_id, req.user);
+    return res.json({ success: true, message: "Account deleted; history preserved" });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, blockers: error.blockers }); }
 };
 
 // Get talents pending vetting
@@ -1585,6 +1427,8 @@ const getTalentVetting = async (req, res) => {
         {
           model: User,
           as: "user",
+          required: true,
+          include: [{ ...ROLE_INCLUDE, where: { role_key: "talent" } }],
           // attributes: {
           //   exclude: [
           //     "password",

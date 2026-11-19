@@ -155,8 +155,8 @@ async function getAllInterviews(req, res) {
       where,
       order: [['date_time', 'DESC']],
       include: [
-        { model: Talent, as: 'candidate', include: [{ model: User, as: 'user' }] },
-        { model: ProjectManager, as: 'interviewer', include: [{ model: User, as: 'user' }] },
+        { model: Talent, as: 'candidate', include: [{ model: User, paranoid: false, as: 'user' }] },
+        { model: ProjectManager, as: 'interviewer', include: [{ model: User, paranoid: false, as: 'user' }] },
         { model: Job, as: 'job' },
       ],
     });
@@ -175,8 +175,8 @@ async function getInterviewById(req, res) {
     const interview = await Interview.findOne({
       where: { interviews_id: interviews_id },
       include: [
-        { model: Talent, as: 'candidate', include: [{ model: User, as: 'user' }] },
-        { model: ProjectManager, as: 'interviewer', include: [{ model: User, as: 'user' }] },
+        { model: Talent, as: 'candidate', include: [{ model: User, paranoid: false, as: 'user' }] },
+        { model: ProjectManager, as: 'interviewer', include: [{ model: User, paranoid: false, as: 'user' }] },
         { model: Job, as: 'job' },
       ],
     });

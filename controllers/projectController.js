@@ -1,12 +1,31 @@
 const { Project, User, Job, ProjectManager, Talent } = require("../models");
 const { Op } = require("sequelize");
+const { hasPermission } = require("../utils/permissions");
+
+async function canViewProject(project, user) {
+  const role = getRoleKey(user);
+  if (["admin", "super_admin"].includes(role)) return true;
+  if (project.created_by_user_id === user.user_id && await hasPermission(user, "create_projects")) return true;
+  if (role === "project_manager") return !project.project_managers_id || project.project_manager?.user_id === user.user_id;
+  return project.created_by_user_id === user.user_id && await hasPermission(user, "create_projects");
+}
 const { createNotification } = require("../utils/notificationUtil");
 const { getRoleKey } = require("../utils/roleUtils");
+
+// Lock the current account before project rows so queued mutations observe
+// account/individual-grant changes committed after REST authentication.
+async function lockProjectActor(req, transaction) {
+  const actor = await User.findByPk(req.user.user_id, { transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+  if (!actor?.is_active || actor.session_version !== req.user.session_version) throw Object.assign(new Error("Your session is no longer available"), { status: 401 });
+  return actor;
+}
 
 // Get all projects with filtering and pagination - list
 const getAllProjects = async (req, res) => {
   try {
-    const { page, limit, status, priority } = req.query;
+    const { page, limit, status, priority, created_by_me } = req.query;
+    if (created_by_me !== undefined && !["true", "false"].includes(created_by_me)) return res.status(400).json({ success: false, message: "created_by_me must be true or false" });
+    const ownOnly = created_by_me === "true";
     const { user_id } = req.user;
     const role = getRoleKey(req.user);
 
@@ -22,7 +41,7 @@ const getAllProjects = async (req, res) => {
        =============================== */
     const include = [];
 
-    if (role === "project_manager") {
+    if (role === "project_manager" && !ownOnly) {
       // ✅ safest approach: resolve PM then filter by Project.project_managers_id
       const pm = await ProjectManager.findOne({ where: { user_id } });
 
@@ -37,21 +56,12 @@ const getAllProjects = async (req, res) => {
       where[Op.or] = [
         { project_managers_id: pm.project_managers_id },
         { project_managers_id: null },
+        ...(await hasPermission(req.user, "create_projects") ? [{ created_by_user_id: user_id }] : []),
       ];
     }
 
-    if (role === "talent") {
-      // Talents see only projects they are assigned to (M:N)
-      // ✅ Important: restrict via include with required: true
-      include.push({
-        model: Talent,
-        as: "talents",
-        required: true,
-        through: { attributes: [] },
-        where: { user_id }, // since Talent has user_id column
-        // If you prefer to go through User, use the nested include below instead:
-        // include: [{ model: User, as: "user", where: { user_id }, attributes: [] }],
-      });
+    if (ownOnly || !["admin", "super_admin", "project_manager"].includes(role)) {
+      where.created_by_user_id = user_id;
     }
 
     // Admin → no restriction
@@ -70,32 +80,7 @@ const getAllProjects = async (req, res) => {
        Avoid duplicates: only add these if not already used for restriction
        =============================== */
 
-    // If role !== talent, we can safely include talents for display
-    if (role !== "talent") {
-      include.push({
-        model: Talent,
-        as: "talents",
-        required: false,
-        through: { attributes: [] },
-        include: [
-          {
-            model: User,
-            as: "user",
-            attributes: ["first_name", "last_name", "email"],
-          },
-        ],
-      });
-    } else {
-      // role === talent: we already included talents for restriction,
-      // but we still want the user fields in response:
-      include[0].include = [
-        {
-          model: User,
-          as: "user",
-          attributes: ["first_name", "last_name", "email"],
-        },
-      ];
-    }
+    include.push({ model: Talent, as: "talents", required: false, through: { attributes: [] }, include: [{ model: User, paranoid: false, as: "user", attributes: ["first_name", "last_name", "email"] }] });
 
     // PM info for display (safe for all roles)
     include.push({
@@ -104,7 +89,7 @@ const getAllProjects = async (req, res) => {
       required: false,
       include: [
         {
-          model: User,
+          model: User, paranoid: false,
           as: "user",
           attributes: ["first_name", "last_name", "email"],
         },
@@ -180,7 +165,7 @@ const getProjectManagerProjects = async (req, res) => {
           required: false,
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: ["first_name", "last_name", "email"],
             },
@@ -221,7 +206,7 @@ const getProjectById = async (req, res) => {
           required: false,
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: ["first_name", "last_name", "email", "phone_number"],
             },
@@ -236,7 +221,7 @@ const getProjectById = async (req, res) => {
           required: false,
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: [
                 "first_name",
@@ -257,6 +242,8 @@ const getProjectById = async (req, res) => {
       });
     }
 
+    if (!await canViewProject(project, req.user)) return res.status(403).json({ success: false, message: "Access denied to this project" });
+
     return res.json({
       success: true,
       data: project,
@@ -275,303 +262,132 @@ const getProjectById = async (req, res) => {
 // Create new project
 const createProject = async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      talent_ids = [],
-      status = "planning",
-      priority = "medium",
-      progress = 0,
-      team = [],
-      tasks = [],
-      start_date,
-      deadline,
-      feedback,
-      project_manager_id,
-      project_managers_id,
-    } = req.body;
-
-    let manager = null;
-
-    if (["admin", "super_admin"].includes(getRoleKey(req.user))) {
-      const assignedManagerId = project_manager_id || project_managers_id;
-
-      if (assignedManagerId) {
-        manager = await ProjectManager.findOne({
-          where: {
-            [Op.or]: [{ project_managers_id: assignedManagerId }, { user_id: assignedManagerId }],
-          },
-        });
-
-        if (!manager) {
-          return res.status(400).json({
-            success: false,
-            message: "Assigned project manager not found",
-          });
+    const { title, description, talent_ids = [], status = "planning", priority = "medium", progress = 0, team = [], tasks = [], start_date, deadline, feedback, project_manager_id, project_managers_id } = req.body;
+    if (typeof title !== "string" || !title.trim()) return res.status(400).json({ success: false, message: "Project title is required" });
+    if (!["planning", "in_progress", "completed", "on_hold", "cancelled"].includes(status) || !["low", "medium", "high", "critical"].includes(priority) || !Number.isInteger(progress) || progress < 0 || progress > 100 || !Array.isArray(team) || team.some((member) => typeof member !== "string") || !Array.isArray(tasks) || !Array.isArray(talent_ids)) return res.status(400).json({ success: false, message: "Invalid project status, priority, progress, team, tasks, or talent assignments" });
+    for (const date of [start_date, deadline].filter(Boolean)) if (typeof date !== "string" || !Number.isFinite(Date.parse(date))) return res.status(400).json({ success: false, message: "Project dates must be valid dates" });
+    if (start_date && deadline && new Date(start_date) > new Date(deadline)) return res.status(400).json({ success: false, message: "Project deadline must be after its start date" });
+    const role = getRoleKey(req.user);
+    if (!["admin", "super_admin", "project_manager"].includes(role) && (project_manager_id || project_managers_id || talent_ids.length)) return res.status(403).json({ success: false, message: "Project creation does not grant manager or talent assignment access" });
+    const project = await require("../config/database").transaction(async (transaction) => {
+      await require("../utils/reporting").lockHierarchy(transaction);
+      let manager = null;
+      if (["admin", "super_admin"].includes(role)) {
+        const assigned = project_manager_id || project_managers_id;
+        if (assigned) {
+          require("../utils/http").requireUuid(assigned);
+          manager = await ProjectManager.findOne({ where: { [Op.or]: [{ project_managers_id: assigned }, { user_id: assigned }] }, include: [{ model: User, as: "user", required: true, where: { is_active: true }, include: [{ ...require("../utils/roleUtils").ROLE_INCLUDE, where: { role_key: "project_manager" } }] }], transaction });
+          if (!manager) throw Object.assign(new Error("Assigned project manager is unavailable"), { status: 400 });
         }
+      } else if (role === "project_manager") {
+        manager = await ProjectManager.findOne({ where: { user_id: req.user.user_id }, transaction });
+        if (!manager) throw Object.assign(new Error("Project manager profile not found"), { status: 403 });
       }
-    } else {
-      manager = await ProjectManager.findOne({
-        where: { user_id: req.user.user_id },
-      });
-
-      if (!manager) {
-        return res.status(403).json({
-          success: false,
-          message: "Only project managers can create projects",
-        });
-      }
-    }
-
-    const project = await Project.create({
-      project_managers_id: manager ? manager.project_managers_id : null,
-      title,
-      description,
-      status,
-      priority,
-      progress,
-      team,
-      tasks,
-      start_date,
-      deadline,
-      feedback,
+      const ids = [...new Set(talent_ids)]; ids.forEach(require("../utils/http").requireUuid);
+      const talents = ids.length ? await Talent.findAll({ where: { talent_id: ids }, include: [{ model: User, as: "user", required: true, where: { is_active: true }, include: [{ ...require("../utils/roleUtils").ROLE_INCLUDE, where: { role_key: "talent" } }] }], transaction }) : [];
+      if (talents.length !== ids.length) throw Object.assign(new Error("One or more assigned talents are unavailable"), { status: 400 });
+      const row = await Project.create({ title: title.trim(), description, status, priority, progress, team, tasks, start_date: start_date || null, deadline: deadline || null, feedback, created_by_user_id: req.user.user_id, project_managers_id: manager?.project_managers_id || null }, { transaction });
+      if (talents.length) await row.addTalents(talents, { transaction });
+      return row;
     });
-
-    /* ===============================
-       ASSIGN TALENTS (OPTIONAL)
-       =============================== */
-    if (Array.isArray(talent_ids) && talent_ids.length > 0) {
-      const talents = await Talent.findAll({
-        where: { talent_id: talent_ids },
-      });
-
-      if (talents.length) {
-        await project.addTalents(talents); // Sequelize M:N helper
-      }
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: "Project created successfully",
-      data: project,
-    });
-  } catch (error) {
-    console.error("Project creation failed:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Project creation failed",
-      error: error.message,
-    });
-  }
+    return res.status(201).json({ success: true, message: "Project created successfully", data: project });
+  } catch (error) { return res.status(error.status || (error.name === "SequelizeValidationError" ? 400 : 500)).json({ success: false, message: error.status || error.name === "SequelizeValidationError" ? error.message : "Project creation failed" }); }
 };
 
 // Update project
 const updateProject = async (req, res) => {
   try {
-    const { projects_id } = req.params;
     const allowedFields = ["title", "description", "status", "priority", "progress", "team", "tasks", "start_date", "deadline", "feedback"];
-    const updates = Object.fromEntries(
-      allowedFields
-        .filter((field) => req.body[field] !== undefined)
-        .map((field) => [field, req.body[field]]),
-    );
-
-    const project = await Project.findOne({
-      where: { projects_id },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          include: [{ model: User, as: "user" }],
-        },
-        {
-          model: Talent,
-          as: "talents",
-          through: { attributes: [] },
-          include: [{ model: User, as: "user" }],
-        },
-      ],
-    });
-
-    if (!project) {
-      return res.status(404).json({
-        success: false,
-        message: "Project not found",
+    const updates = Object.fromEntries(allowedFields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+    const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
+    if (updates.title !== undefined && (typeof updates.title !== "string" || !updates.title.trim())) fail("Project title is required");
+    if (updates.title) updates.title = updates.title.trim();
+    if (updates.status !== undefined && !["planning", "in_progress", "completed", "on_hold", "cancelled"].includes(updates.status)) fail("Invalid project status");
+    if (updates.priority !== undefined && !["low", "medium", "high", "critical"].includes(updates.priority)) fail("Invalid project priority");
+    if (updates.progress !== undefined && (!Number.isInteger(updates.progress) || updates.progress < 0 || updates.progress > 100)) fail("Progress must be a whole number from 0 to 100");
+    if (updates.team !== undefined && (!Array.isArray(updates.team) || updates.team.some((member) => typeof member !== "string"))) fail("Team must be an array of names");
+    if (updates.tasks !== undefined && !Array.isArray(updates.tasks)) fail("Tasks must be an array");
+    for (const date of [updates.start_date, updates.deadline].filter(Boolean)) if (typeof date !== "string" || !Number.isFinite(Date.parse(date))) fail("Project dates must be valid dates");
+    const result = await require("../config/database").transaction(async (transaction) => {
+      await require("../utils/reporting").lockHierarchy(transaction);
+      const actor = await lockProjectActor(req, transaction);
+      const role = getRoleKey(actor);
+      const project = await Project.findByPk(require("../utils/http").requireUuid(req.params.projects_id), {
+        include: [
+          { model: ProjectManager, as: "project_manager", include: [{ model: User, as: "user" }] },
+          { model: Talent, as: "talents", through: { attributes: [] }, include: [{ model: User, as: "user" }] },
+        ], transaction, lock: { level: transaction.LOCK.UPDATE, of: Project },
       });
-    }
-
-    /* ===============================
-   PERMISSION CHECK
-   =============================== */
-    if (getRoleKey(req.user) === "project_manager") {
-      const projectManagerUserId = project.project_manager?.user?.user_id;
-
-      // ❌ Block only if project is assigned AND not owned by this PM
-      if (projectManagerUserId && projectManagerUserId !== req.user.user_id) {
-        return res.status(403).json({
-          success: false,
-          message: "Not authorized to update this project",
-        });
-      }
-    }
-
-    if (["admin", "super_admin"].includes(getRoleKey(req.user))
-      && (req.body.project_manager_id !== undefined || req.body.project_managers_id !== undefined)) {
-      const assignedManagerId = req.body.project_manager_id ?? req.body.project_managers_id;
-      if (assignedManagerId === null || assignedManagerId === "") {
+      if (!project) fail("Project not found", 404);
+      const legacyEditor = ["admin", "super_admin"].includes(role)
+        || (role === "project_manager" && (!project.project_managers_id || project.project_manager?.user_id === req.user.user_id))
+        || (role === "talent" && project.talents?.some((talent) => talent.user_id === req.user.user_id));
+      const creator = project.created_by_user_id === req.user.user_id && await hasPermission(actor, "create_projects");
+      if (!legacyEditor && !creator) fail("Not authorized to update this project", 403);
+      if (!legacyEditor && Object.keys(req.body).some((key) => !["title", "description", "priority", "deadline"].includes(key))) fail("Creators may edit only title, description, priority and deadline", 403);
+      if (req.body.created_by_user_id !== undefined) fail("Project ownership cannot be changed", 403);
+      if (["admin", "super_admin"].includes(role) && (req.body.project_manager_id !== undefined || req.body.project_managers_id !== undefined)) {
+        const assigned = req.body.project_manager_id ?? req.body.project_managers_id;
         updates.project_managers_id = null;
-      } else {
-        const manager = await ProjectManager.findOne({
-          where: {
-            [Op.or]: [
-              { project_managers_id: assignedManagerId },
-              { user_id: assignedManagerId },
-            ],
-          },
-        });
-        if (!manager) {
-          return res.status(400).json({
-            success: false,
-            message: "Assigned project manager not found",
-          });
+        if (assigned) {
+          require("../utils/http").requireUuid(assigned);
+          const manager = await ProjectManager.findOne({ where: { [Op.or]: [{ project_managers_id: assigned }, { user_id: assigned }] }, include: [{ model: User, as: "user", required: true, where: { is_active: true }, include: [{ ...require("../utils/roleUtils").ROLE_INCLUDE, where: { role_key: "project_manager" } }] }], transaction });
+          if (!manager) fail("Assigned project manager is unavailable");
+          updates.project_managers_id = manager.project_managers_id;
         }
-        updates.project_managers_id = manager.project_managers_id;
       }
-    }
-
-    const oldStatus = project.status;
-    const oldProgress = project.progress;
-
-    await project.update(updates);
-
-    /* ===============================
-       NOTIFICATIONS (TALENTS)
-       =============================== */
-    const talentUsers =
-      project.talents?.map((e) => e.user?.user_id).filter(Boolean) || [];
-
-    for (const userId of talentUsers) {
-      // Status change
-      if (updates.status && oldStatus !== updates.status) {
-        await createNotification({
-          user_id: userId,
-          title: "Project Status Updated",
-          message: `Project "${project.title}" status changed to ${updates.status}`,
-          type: "info",
-          action_url: `/projects/${projects_id}`,
-          metadata: {
-            project_id: projects_id,
-            old_status: oldStatus,
-            new_status: updates.status,
-          },
-        });
+      let talents;
+      if (req.body.talent_ids !== undefined) {
+        if (!["admin", "super_admin", "project_manager"].includes(role)) fail("Talent reassignment requires management access", 403);
+        if (!Array.isArray(req.body.talent_ids)) fail("Talent assignments must be an array");
+        const ids = [...new Set(req.body.talent_ids)]; ids.forEach(require("../utils/http").requireUuid);
+        talents = ids.length ? await Talent.findAll({ where: { talent_id: ids }, include: [{ model: User, as: "user", required: true, where: { is_active: true }, include: [{ ...require("../utils/roleUtils").ROLE_INCLUDE, where: { role_key: "talent" } }] }], transaction }) : [];
+        if (talents.length !== ids.length) fail("One or more assigned talents are unavailable");
       }
-
-      // Milestone notification
-      if (
-        typeof updates.progress === "number" &&
-        updates.progress !== oldProgress &&
-        updates.progress % 25 === 0
-      ) {
-        await createNotification({
-          user_id: userId,
-          title: "Project Milestone",
-          message: `Project "${project.title}" is now ${updates.progress}% complete`,
-          type: "success",
-          action_url: `/projects/${projects_id}`,
-          metadata: {
-            project_id: projects_id,
-            progress: updates.progress,
-          },
-        });
+      if (["planning", "in_progress", "on_hold"].includes(updates.status || project.status)) {
+        if (project.project_managers_id && updates.project_managers_id === undefined && !project.project_manager?.user?.is_active) fail("Reassign the unavailable project manager before activating this project");
+        if (!talents && project.talents?.some((talent) => !talent.user?.is_active)) fail("Reassign unavailable talents before activating this project");
       }
-    }
-
-    return res.json({
-      success: true,
-      message: "Project updated successfully",
-      data: project,
+      const start = updates.start_date === undefined ? project.start_date : updates.start_date;
+      const deadline = updates.deadline === undefined ? project.deadline : updates.deadline;
+      if (start && deadline && new Date(start) > new Date(deadline)) fail("Project deadline must be after its start date");
+      const oldStatus = project.status, oldProgress = project.progress;
+      await project.update(updates, { transaction });
+      if (talents) { await project.setTalents(talents, { transaction }); project.setDataValue("talents", talents); }
+      return { project, oldStatus, oldProgress };
     });
-  } catch (error) {
-    console.error("Project update failed:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Project update failed",
-      error: error.message,
-    });
-  }
+    const { project, oldStatus, oldProgress } = result;
+    for (const userId of project.talents?.map((talent) => talent.user?.user_id).filter(Boolean) || []) {
+      if (updates.status && oldStatus !== updates.status) await createNotification({ user_id: userId, title: "Project Status Updated", message: `Project "${project.title}" status changed to ${updates.status}`, type: "info", action_url: `/projects/${project.projects_id}`, metadata: { project_id: project.projects_id, old_status: oldStatus, new_status: updates.status } });
+      if (typeof updates.progress === "number" && updates.progress !== oldProgress && updates.progress % 25 === 0) await createNotification({ user_id: userId, title: "Project Milestone", message: `Project "${project.title}" is now ${updates.progress}% complete`, type: "success", action_url: `/projects/${project.projects_id}`, metadata: { project_id: project.projects_id, progress: updates.progress } });
+    }
+    return res.json({ success: true, message: "Project updated successfully", data: project });
+  } catch (error) { return res.status(error.status || (error.name === "SequelizeValidationError" ? 400 : 500)).json({ success: false, message: error.status || error.name === "SequelizeValidationError" ? error.message : "Project update failed" }); }
 };
 
 // Delete project
 const deleteProject = async (req, res) => {
   try {
-    const { projects_id } = req.params;
-
-    const project = await Project.findOne({
-      where: { projects_id },
-      include: [
-        {
-          model: ProjectManager,
-          as: "project_manager",
-          include: [{ model: User, as: "user" }],
-        },
-      ],
-    });
-
-    if (!project) {
-      return res.status(404).json({
-        success: false,
-        message: "Project not found",
+    await require("../config/database").transaction(async (transaction) => {
+      await require("../utils/reporting").lockHierarchy(transaction);
+      const actor = await lockProjectActor(req, transaction);
+      const project = await Project.findByPk(require("../utils/http").requireUuid(req.params.projects_id), {
+        include: [{ model: ProjectManager, as: "project_manager", include: [{ model: User, as: "user" }] }],
+        transaction, lock: { level: transaction.LOCK.UPDATE, of: Project },
       });
-    }
-
-    /* ===============================
-       PERMISSION CHECK
-       =============================== */
-    const roleKey = getRoleKey(req.user);
-    if (roleKey === "project_manager") {
-      const ownerUserId = project.project_manager?.user?.user_id;
-
-      const isOwner = ownerUserId === req.user.user_id;
-      const isUnassigned = project.project_managers_id === null;
-
-      if (!isOwner && !isUnassigned) {
-        return res.status(403).json({
-          success: false,
-          message: "Not authorized to delete this project",
-        });
-      }
-
-      /* ===============================
-         PROJECT MANAGER STATUS CHECK
-         =============================== */
-      if (!["planning", "cancelled", "on_hold"].includes(project.status)) {
-        return res.status(400).json({
-          success: false,
-          message: "Cannot delete project that is in progress or completed",
-        });
-      }
-    }
-
-    /* ===============================
-       DELETE PROJECT
-       =============================== */
-    await project.destroy(); // join-table rows auto-removed if FK is correct
-
-    return res.json({
-      success: true,
-      message: "Project deleted successfully",
+      const fail = (message, status) => { throw Object.assign(new Error(message), { status }); };
+      if (!project) fail("Project not found", 404);
+      const role = getRoleKey(actor);
+      const admin = ["admin", "super_admin"].includes(role);
+      const manager = role === "project_manager" && (!project.project_managers_id || project.project_manager?.user_id === req.user.user_id);
+      const creator = project.created_by_user_id === req.user.user_id && await hasPermission(actor, "create_projects");
+      if (!admin && !manager && !creator) fail("Not authorized to delete this project", 403);
+      if (!admin && !["planning", "on_hold", "cancelled"].includes(project.status)) fail("Cannot delete project that is in progress or completed", 400);
+      await project.destroy({ transaction });
     });
+    return res.json({ success: true, message: "Project deleted successfully" });
   } catch (error) {
-    console.error("Project deletion failed:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Project deletion failed",
-      error: error.message,
-    });
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : "Project deletion failed" });
   }
 };
 

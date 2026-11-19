@@ -27,6 +27,7 @@ test("user and talent models serialize birthdays without a year, including legac
 
 test("employee ID allocation reads the configured prefix and checks users and reserved invitations", async (t) => {
   const transaction = {};
+  t.mock.method(require("../config/database"), "query", async (sql, options) => { assert.match(sql, /pg_advisory_xact_lock/); assert.equal(options.transaction, transaction); });
   let userChecks = 0;
   let inviteChecks = 0;
   t.mock.method(Setting, "findOne", async (options) => {

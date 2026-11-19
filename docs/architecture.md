@@ -136,3 +136,7 @@ Versioned Sequelize migrations live in `migrations/` and are recorded in `Sequel
 | `seeders/` | System roles, super admin and default rewards |
 | `templates/` | Transactional email templates |
 | `test/` | Node and PostgreSQL integration tests |
+
+## Integrated account and workforce controls
+
+See [User management and personal preferences](user-management.md) for the soft-deletion lifecycle, audit storage, session versions, personal clock-out and sound settings, location consent transactions, reporting-manager provenance, delegated management APIs, and notification broadcasts. `utils/permissions.js` is the shared permission catalog and resolver. Audit hooks are installed after migrations; model mutations and audit inserts share a transaction, and notification publication runs after commit.

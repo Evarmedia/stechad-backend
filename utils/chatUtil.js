@@ -61,11 +61,11 @@ const formatUser = async (user) => {
   return data;
 };
 const messageInclude = [
-  { model: User, as: "sender", attributes: USER_ATTRIBUTES },
+  { model: User, as: "sender", paranoid: false, attributes: USER_ATTRIBUTES },
   {
     model: Message,
     as: "replyToMessage",
-    include: [{ model: User, as: "sender", attributes: USER_ATTRIBUTES }],
+    include: [{ model: User, as: "sender", paranoid: false, attributes: USER_ATTRIBUTES }],
   },
 ];
 const formatMessage = async (message, userId, suppliedState) => {
@@ -232,6 +232,7 @@ const getChatDetails = async (chatId, userId) => {
   const participants = await User.findAll({
     where: { user_id: { [Op.in]: chat.participants } },
     attributes: USER_ATTRIBUTES,
+    paranoid: false,
     include: [ROLE_INCLUDE],
   });
   return formatChat(
@@ -563,10 +564,7 @@ const sendMessage = async (
     });
     const sender = await User.findByPk(senderId, { transaction });
     for (const recipient of recipients) {
-      const role = require("./roleUtils").getRoleKey(recipient);
-      const base = ["admin", "super_admin"].includes(role)
-        ? "/admin"
-        : `/dashboard/${role === "project_manager" ? "pm" : role}`;
+      const base = require("./roleUtils").personalBasePath(recipient);
       await Notification.create(
         {
           user_id: recipient.user_id,

@@ -12,11 +12,32 @@ const SYSTEM_ROLE_KEYS = Object.freeze([
 const ROLE_INCLUDE = Object.freeze({
   model: Role,
   as: "role",
-  attributes: ["role_id", "role_key", "name", "description", "is_system"],
+  attributes: ["role_id", "role_key", "name", "description", "is_system", "permission_keys"],
   required: true,
 });
 
 const getRoleKey = (userOrInvite) => userOrInvite?.role?.role_key || null;
+const roleRecord = (value) => value?.role && typeof value.role === "object" ? value.role : value;
+const isCustomRole = (value) => {
+  const role = roleRecord(value);
+  return role?.is_system === false && !SYSTEM_ROLE_KEYS.includes(role.role_key);
+};
+const isWorkforceRole = (value) => ["admin", "project_manager", "staff"].includes(roleRecord(value)?.role_key) || isCustomRole(value);
+const directoryWhere = (excludeTalents = false) => ({ "$role.role_key$": { [Op.notIn]: ["super_admin", ...(excludeTalents ? ["talent"] : [])] } });
+const requireDirectoryTarget = (user) => {
+  if (!user || getRoleKey(user) === "super_admin") throw Object.assign(new Error("User not found"), { status: 404 });
+  return user;
+};
+const personalBasePath = (user) => {
+  const role = getRoleKey(user);
+  return ["admin", "super_admin"].includes(role) ? "/admin" : role === "project_manager" ? "/dashboard/pm" : role === "talent" ? "/dashboard/talent" : "/dashboard/staff";
+};
+const personalFeaturePath = (user, feature) => {
+  const base = personalBasePath(user);
+  if (base === "/admin" && ["kpis", "holidays"].includes(feature)) return `/admin/workforce?tab=${feature}`;
+  if (getRoleKey(user) === "talent" && feature === "holidays") return base;
+  return `${base}/${feature}`;
+};
 
 const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
 
@@ -44,4 +65,10 @@ module.exports = {
   getRoleKey,
   findRoleByIdentifier,
   findRoleByKey,
+  isCustomRole,
+  isWorkforceRole,
+  directoryWhere,
+  requireDirectoryTarget,
+  personalBasePath,
+  personalFeaturePath,
 };

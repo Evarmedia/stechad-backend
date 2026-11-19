@@ -36,6 +36,13 @@ User.init(
     phone_number: {
       type: DataTypes.TEXT,
     },
+    deleted_at: { type: DataTypes.DATE, allowNull: true },
+    deleted_by_user_id: { type: DataTypes.UUID, allowNull: true },
+    session_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    auto_clock_out_enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+    auto_clock_out_time: { type: DataTypes.TIME, allowNull: true },
+    notification_sound_enabled: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: null },
+    reporting_manager_mode: { type: DataTypes.STRING, allowNull: false, defaultValue: "department", validate: { isIn: [["department", "override"]] } },
     employee_id: {
       type: DataTypes.STRING,
       allowNull: true,
@@ -73,6 +80,7 @@ User.init(
       allowNull: false,
       defaultValue: [],
     },
+    location_consent_version: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     location_sharing_enabled: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -189,6 +197,8 @@ User.init(
     sequelize,
     modelName: "User",
     tableName: "users",
+    paranoid: true,
+    deletedAt: "deleted_at",
     timestamps: true, // Sequelize will now handle the timestamps automatically
     createdAt: 'created_at',
     updatedAt: 'updated_at',
@@ -196,7 +206,7 @@ User.init(
       attributes: {
         exclude: ["password", "reset_password_token", "reset_password_expires"],
       },
-      include: [{ model: Role, as: "role", attributes: ["role_id", "role_key", "name", "description", "is_system"], required: true }],
+      include: [{ model: Role, as: "role", attributes: ["role_id", "role_key", "name", "description", "is_system", "permission_keys"], required: true }],
     },
     indexes: [{ name: "users_role_id", fields: ["role_id"] }],
   }
@@ -214,12 +224,32 @@ User.beforeCreate(async (user) => {
 });
 
 User.beforeUpdate(async (user) => {
+  if (user.changed("is_active") && !user.is_active && !user.changed("session_version")) user.session_version = (user.session_version || 0) + 1;
   if (user.changed('password')) {
+    if (!user.changed('session_version')) user.session_version = (user.session_version || 0) + 1;
     user.password = await bcrypt.hash(user.password, 12);
   }
 });
 
 // Instance methods
+User.beforeSave(async (user, options) => {
+  if (user.isNewRecord || user.changed("role_id") || user.changed("auto_clock_out_enabled") || user.changed("auto_clock_out_time")) {
+    const role = await Role.findByPk(user.role_id, { transaction: options.transaction });
+    if (require("../utils/personalWorkforce").isAdmin(role?.role_key)) {
+      user.auto_clock_out_enabled = false;
+      user.auto_clock_out_time = null;
+    }
+  }
+});
+User.beforeBulkUpdate((options) => {
+  if (options.attributes.role_id) options.individualHooks = true;
+});
+User.afterUpdate(async (user, options) => {
+  if (!user.changed("role_id")) return;
+  const role = await Role.findByPk(user.role_id, { transaction: options.transaction });
+  if (require("../utils/personalWorkforce").isAdmin(role?.role_key)) await require("../utils/personalWorkforce").cancelAdminAttendance(user.user_id, options.transaction);
+});
+
 User.prototype.comparePassword = async function(candidatePassword) {
   if (typeof candidatePassword !== "string" || !this.password) return false;
   return await bcrypt.compare(candidatePassword, this.password);

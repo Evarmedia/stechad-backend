@@ -60,6 +60,7 @@ const exportTalents = async (req, res) => {
         model: User,
         as: 'user',
         where: userWhere,
+        include: [{ ...require('../utils/roleUtils').ROLE_INCLUDE, where: { role_key: 'talent' } }],
         attributes: userAttributes
       }],
       order: [['created_at', 'DESC']]
@@ -165,7 +166,7 @@ const exportJobs = async (req, res) => {
       where,
       attributes: jobAttributes,
       include: [{
-        model: User,
+        model: User, paranoid: false,
         as: 'poster',
         attributes: ['first_name', 'last_name', 'email'],
         include: [{
@@ -284,7 +285,7 @@ const exportApplications = async (req, res) => {
           attributes: ['title', 'company', 'location']
         },
         {
-          model: User,
+          model: User, paranoid: false,
           as: 'applicant',
           attributes: ['first_name', 'last_name', 'email'],
           include: [{

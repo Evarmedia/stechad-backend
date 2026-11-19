@@ -49,6 +49,10 @@ const { refreshAccessToken } = require('../controllers/sessionController');
  *         description: Invalid, expired, or inactive session
  */
 router.post('/refresh-token', refreshAccessToken);
+const { asyncRoute } = require('../utils/http');
+const preferences = require('../controllers/preferencesController');
+router.get('/preferences', authenticate, asyncRoute(preferences.getPreferences));
+router.put('/preferences', authenticate, asyncRoute(preferences.updatePreferences));
 
 /**
  * @swagger
@@ -152,8 +156,11 @@ router.get('/google/callback',
     const { token } = generateTokens({
       user_id: req.user.user_id,
       role: req.user.role?.role_key,
+      session_version: req.user.session_version,
     });
-    res.redirect(`${frontendUrl}/dashboard/talent?token=${token}`);
+    const role = req.user.role?.role_key;
+    const home = { admin: "/admin", super_admin: "/admin", staff: "/dashboard/staff", project_manager: "/dashboard/pm", talent: "/dashboard/talent" }[role] || "/dashboard/staff";
+    res.redirect(`${frontendUrl}${home}?token=${token}`);
   }
 );
 

@@ -31,7 +31,7 @@ const getApplications = async (req, res) => {
           attributes: ["title", "company", "location"],
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "poster",
               attributes: ["first_name", "last_name"],
             },
@@ -44,7 +44,7 @@ const getApplications = async (req, res) => {
           as: "applicant",
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: ["first_name", "last_name", "email"],
             },
@@ -118,13 +118,13 @@ const getApplicationById = async (req, res) => {
           as: 'job',
           attributes: ['title', 'company', 'location'],
           include: [{
-            model: User,
+            model: User, paranoid: false,
             as: 'poster',
             attributes: ['first_name', 'last_name', 'email'],
           }]
         },
         {
-          model: User,
+          model: User, paranoid: false,
           as: 'applicant',
           attributes: ['first_name', 'last_name', 'email'],
           include: [{
@@ -318,7 +318,7 @@ const getApplicationStats = async (req, res) => {
           attributes: ["talent_id"], // keep light
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "user",
               attributes: ["first_name", "last_name"],
             },

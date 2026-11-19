@@ -98,6 +98,10 @@ const migrateRoleColumn = async ({ queryInterface, tableName, transaction }) => 
 const migrateRoleStorage = async () => {
   const queryInterface = sequelize.getQueryInterface();
   await Role.sync();
+  // Legacy startup bootstraps roles before Umzug runs. Upgrade this column before
+  // the current Role model is used by the system-role seeder; Umzug records the
+  // same idempotent, versioned migration during its normal pass.
+  await require("../migrations/20261119110000-custom-role-permissions").up(queryInterface, { JSONB: DataTypes.JSONB });
 
   await sequelize.transaction(async (transaction) => {
     const roles = await seedSystemRoles({ transaction });

@@ -33,6 +33,11 @@ Role.init(
       allowNull: false,
       defaultValue: false,
     },
+    permission_keys: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
+    },
     created_at: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
@@ -60,6 +65,7 @@ Role.init(
         }
         if (typeof role.name === "string") role.name = role.name.trim();
         if (typeof role.description === "string") role.description = role.description.trim() || null;
+        if (role.changed("permission_keys")) role.permission_keys = require("../utils/permissions").normalizeGrants(role.permission_keys);
       },
     },
   },

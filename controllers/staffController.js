@@ -159,6 +159,8 @@ const formatWorkedDuration = (clockIn, clockOut) => {
 };
 
 const formatAttendance = (entry) => ({
+  clockOutSource: entry.clock_out_source,
+  autoClockOutAt: entry.auto_clock_out_at,
   id: entry.attendance_id,
   date: entry.work_date,
   clockIn: formatTime(entry.clock_in),
@@ -166,7 +168,7 @@ const formatAttendance = (entry) => ({
   clockOut: formatTime(entry.clock_out),
   workLog: entry.work_log || "",
   status: titleCase(entry.status),
-  isOpen: !entry.clock_out && entry.status !== "absent",
+  isOpen: !entry.clock_out && !["absent", "cancelled"].includes(entry.status),
   location:
     entry.latitude && entry.longitude
       ? {
@@ -302,7 +304,7 @@ const getAttendanceData = async (userId) => {
     (entry) => entry.work_date >= monthStart && entry.work_date <= monthEnd,
   );
   const attendedEntries = monthEntries.filter(
-    (entry) => entry.status !== "absent",
+    (entry) => !["absent", "cancelled"].includes(entry.status),
   );
   const completed = monthEntries.filter((entry) => entry.clock_out).length;
   const expectedDaysToDate = Array.from({ length: now.date() }, (_, index) =>
@@ -316,7 +318,7 @@ const getAttendanceData = async (userId) => {
     entries: entries.map(formatAttendance),
     summary: {
       currentStatus: today
-        ? today.status === "absent"
+        ? today.status === "cancelled" ? "Tracking cancelled" : today.status === "absent"
           ? "Absent"
           : today.clock_out
             ? "Clocked out"
@@ -412,6 +414,7 @@ const getDashboard = async (req, res) => {
       RolePermission.findAll({ order: [["name", "ASC"]] }),
       getLeaveBalance(req.user),
     ]);
+    const effective = await require("../utils/permissions").effectivePermissions(req.user);
     const expenses = await Promise.all(expenseRows.map(formatExpense));
     const expenseTotal = expenses.reduce((sum, claim) => sum + claim.amount, 0);
     const scoredKpis = kpis
@@ -444,7 +447,7 @@ const getDashboard = async (req, res) => {
         permissions: permissions.map((permission) => ({
           key: permission.permission_key,
           name: permission.name,
-          allowed: roleKey === "super_admin" || Boolean(permission[roleKey]),
+          allowed: effective.includes("*") || effective.includes(permission.permission_key),
         })),
         user: {
           id: req.user.user_id,
@@ -453,6 +456,7 @@ const getDashboard = async (req, res) => {
             req.user.email,
           email: req.user.email,
           role: roleKey,
+          roleName: req.user.role?.name || roleKey,
           locationSharingEnabled: req.user.location_sharing_enabled,
           locationPermissionStatus: req.user.location_permission_status,
           browserLocation:
@@ -491,7 +495,7 @@ const getApprovalQueue = async (req, res) => {
           where: { status: "pending" },
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "requester",
               attributes: ["first_name", "last_name", "email"],
             },
@@ -526,7 +530,7 @@ const getApprovalQueue = async (req, res) => {
           },
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "claimant",
               attributes: ["first_name", "last_name", "email"],
             },
@@ -567,7 +571,7 @@ const getApprovalQueue = async (req, res) => {
           where: { status: { [Op.in]: ["pending", "approved"] } },
           include: [
             {
-              model: User,
+              model: User, paranoid: false,
               as: "submitter",
               attributes: ["first_name", "last_name", "email"],
             },
@@ -623,141 +627,50 @@ const getAttendance = async (req, res) => {
 const clockIn = async (req, res) => {
   try {
     await reconcileUnclosedAttendance();
-    const now = getWorkforceMoment();
-    if (isAttendanceDayClosed(now))
-      return res
-        .status(409)
-        .json({ success: false, message: "The attendance day has closed" });
-    const workDate = now.format("YYYY-MM-DD");
-    const existing = await Attendance.findOne({
-      where: { user_id: req.user.user_id, work_date: workDate },
+    const snapshot = await User.findByPk(req.user.user_id);
+    const normalized = snapshot.location_sharing_enabled && snapshot.location_permission_status === "granted" ? normalizeBrowserLocation(req.body) : { value: null };
+    if (normalized.error) return res.status(400).json({ success: false, message: normalized.error });
+    const enriched = normalized.value ? await enrichBrowserLocation(snapshot, normalized.value) : null;
+    const entry = await require("../config/database").transaction(async (transaction) => {
+      const user = await User.findByPk(req.user.user_id, { transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+      require("../utils/personalWorkforce").requirePersonalWorkforce(user);
+      const now = getWorkforceMoment();
+      if (isAttendanceDayClosed(now)) throw Object.assign(new Error("The attendance day has closed"), { status: 409 });
+      if (user.auto_clock_out_enabled && require("../utils/attendanceScheduler").isAfterAutoClockOut(now)) throw Object.assign(new Error("Disable automatic clock-out in Settings before clocking in after 5 PM"), { status: 409 });
+      if (await Attendance.findOne({ where: { user_id: user.user_id, work_date: now.format("YYYY-MM-DD") }, transaction })) throw Object.assign(new Error("Attendance has already been started for today"), { status: 409 });
+      const consent = user.location_sharing_enabled && user.location_permission_status === "granted" && user.location_consent_version === snapshot.location_consent_version;
+      const row = await Attendance.create({ user_id: user.user_id, work_date: now.format("YYYY-MM-DD"), clock_in: now.toDate(), status: now.hour() >= 9 ? "late" : "present", auto_clock_out_at: user.auto_clock_out_enabled ? require("../utils/attendanceScheduler").autoClockOutDeadline(now) : null,
+        latitude: consent ? normalized.value?.browser_latitude ?? null : null, longitude: consent ? normalized.value?.browser_longitude ?? null : null, location_accuracy: consent ? normalized.value?.browser_location_accuracy ?? null : null }, { transaction });
+      if (consent && enriched) await user.update(enriched, { transaction });
+      return row;
     });
-    if (existing)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Attendance has already been started for today",
-        });
-    const { latitude, longitude, accuracy } = req.body;
-    const normalizedLocation = req.user.location_sharing_enabled
-      ? normalizeBrowserLocation(req.body)
-      : { value: null };
-    if (normalizedLocation.error)
-      return res
-        .status(400)
-        .json({ success: false, message: normalizedLocation.error });
-    const entry = await Attendance.create({
-      user_id: req.user.user_id,
-      work_date: workDate,
-      clock_in: new Date(),
-      status: now.hour() >= 9 ? "late" : "present",
-      latitude: req.user.location_sharing_enabled ? (latitude ?? null) : null,
-      longitude: req.user.location_sharing_enabled ? (longitude ?? null) : null,
-      location_accuracy: req.user.location_sharing_enabled
-        ? (accuracy ?? null)
-        : null,
-    });
-    if (normalizedLocation.value)
-      await req.user.update(
-        await enrichBrowserLocation(req.user, normalizedLocation.value),
-      );
-    return res
-      .status(201)
-      .json({
-        success: true,
-        message: "Clocked in successfully",
-        data: formatAttendance(entry),
-      });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to clock in",
-        error: error.message,
-      });
-  }
+    return res.status(201).json({ success: true, message: "Clocked in successfully", data: formatAttendance(entry) });
+  } catch (error) { return res.status(error.status || (error.name === "SequelizeUniqueConstraintError" ? 409 : 500)).json({ success: false, message: error.message }); }
 };
 
 const clockOut = async (req, res) => {
   try {
     await reconcileUnclosedAttendance();
-    const { work_log, latitude, longitude, accuracy } = req.body;
-    if (!work_log || !work_log.trim())
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "A daily work summary is required before clocking out",
-        });
-    const entry = await Attendance.findOne({
-      where: {
-        user_id: req.user.user_id,
-        work_date: getWorkforceMoment().format("YYYY-MM-DD"),
-      },
+    if (typeof req.body.work_log !== "string" || !req.body.work_log.trim()) return res.status(400).json({ success: false, message: "A daily work summary is required before clocking out" });
+    const snapshot = await User.findByPk(req.user.user_id);
+    const normalized = snapshot.location_sharing_enabled && snapshot.location_permission_status === "granted" ? normalizeBrowserLocation(req.body) : { value: null };
+    if (normalized.error) return res.status(400).json({ success: false, message: normalized.error });
+    const enriched = normalized.value ? await enrichBrowserLocation(snapshot, normalized.value) : null;
+    const entry = await require("../config/database").transaction(async (transaction) => {
+      const user = await User.findByPk(req.user.user_id, { transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+      require("../utils/personalWorkforce").requirePersonalWorkforce(user);
+      const row = await Attendance.findOne({ where: { user_id: user.user_id, work_date: getWorkforceMoment().format("YYYY-MM-DD") }, transaction, lock: transaction.LOCK.UPDATE });
+      if (!row) throw Object.assign(new Error("Clock in before attempting to clock out"), { status: 404 });
+      if (row.clock_out || ["absent", "cancelled"].includes(row.status)) throw Object.assign(new Error("This attendance session has already closed"), { status: 409 });
+      const consent = user.location_sharing_enabled && user.location_permission_status === "granted" && user.location_consent_version === snapshot.location_consent_version;
+      const deadlinePassed = row.auto_clock_out_at && new Date(row.auto_clock_out_at) <= new Date();
+      await row.update({ clock_out: deadlinePassed ? row.auto_clock_out_at : new Date(), clock_out_source: deadlinePassed ? "automatic" : "manual", status: "completed", work_log: req.body.work_log.trim(),
+        latitude: consent ? normalized.value?.browser_latitude ?? row.latitude : null, longitude: consent ? normalized.value?.browser_longitude ?? row.longitude : null, location_accuracy: consent ? normalized.value?.browser_location_accuracy ?? row.location_accuracy : null }, { transaction });
+      if (consent && enriched) await user.update(enriched, { transaction });
+      return row;
     });
-    if (!entry)
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message: "Clock in before attempting to clock out",
-        });
-    if (entry.status === "absent")
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message:
-            "This attendance day closed without a clock-out and was marked absent",
-        });
-    if (entry.clock_out)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "You have already clocked out today",
-        });
-    const normalizedLocation = req.user.location_sharing_enabled
-      ? normalizeBrowserLocation(req.body)
-      : { value: null };
-    if (normalizedLocation.error)
-      return res
-        .status(400)
-        .json({ success: false, message: normalizedLocation.error });
-    await entry.update({
-      clock_out: new Date(),
-      work_log: work_log.trim(),
-      status: "completed",
-      latitude: req.user.location_sharing_enabled
-        ? (latitude ?? entry.latitude)
-        : entry.latitude,
-      longitude: req.user.location_sharing_enabled
-        ? (longitude ?? entry.longitude)
-        : entry.longitude,
-      location_accuracy: req.user.location_sharing_enabled
-        ? (accuracy ?? entry.location_accuracy)
-        : entry.location_accuracy,
-    });
-    if (normalizedLocation.value)
-      await req.user.update(
-        await enrichBrowserLocation(req.user, normalizedLocation.value),
-      );
-    return res.json({
-      success: true,
-      message: "Clocked out successfully",
-      data: formatAttendance(entry),
-    });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to clock out",
-        error: error.message,
-      });
-  }
+    return res.json({ success: true, message: "Clocked out successfully", data: formatAttendance(entry) });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message }); }
 };
 
 const getLeaveRequests = async (req, res) => {
@@ -827,7 +740,7 @@ const submitLeave = async (req, res) => {
     await notifyAdmins({
       title: "New leave request",
       message: `${requesterName} submitted a ${leaveType} request.`,
-      action_url: "/admin/workforce",
+      action_url: "/approvals",
       metadata: { type: "leave", id: request.leave_request_id },
     });
     return res
@@ -913,7 +826,7 @@ const submitExpense = async (req, res) => {
     await notifyAdmins({
       title: "New expense claim",
       message: `${requesterName} submitted a ${currency} ${Number(amount).toFixed(2)} expense claim.`,
-      action_url: "/admin/workforce",
+      action_url: "/approvals",
       metadata: { type: "expense", id: claim.expense_claim_id },
     });
     return res
@@ -982,7 +895,7 @@ const submitInvoice = async (req, res) => {
     await notifyAdmins({
       title: "New invoice submitted",
       message: `${req.user.email} submitted invoice ${invoice.invoice_number}.`,
-      action_url: "/admin/workforce",
+      action_url: "/approvals",
       metadata: { type: "invoice", id: invoice.invoice_id },
     });
     return res
@@ -1187,7 +1100,7 @@ const submitProjectInvoice = async (req, res) => {
     await notifyAdmins({
       title: "New project invoice summary",
       message: `${req.user.email} submitted ${invoice.invoice_number} for ${project.title}.`,
-      action_url: "/admin/workforce",
+      action_url: "/approvals",
       metadata: { type: "invoice", id: invoice.invoice_id, project_id },
     });
     return res
@@ -1264,7 +1177,7 @@ const getBirthdays = async (req, res) => {
         is_active: true,
         date_of_birth: { [Op.ne]: null },
         "$role.role_key$": {
-          [Op.in]: ["staff", "project_manager", "admin", "super_admin"],
+          [Op.notIn]: ["talent", "super_admin"],
         },
       },
       attributes: [
@@ -1404,6 +1317,8 @@ const updateProfile = async (req, res) => {
 
 const reverseGeoLocation = async (req, res) => {
   try {
+    const currentConsent = await User.findByPk(req.user.user_id);
+    if (!currentConsent?.location_sharing_enabled || currentConsent.location_permission_status !== "granted") return res.status(403).json({ success: false, message: "Enable location sharing before resolving location" });
     const input = req.method === "GET" ? req.query : req.body;
     const normalizedLocation = normalizeBrowserLocation({
       latitude: input?.latitude ?? input?.lat,
@@ -1443,6 +1358,8 @@ const reverseGeoLocation = async (req, res) => {
           success: false,
           message: "Geoapify did not find an address for these coordinates",
         });
+    const latestConsent = await User.findByPk(req.user.user_id);
+    if (!latestConsent?.location_sharing_enabled || latestConsent.location_consent_version !== currentConsent.location_consent_version) return res.status(403).json({ success: false, message: "Location consent changed; location was discarded" });
     const { address, providerResponse } = result;
 
     return res.json({
@@ -1473,132 +1390,44 @@ const reverseGeoLocation = async (req, res) => {
 
 const updateLocationSharing = async (req, res) => {
   try {
-    if (typeof req.body.enabled !== "boolean")
-      return res
-        .status(400)
-        .json({ success: false, message: "enabled must be a boolean" });
-    const allowedStatuses = ["not_asked", "granted", "denied", "unavailable"];
-    const permissionStatus =
-      req.body.permission_status ||
-      req.user.location_permission_status ||
-      "not_asked";
-    if (!allowedStatuses.includes(permissionStatus))
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Invalid location permission status",
-        });
-    if (req.body.enabled && permissionStatus !== "granted")
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "Browser location permission must be granted before enabling location sharing",
-        });
-    const normalizedLocation = normalizeBrowserLocation(req.body);
-    if (normalizedLocation.error)
-      return res
-        .status(400)
-        .json({ success: false, message: normalizedLocation.error });
-    if (normalizedLocation.value && permissionStatus !== "granted")
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Location coordinates require granted browser permission",
-        });
-    const updates = {
-      location_sharing_enabled: req.body.enabled,
-      location_permission_status: permissionStatus,
-    };
-    if (normalizedLocation.value)
-      Object.assign(
-        updates,
-        await enrichBrowserLocation(req.user, normalizedLocation.value),
-      );
-    await req.user.update(updates);
-    return res.json({
-      success: true,
-      message: req.body.enabled
-        ? "Location sharing enabled"
-        : "Location sharing disabled",
-      data: {
-        enabled: req.user.location_sharing_enabled,
-        permissionStatus: req.user.location_permission_status,
-        browserLocation:
-          req.user.location_sharing_enabled &&
-          req.user.location_permission_status === "granted"
-            ? formatBrowserLocation(req.user)
-            : null,
-      },
+    const { enabled } = req.body;
+    if (typeof enabled !== "boolean") return res.status(400).json({ success: false, message: "enabled must be a boolean" });
+    const permissionStatus = req.body.permission_status || req.user.location_permission_status || "not_asked";
+    if (!["not_asked", "granted", "denied", "unavailable"].includes(permissionStatus) || (enabled && permissionStatus !== "granted")) return res.status(400).json({ success: false, message: "Browser location permission must be granted before enabling location sharing" });
+    const normalized = enabled ? normalizeBrowserLocation(req.body) : { value: null };
+    if (normalized.error) return res.status(400).json({ success: false, message: normalized.error });
+    const enriched = normalized.value ? await enrichBrowserLocation(req.user, normalized.value) : null;
+    const user = await require("../config/database").transaction(async (transaction) => {
+      const current = await User.findByPk(req.user.user_id, { transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+      const updates = { location_sharing_enabled: enabled, location_permission_status: permissionStatus, location_consent_version: current.location_consent_version + 1 };
+      if (!enabled) {
+        for (const key of Object.keys(User.rawAttributes).filter((key) => key.startsWith("browser_"))) updates[key] = null;
+        await Attendance.update({ latitude: null, longitude: null, location_accuracy: null }, { where: { user_id: current.user_id }, transaction });
+      } else if (enriched) Object.assign(updates, enriched);
+      await current.update(updates, { transaction });
+      return current;
     });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to update location consent",
-        error: error.message,
-      });
-  }
+    return res.json({ success: true, message: enabled ? "Location sharing enabled" : "Location sharing disabled and stored locations cleared", data: { enabled, permissionStatus, browserLocation: enabled ? formatBrowserLocation(user) : null, user: await require("./authController").formatUserResponse(user) } });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message }); }
 };
 
 const updateLiveLocation = async (req, res) => {
   try {
-    if (!req.user.location_sharing_enabled)
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Enable location sharing before sending a location",
-        });
-    const { latitude, longitude, accuracy } = req.body;
-    if (latitude === undefined || longitude === undefined)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Latitude and longitude are required",
-        });
-    const normalizedLocation = normalizeBrowserLocation(req.body);
-    if (normalizedLocation.error)
-      return res
-        .status(400)
-        .json({ success: false, message: normalizedLocation.error });
-    const entry = await Attendance.findOne({
-      where: {
-        user_id: req.user.user_id,
-        work_date: moment().format("YYYY-MM-DD"),
-        clock_out: null,
-      },
+    const snapshot = await User.findByPk(req.user.user_id);
+    if (!snapshot.location_sharing_enabled || snapshot.location_permission_status !== "granted") return res.status(403).json({ success: false, message: "Enable location sharing before sending a location" });
+    const normalized = normalizeBrowserLocation(req.body);
+    if (normalized.error || !normalized.value) return res.status(400).json({ success: false, message: normalized.error || "Latitude and longitude are required" });
+    const enriched = await enrichBrowserLocation(snapshot, normalized.value);
+    await require("../config/database").transaction(async (transaction) => {
+      const user = await User.findByPk(req.user.user_id, { transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+      if (!user.location_sharing_enabled || user.location_permission_status !== "granted" || user.location_consent_version !== snapshot.location_consent_version) throw Object.assign(new Error("Location consent changed; location was not saved"), { status: 403 });
+      const entry = await Attendance.findOne({ where: { user_id: user.user_id, work_date: getWorkforceMoment().format("YYYY-MM-DD"), clock_out: null, status: { [Op.notIn]: ["absent", "cancelled"] } }, transaction, lock: transaction.LOCK.UPDATE });
+      if (!entry) throw Object.assign(new Error("Location is only captured during an active work session"), { status: 409 });
+      await entry.update({ latitude: normalized.value.browser_latitude, longitude: normalized.value.browser_longitude, location_accuracy: normalized.value.browser_location_accuracy }, { transaction });
+      await user.update(enriched, { transaction });
     });
-    if (!entry)
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Location is only captured during an active work session",
-        });
-    await entry.update({
-      latitude,
-      longitude,
-      location_accuracy: accuracy || null,
-    });
-    await req.user.update(
-      await enrichBrowserLocation(req.user, normalizedLocation.value),
-    );
     return res.json({ success: true, message: "Live work location updated" });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to update location",
-        error: error.message,
-      });
-  }
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message }); }
 };
 
 module.exports = {

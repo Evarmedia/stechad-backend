@@ -6,7 +6,7 @@ const express = require('express');
  *   description: Project management endpoints for creating and managing projects
  */
 
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticate, authorize, authorizePermission } = require('../middleware/auth');
 const {
   getAllProjects,
   getProjectManagerProjects,
@@ -54,6 +54,11 @@ router.use(authenticate);
  *           enum: [high, medium, low, critical]
  *         description: Filter by project priority
  *       - in: query
+ *         name: created_by_me
+ *         schema:
+ *           type: boolean
+ *         description: Limit results to projects created by the current user.
+ *       - in: query
  *         name: project_manager_id
  *         schema:
  *           type: string
@@ -92,7 +97,14 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', authorize('admin', 'project_manager'), getAllProjects);
+const { hasPermission } = require('../utils/permissions');
+const { getRoleKey } = require('../utils/roleUtils');
+const { asyncRoute } = require('../utils/http');
+const projectReader = asyncRoute(async (req, res, next) => {
+  if (['admin', 'super_admin', 'project_manager'].includes(getRoleKey(req.user)) || await hasPermission(req.user, 'create_projects')) return next();
+  return res.status(403).json({ success: false, message: 'Project access is not permitted' });
+});
+router.get('/', projectReader, getAllProjects);
 
 
 /**
@@ -178,7 +190,7 @@ router.get('/stats/overview', authorize('admin', 'project_manager'), getProjectS
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:projects_id', authorize('admin', 'project_manager'), getProjectById);
+router.get('/:projects_id', projectReader, getProjectById);
 
 /**
  * @swagger
@@ -275,13 +287,14 @@ router.get('/:projects_id', authorize('admin', 'project_manager'), getProjectByI
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/', authorize('admin', 'project_manager'), createProject);
+router.post('/', authorizePermission('create_projects'), createProject);
 
 /**
  * @swagger
  * /projects/{projects_id}:
  *   put:
  *     summary: Update project details
+ *     description: Creators with create_projects may edit only title, description, priority and deadline on their own creations. Existing role-based editing rights are retained.
  *     tags: [Projects]
  *     parameters:
  *       - in: path
@@ -371,14 +384,18 @@ router.post('/', authorize('admin', 'project_manager'), createProject);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/:projects_id', authorize('admin', 'project_manager', 'talent'), updateProject);
+const projectWriter = asyncRoute(async (req, res, next) => {
+  if (['admin', 'super_admin', 'project_manager', 'talent'].includes(getRoleKey(req.user)) || await hasPermission(req.user, 'create_projects')) return next();
+  return res.status(403).json({ success: false, message: 'Project changes are not permitted' });
+});
+router.put('/:projects_id', projectWriter, updateProject);
 
 /**
  * @swagger
  * /projects/{projects_id}:
  *   delete:
  *     summary: Delete project
- *     description: Admin and Super Admin can delete projects in any status. Project Managers can delete only projects they own (or unassigned projects) while the project is planning, cancelled, or on hold.
+ *     description: Admin and Super Admin can delete projects in any status. Project Managers can delete only projects they own (or unassigned projects) while the project is planning, cancelled, or on hold. Other users with create_projects may delete only their own recorded creations in those same statuses.
  *     tags: [Projects]
  *     parameters:
  *       - in: path
@@ -427,7 +444,7 @@ router.put('/:projects_id', authorize('admin', 'project_manager', 'talent'), upd
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.delete('/:projects_id', authorize('admin', 'project_manager'), deleteProject);
+router.delete('/:projects_id', projectWriter, deleteProject);
 
 /**
  * @swagger

@@ -15,9 +15,7 @@ const notifyPermissionHolders = async ({
   const users = await User.findAll({
     where: {
       is_active: true,
-      "$role.role_key$": {
-        [Op.in]: ["staff", "project_manager", "admin", "super_admin"],
-      },
+
     },
     attributes: ["user_id", "email", "role_id", "workforce_permissions"],
     include: [ROLE_INCLUDE],
