@@ -6,7 +6,7 @@ class Attendance extends Model {}
 Attendance.init(
   {
     attendance_id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
-    user_id: { type: DataTypes.UUID, allowNull: false },
+    user_id: { type: DataTypes.UUID, allowNull: true },
     work_date: { type: DataTypes.DATEONLY, allowNull: false },
     clock_in: { type: DataTypes.DATE, allowNull: false },
     clock_out: { type: DataTypes.DATE, allowNull: true },

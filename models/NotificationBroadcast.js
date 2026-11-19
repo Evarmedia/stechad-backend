@@ -3,7 +3,7 @@ const sequelize = require("../config/database");
 class NotificationBroadcast extends Model {}
 NotificationBroadcast.init({
   broadcast_id: { type: DataTypes.UUID, primaryKey: true },
-  created_by: { type: DataTypes.UUID, allowNull: false },
+  created_by: { type: DataTypes.UUID, allowNull: true },
   title: { type: DataTypes.TEXT, allowNull: false },
   message: { type: DataTypes.TEXT, allowNull: false },
   type: { type: DataTypes.STRING, allowNull: false },

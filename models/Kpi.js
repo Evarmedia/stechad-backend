@@ -6,7 +6,7 @@ class Kpi extends Model {}
 Kpi.init(
   {
     kpi_id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
-    assigned_to_user_id: { type: DataTypes.UUID, allowNull: false },
+    assigned_to_user_id: { type: DataTypes.UUID, allowNull: true },
     title: { type: DataTypes.STRING, allowNull: false },
     target: { type: DataTypes.TEXT, allowNull: false },
     criteria: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
@@ -23,7 +23,7 @@ Kpi.init(
       defaultValue: "active",
       validate: { isIn: [["draft", "active", "completed", "archived"]] },
     },
-    created_by: { type: DataTypes.UUID, allowNull: false },
+    created_by: { type: DataTypes.UUID, allowNull: true },
     created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     updated_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   },

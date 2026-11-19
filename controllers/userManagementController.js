@@ -23,6 +23,10 @@ async function getUsers(req, res) {
   res.json({ success: true, data: { users: users.rows, roles, permissions: catalog, counts: { totalUsers: total, deletedUsers: deleted }, pagination: pageInfo(users.count, page, limit) } });
 }
 async function deleteUser(req, res) { await lifecycle.deleteUser(requireUuid(req.params.id), req.user); res.json({ success: true, message: "User deleted. Their history has been preserved." }); }
+async function permanentlyDeleteUser(req, res) {
+  await lifecycle.permanentlyDeleteUser(requireUuid(req.params.user_id), req.user);
+  res.json({ success: true, message: "User permanently deleted. Related history was unlinked." });
+}
 async function restoreUser(req, res) { const user = await lifecycle.restoreUser(requireUuid(req.params.id), req.user); res.json({ success: true, data: { user } }); }
 async function updatePermissions(req, res) {
   const id = requireUuid(req.params.id);
@@ -100,4 +104,4 @@ async function broadcast(req, res) {
   });
   res.json({ success: true, data: result });
 }
-module.exports = { updatePermissions, getUsers, deleteUser, restoreUser, updateEmployeeId, getAttendance, getAuditLogs, broadcast, dateRange };
+module.exports = { updatePermissions, getUsers, deleteUser, permanentlyDeleteUser, restoreUser, updateEmployeeId, getAttendance, getAuditLogs, broadcast, dateRange };

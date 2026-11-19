@@ -25,7 +25,7 @@ Message.init(
     message_sequence: { type: DataTypes.BIGINT },
     sender_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: User,
         key: 'user_id',

@@ -33,6 +33,7 @@ Chat.init(
     },
     last_message_sender_id: {
       type: DataTypes.UUID,
+      allowNull: true,
     },
     last_message_timestamp: {
       type: DataTypes.DATE,
@@ -47,7 +48,7 @@ Chat.init(
     },
     created_by: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
     },
     created_at: {
       type: DataTypes.DATE,

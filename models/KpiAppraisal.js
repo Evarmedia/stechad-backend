@@ -12,7 +12,7 @@ KpiAppraisal.init(
     criteria_scores: { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
     overall_score: { type: DataTypes.DECIMAL(5, 2), allowNull: false },
     notes: { type: DataTypes.TEXT, allowNull: true },
-    recorded_by: { type: DataTypes.UUID, allowNull: false },
+    recorded_by: { type: DataTypes.UUID, allowNull: true },
     created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     updated_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   },

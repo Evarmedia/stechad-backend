@@ -13,7 +13,7 @@ Referral.init(
     },
     referrer_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: User,
         key: 'user_id',
@@ -21,7 +21,7 @@ Referral.init(
     },
     referee_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: User,
         key: 'user_id',

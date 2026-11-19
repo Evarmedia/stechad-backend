@@ -16,7 +16,7 @@ Interview.init(
     },
     candidate_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: Talent,
         key: 'talent_id',
@@ -31,7 +31,7 @@ Interview.init(
     }),
     interviewer_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: ProjectManager,
         key: 'project_managers_id',

@@ -6,7 +6,7 @@ class LeaveRequest extends Model {}
 LeaveRequest.init(
   {
     leave_request_id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
-    user_id: { type: DataTypes.UUID, allowNull: false },
+    user_id: { type: DataTypes.UUID, allowNull: true },
     leave_type: { type: DataTypes.STRING, allowNull: false },
     start_date: { type: DataTypes.DATEONLY, allowNull: false },
     end_date: { type: DataTypes.DATEONLY, allowNull: false },

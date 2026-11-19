@@ -7,7 +7,7 @@ Invoice.init(
   {
     invoice_id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
     invoice_number: { type: DataTypes.STRING, allowNull: false, unique: true },
-    submitted_by: { type: DataTypes.UUID, allowNull: false },
+    submitted_by: { type: DataTypes.UUID, allowNull: true },
     project_id: { type: DataTypes.UUID, allowNull: true },
     invoice_type: {
       type: DataTypes.TEXT,

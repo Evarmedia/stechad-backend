@@ -6,7 +6,7 @@ class ExpenseClaim extends Model {}
 ExpenseClaim.init(
   {
     expense_claim_id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
-    user_id: { type: DataTypes.UUID, allowNull: false },
+    user_id: { type: DataTypes.UUID, allowNull: true },
     category: { type: DataTypes.STRING, allowNull: false },
     amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
     currency: { type: DataTypes.STRING(3), allowNull: false, defaultValue: "USD" },

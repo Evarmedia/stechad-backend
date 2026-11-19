@@ -11,7 +11,7 @@ Holiday.init(
     type: { type: DataTypes.STRING, allowNull: false, defaultValue: "Public holiday" },
     region: { type: DataTypes.STRING, allowNull: true },
     description: { type: DataTypes.TEXT, allowNull: true },
-    created_by: { type: DataTypes.UUID, allowNull: false },
+    created_by: { type: DataTypes.UUID, allowNull: true },
     created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     updated_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   },

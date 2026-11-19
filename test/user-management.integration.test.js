@@ -43,6 +43,7 @@ if (!url) {
   before(async () => {
     await db.createSchema(schema); await db.sync();
     await require("../migrations/20261119090000-user-management").up(db.getQueryInterface(), Sequelize);
+    await require("../migrations/20261119120000-permanent-user-deletion").up(db.getQueryInterface(), Sequelize);
     installAuditing(models);
     for (const role_key of ["super_admin", "admin", "project_manager", "staff", "talent"]) await Role.create({ role_key, name: role_key, is_system: true });
     for (const permission of catalog) await RolePermission.findOrCreate({ where: { permission_key: permission.permission_key }, defaults: permission });
@@ -428,6 +429,107 @@ if (!url) {
     assert.ok(await User.findByPk(user.user_id));
     assert.equal((await request(`admin/users/${admin.user_id}`, "DELETE")).status, 409);
     assert.equal((await request(`admin/users/${superAdmin.user_id}`, "DELETE")).status, 404);
+  });
+  test("permanent deletion is admin-only, removes the account and unlinks preserved history", async () => {
+    const target = await createUser();
+    const report = await createUser();
+    const talent = await Talent.create({ user_id: target.user_id });
+    const projectManager = await models.ProjectManager.create({ user_id: target.user_id });
+    const department = await Department.create({
+      name: `Permanent deletion ${randomUUID()}`,
+      code: `P-${randomUUID()}`,
+      manager_user_id: target.user_id,
+    });
+    await report.update({ reports_to_user_id: target.user_id, reporting_manager_mode: "override" });
+    const attendance = await Attendance.create({
+      user_id: target.user_id,
+      work_date: "2026-02-05",
+      clock_in: new Date("2026-02-05T08:00:00Z"),
+      status: "present",
+    });
+    const job = await models.Job.create({
+      posted_by: target.user_id,
+      title: "Historical job",
+      company: "Example",
+      location: "Remote",
+      description: "Preserved after account deletion",
+    });
+    const application = await models.Application.create({
+      job_id: job.jobs_id,
+      talent_id: talent.talent_id,
+      job_title: job.title,
+      talent_name: "Former user",
+    });
+    const project = await Project.create({
+      title: "Historical assignment",
+      project_managers_id: projectManager.project_managers_id,
+      created_by_user_id: target.user_id,
+    });
+    const interview = await models.Interview.create({
+      candidate_id: talent.talent_id,
+      candidate_name: "Former user",
+      candidate_email: target.email,
+      interviewer_id: projectManager.project_managers_id,
+      interviewer_email: target.email,
+      job_id: job.jobs_id,
+      job_title: job.title,
+      date_time: new Date("2026-02-10T09:00:00Z"),
+    });
+    const chat = await models.Chat.create({
+      participants: [target.user_id, other.user_id],
+      unread_counts: { [target.user_id]: 2, [other.user_id]: 1 },
+      created_by: target.user_id,
+      last_message_sender_id: target.user_id,
+    });
+    const chatMembership = models.Chat.associations.chat_users.through.model;
+    await chatMembership.create({ chat_id: chat.chats_id, user_id: target.user_id });
+    await models.ChatUserState.create({ chat_id: chat.chats_id, user_id: target.user_id });
+    const message = await models.Message.create({
+      chat_id: chat.chats_id,
+      sender_id: target.user_id,
+      content: "Preserved historical message",
+      read_by: { [target.user_id]: true },
+    });
+    await Notification.create({
+      user_id: target.user_id,
+      title: "Private notification",
+      message: "This account-only notification is removed",
+    });
+
+    const path = `admin/users/${target.user_id}/permanent`;
+    assert.equal((await request(path, "DELETE", undefined, "")).status, 401);
+    assert.equal((await request(path, "DELETE", undefined, token(staff))).status, 403);
+    const result = await request(path, "DELETE");
+    assert.equal(result.status, 200);
+    assert.equal(await User.findByPk(target.user_id, { paranoid: false }), null);
+    assert.equal(await Talent.findByPk(talent.talent_id), null);
+    assert.equal(await models.ProjectManager.findByPk(projectManager.project_managers_id), null);
+    assert.equal((await loadUser(report)).reports_to_user_id, null);
+    assert.equal((await Department.findByPk(department.department_id)).manager_user_id, null);
+    assert.equal((await Attendance.findByPk(attendance.attendance_id)).user_id, null);
+    assert.equal((await models.Job.findByPk(job.jobs_id)).posted_by, null);
+    assert.equal((await models.Application.findByPk(application.applications_id)).talent_id, null);
+    assert.equal((await Project.findByPk(project.projects_id)).project_managers_id, null);
+    const retainedInterview = await models.Interview.findByPk(interview.interviews_id);
+    assert.equal(retainedInterview.candidate_id, null);
+    assert.equal(retainedInterview.interviewer_id, null);
+    const retainedChat = await models.Chat.findByPk(chat.chats_id);
+    assert.deepEqual(retainedChat.participants, [other.user_id]);
+    assert.equal(retainedChat.created_by, null);
+    assert.equal(retainedChat.last_message_sender_id, null);
+    assert.deepEqual(retainedChat.unread_counts, { [other.user_id]: 1 });
+    assert.equal(await chatMembership.count({ where: { user_id: target.user_id } }), 0);
+    assert.equal(await models.ChatUserState.count({ where: { user_id: target.user_id } }), 0);
+    const retainedMessage = await models.Message.findByPk(message.messages_id);
+    assert.equal(retainedMessage.sender_id, null);
+    assert.deepEqual(retainedMessage.read_by, {});
+    assert.equal(await Notification.count({ where: { user_id: target.user_id } }), 0);
+    const audit = await AuditLog.findOne({
+      where: { action: "user.permanent_delete", target_type: "User", target_id: target.user_id },
+    });
+    assert.equal(audit.actor_user_id, admin.user_id);
+    assert.equal((await request(`admin/users/${admin.user_id}/permanent`, "DELETE")).status, 409);
+    assert.equal((await request(`admin/users/${superAdmin.user_id}/permanent`, "DELETE")).status, 404);
   });
   test("deletion lists department, direct-report and actual talent-project blockers", async () => {
     const user = await createUser("talent"); const talent = await Talent.create({ user_id: user.user_id });

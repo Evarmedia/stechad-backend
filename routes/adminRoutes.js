@@ -33,6 +33,38 @@ router.use(authenticate, authorize('super_admin', 'admin'));
  */
 router.get('/users', asyncRoute(users.getUsers));
 router.delete('/users/:id', asyncRoute(users.deleteUser));
+/**
+ * @swagger
+ * /admin/users/{user_id}/permanent:
+ *   delete:
+ *     summary: Permanently delete a user account
+ *     description: Admin-only. Removes the account and its role profile, clears chat membership and private notifications, and unlinks the user from preserved historical records. This operation cannot be undone.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: user_id
+ *         required: true
+ *         description: UUID of the account to permanently delete.
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Account permanently deleted and linked records disconnected.
+ *       400:
+ *         description: Invalid user ID.
+ *       401:
+ *         description: Authentication required.
+ *       403:
+ *         description: Admin access required.
+ *       404:
+ *         description: User not found or protected Super Admin account.
+ *       409:
+ *         description: The acting administrator cannot permanently delete their own account.
+ */
+router.delete('/users/:user_id/permanent', asyncRoute(users.permanentlyDeleteUser));
 router.post('/users/:id/restore', asyncRoute(users.restoreUser));
 router.put('/users/:id/permissions', asyncRoute(users.updatePermissions));
 router.put('/users/:id/employee-id', asyncRoute(users.updateEmployeeId));

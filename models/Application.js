@@ -23,7 +23,7 @@ Application.init(
     },
     talent_id: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: Talent,
         key: "talent_id",
