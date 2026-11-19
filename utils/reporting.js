@@ -3,10 +3,11 @@ const sequelize = require("../config/database");
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const lockHierarchy = (transaction) => sequelize.query("SELECT pg_advisory_xact_lock(hashtext(:key))", { replacements: { key: `${sequelize.schema || "public"}:workforce-hierarchy` }, transaction });
 async function validateLinks(changes, transaction) {
-  const users = await User.findAll({ attributes: ["user_id", "reports_to_user_id", "is_active"], transaction });
+  // Retained links through deleted users must not hide a cycle until restoration.
+  const users = await User.findAll({ paranoid: false, attributes: ["user_id", "reports_to_user_id", "is_active", "deleted_at"], transaction });
   const links = new Map(users.map((user) => [user.user_id, user.reports_to_user_id]));
   for (const [id, manager] of changes) {
-    if (manager && !users.some((u) => u.user_id === manager && u.is_active)) fail("Reporting manager must be an active user");
+    if (manager && !users.some((u) => u.user_id === manager && u.is_active && !u.deleted_at)) fail("Reporting manager must be an active user");
     links.set(id, manager);
   }
   for (const [id] of changes) {
@@ -40,9 +41,9 @@ async function updateDepartmentMembers(department, managerId, transaction) {
     const manager = await User.findByPk(managerId, { transaction });
     if (!manager?.is_active) fail("Department manager must be an active user");
   }
-  const members = await User.findAll({ where: { department_id: department.department_id, reporting_manager_mode: "department" }, transaction });
+  const members = await User.findAll({ paranoid: false, where: { department_id: department.department_id, reporting_manager_mode: "department" }, transaction });
   const changes = members.map((user) => [user.user_id, user.user_id === managerId ? null : managerId]);
   await validateLinks(changes, transaction);
-  for (const [id, manager] of changes) await User.update({ reports_to_user_id: manager || null }, { where: { user_id: id }, transaction });
+  for (const [id, manager] of changes) await User.update({ reports_to_user_id: manager || null }, { paranoid: false, where: { user_id: id }, transaction });
 }
 module.exports = { lockHierarchy, reportingUpdates, updateDepartmentMembers, validateLinks };

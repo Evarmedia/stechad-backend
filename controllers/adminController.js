@@ -512,8 +512,8 @@ const deleteDepartment = async (req, res) => {
       await lockHierarchy(transaction);
       const row = await Department.findByPk(req.params.department_id, { transaction });
       if (!row) throw Object.assign(new Error("Department not found"), { status: 404 });
-      await User.update({ reports_to_user_id: null }, { where: { department_id: row.department_id, reporting_manager_mode: "department" }, transaction });
-      await User.update({ department_id: null }, { where: { department_id: row.department_id }, transaction });
+      await User.update({ reports_to_user_id: null }, { paranoid: false, where: { department_id: row.department_id, reporting_manager_mode: "department" }, transaction });
+      await User.update({ department_id: null }, { paranoid: false, where: { department_id: row.department_id }, transaction });
       await row.destroy({ transaction });
     });
     return res.json({ success: true, message: "Department deleted" });

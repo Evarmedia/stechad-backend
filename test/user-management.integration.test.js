@@ -504,7 +504,7 @@ if (!url) {
     assert.equal(await User.findByPk(target.user_id, { paranoid: false }), null);
     assert.equal(await Talent.findByPk(talent.talent_id), null);
     assert.equal(await models.ProjectManager.findByPk(projectManager.project_managers_id), null);
-    assert.equal((await loadUser(report)).reports_to_user_id, null);
+    assert.equal((await loadUser(report.user_id)).reports_to_user_id, null);
     assert.equal((await Department.findByPk(department.department_id)).manager_user_id, null);
     assert.equal((await Attendance.findByPk(attendance.attendance_id)).user_id, null);
     assert.equal((await models.Job.findByPk(job.jobs_id)).posted_by, null);
@@ -531,13 +531,183 @@ if (!url) {
     assert.equal((await request(`admin/users/${admin.user_id}/permanent`, "DELETE")).status, 409);
     assert.equal((await request(`admin/users/${superAdmin.user_id}/permanent`, "DELETE")).status, 404);
   });
-  test("deletion lists department, direct-report and actual talent-project blockers", async () => {
-    const user = await createUser("talent"); const talent = await Talent.create({ user_id: user.user_id });
+  for (const role of ["staff", "project_manager", "talent"]) {
+    test(`soft deletion and restoration preserve ${role} department, direct-report and active-project relationships`, async () => {
+      const user = await createUser(role, { workforce_permissions: ["create_projects"], employee_id: `KEEP-${randomUUID()}` });
+      const profile = role === "project_manager" ? await models.ProjectManager.create({ user_id: user.user_id })
+        : role === "talent" ? await Talent.create({ user_id: user.user_id }) : null;
+      const department = await Department.create({ name: randomUUID(), code: randomUUID(), manager_user_id: user.user_id });
+      const inherited = await createUser(), overridden = await createUser();
+      await setReporting(inherited, { department_id: department.department_id });
+      await setReporting(overridden, { reports_to_user_id: user.user_id });
+      const projects = [];
+      for (const status of ["planning", "in_progress", "on_hold"]) {
+        const project = await Project.create({ title: `Retained ${role} ${status}`, status, created_by_user_id: user.user_id,
+          ...(role === "project_manager" ? { project_managers_id: profile.project_managers_id } : {}) });
+        if (role === "talent") await project.addTalent(profile);
+        projects.push(project);
+      }
+      const before = (await request("admin/users?limit=100")).data;
+      const oldToken = token(user);
+      const oldRefresh = generateTokens({ user_id: user.user_id, role, session_version: user.session_version }).refreshToken;
+      let disconnected;
+      if (role === "staff") {
+        const socket = socketClient(origin, { auth: { token: oldToken }, transports: ["websocket"], reconnection: false });
+        sockets.add(socket); await once(socket, "connect");
+        disconnected = once(socket, "disconnect", { signal: AbortSignal.timeout(5000) });
+      }
+      const result = await request(`admin/users/${user.user_id}`, "DELETE");
+      assert.equal(result.status, 200); assert.equal(result.blockers, undefined);
+      if (disconnected) await disconnected;
+      assert.equal(await loadUser(user.user_id), null);
+      const deleted = await User.findByPk(user.user_id, { paranoid: false });
+      assert.ok(deleted.deleted_at); assert.equal(deleted.deleted_by_user_id, admin.user_id);
+      assert.equal(deleted.session_version, user.session_version + 1);
+      assert.deepEqual(deleted.workforce_permissions, user.workforce_permissions);
+      assert.equal(deleted.employee_id, user.employee_id); assert.equal(deleted.role_id, user.role_id);
+      await assert.rejects(createUser(role, { email: user.email }), /Validation error/);
+      await department.reload(); assert.equal(department.manager_user_id, user.user_id);
+      for (const report of [inherited, overridden]) assert.equal((await loadUser(report.user_id)).reports_to_user_id, user.user_id);
+      const current = (await request("admin/users?limit=100")).data;
+      const deletedDirectory = (await request("admin/users?status=deleted&limit=100")).data;
+      const eligible = role !== "talent";
+      assert.equal(current.counts.totalUsers, before.counts.totalUsers - Number(eligible));
+      assert.equal(current.counts.deletedUsers, before.counts.deletedUsers + Number(eligible));
+      assert.ok(!current.users.some((row) => row.user_id === user.user_id));
+      assert.equal(deletedDirectory.users.some((row) => row.user_id === user.user_id), eligible);
+      assert.equal((await request("auth/me", "GET", undefined, oldToken)).status, 401);
+      assert.equal((await request("auth/refresh-token", "POST", { refresh_token: oldRefresh })).status, 401);
+      const restored = await request(`admin/users/${user.user_id}/restore`, "POST", {});
+      assert.equal(restored.status, 200);
+      const actual = await loadUser(user.user_id);
+      assert.equal(actual.deleted_at, null); assert.equal(actual.deleted_by_user_id, null);
+      assert.equal(actual.is_active, user.is_active); assert.equal(actual.session_version, deleted.session_version);
+      assert.equal(actual.employee_id, user.employee_id); assert.deepEqual(actual.workforce_permissions, user.workforce_permissions);
+      for (const project of projects) {
+        await project.reload(); assert.equal(project.created_by_user_id, user.user_id);
+        if (role === "project_manager") assert.equal(project.project_managers_id, profile.project_managers_id);
+        if (role === "talent") assert.ok((await project.getTalents()).some((row) => row.talent_id === profile.talent_id));
+        assert.equal((await request(`projects/${project.projects_id}`, "PUT", { progress: 10 })).status, 200);
+      }
+      const after = (await request("admin/users?limit=100")).data;
+      assert.deepEqual(after.counts, before.counts);
+      assert.equal(after.users.some((row) => row.user_id === user.user_id), eligible);
+      assert.equal((await request("auth/me", "GET", undefined, oldToken)).status, 401);
+      assert.equal((await request("auth/refresh-token", "POST", { refresh_token: oldRefresh })).status, 401);
+      assert.equal((await request("auth/login", "POST", { email: user.email, password: "valid-password" })).status, 200);
+      const audits = await AuditLog.findAll({ where: { target_id: user.user_id, action: ["user.soft_delete", "user.restore"] } });
+      assert.deepEqual(new Set(audits.map((row) => row.action)), new Set(["user.soft_delete", "user.restore"]));
+      assert.ok(audits.every((row) => row.actor_user_id === admin.user_id));
+      if (profile) {
+        const legacyPath = role === "project_manager" ? `admin/project-managers/${profile.project_managers_id}` : `admin/talents/${profile.talent_id}`;
+        assert.equal((await request(legacyPath, "DELETE")).status, 200);
+        assert.equal(await loadUser(user.user_id), null);
+        assert.equal((await request(`admin/users/${user.user_id}/restore`, "POST", {})).status, 200);
+      }
+    });
+  }
+  test("restoration preserves inactive status and rejects old access and refresh tokens", async () => {
+    const user = await createUser("staff", { is_active: false });
+    const credentials = generateTokens({ user_id: user.user_id, role: "staff", session_version: user.session_version });
+    assert.equal((await request(`admin/users/${user.user_id}`, "DELETE")).status, 200);
+    assert.equal((await request(`admin/users/${user.user_id}/restore`, "POST", {})).status, 200);
+    const restored = await loadUser(user.user_id);
+    assert.equal(restored.is_active, false); assert.equal(restored.session_version, user.session_version + 1);
+    assert.equal((await request("auth/login", "POST", { email: user.email, password: "valid-password" })).status, 401);
+    assert.equal((await request("auth/me", "GET", undefined, credentials.token)).status, 401);
+    assert.equal((await request("auth/refresh-token", "POST", { refresh_token: credentials.refreshToken })).status, 401);
+    assert.equal((await request(`admin/users/${user.user_id}/restore`, "POST", {})).status, 409);
+  });
+  test("restoration retains project, department and direct-report reassignments made during deletion", async () => {
+    const user = await createUser("project_manager"), replacement = await createUser("project_manager");
+    const profile = await models.ProjectManager.create({ user_id: user.user_id });
+    const replacementProfile = await models.ProjectManager.create({ user_id: replacement.user_id });
+    const talentUser = await createUser("talent"), replacementTalentUser = await createUser("talent");
+    const talent = await Talent.create({ user_id: talentUser.user_id }), replacementTalent = await Talent.create({ user_id: replacementTalentUser.user_id });
     const department = await Department.create({ name: randomUUID(), code: randomUUID(), manager_user_id: user.user_id });
-    const report = await createUser(); await report.update({ reports_to_user_id: user.user_id, reporting_manager_mode: "override" });
-    const project = await Project.create({ title: "Active talent assignment", status: "on_hold" }); await project.addTalent(talent);
-    const result = await request(`admin/users/${user.user_id}`, "DELETE");
-    assert.equal(result.status, 409); assert.equal(result.blockers.departments[0].department_id, department.department_id); assert.equal(result.blockers.directReports[0].user_id, report.user_id); assert.equal(result.blockers.projects[0].projects_id, project.projects_id);
+    const inherited = await createUser(), overridden = await createUser();
+    await setReporting(inherited, { department_id: department.department_id });
+    await setReporting(overridden, { reports_to_user_id: user.user_id });
+    const project = await Project.create({ title: "Reassigned during deletion", status: "in_progress", project_managers_id: profile.project_managers_id });
+    await project.addTalent(talent);
+    assert.equal((await request(`admin/users/${user.user_id}`, "DELETE")).status, 200);
+    assert.equal((await request(`admin/users/${talentUser.user_id}`, "DELETE")).status, 200);
+    assert.equal((await request(`admin/departments/${department.department_id}`, "PUT", { manager_user_id: replacement.user_id })).status, 200);
+    assert.equal((await request(`workforce/management/users/${overridden.user_id}`, "PUT", { reports_to_user_id: replacement.user_id })).status, 200);
+    assert.equal((await request(`projects/${project.projects_id}`, "PUT", { project_manager_id: replacementProfile.project_managers_id, talent_ids: [replacementTalent.talent_id] })).status, 200);
+    assert.equal((await request(`admin/users/${user.user_id}/restore`, "POST", {})).status, 200);
+    assert.equal((await request(`admin/users/${talentUser.user_id}/restore`, "POST", {})).status, 200);
+    await department.reload(); await project.reload();
+    assert.equal(department.manager_user_id, replacement.user_id);
+    assert.equal(project.project_managers_id, replacementProfile.project_managers_id);
+    assert.deepEqual((await project.getTalents()).map((row) => row.talent_id), [replacementTalent.talent_id]);
+    for (const report of [inherited, overridden]) assert.equal((await loadUser(report.user_id)).reports_to_user_id, replacement.user_id);
+  });
+  test("department changes and deletion maintain deleted members' inherited links and preserve overrides", async () => {
+    const manager = await createUser(), replacement = await createUser();
+    const inherited = await createUser(), overridden = await createUser(), noManager = await createUser();
+    const department = await Department.create({ name: randomUUID(), code: randomUUID(), manager_user_id: manager.user_id });
+    await setReporting(inherited, { department_id: department.department_id });
+    await setReporting(overridden, { department_id: department.department_id, reports_to_user_id: manager.user_id });
+    await setReporting(noManager, { department_id: department.department_id, reports_to_user_id: null });
+    for (const user of [inherited, overridden, noManager]) assert.equal((await request(`admin/users/${user.user_id}`, "DELETE")).status, 200);
+    assert.equal((await request(`admin/departments/${department.department_id}`, "PUT", { manager_user_id: replacement.user_id })).status, 200);
+    const deletedInherited = await User.findByPk(inherited.user_id, { paranoid: false });
+    assert.ok(deletedInherited.deleted_at); assert.equal(deletedInherited.reports_to_user_id, replacement.user_id);
+    assert.equal((await User.findByPk(overridden.user_id, { paranoid: false })).reports_to_user_id, manager.user_id);
+    assert.equal((await User.findByPk(noManager.user_id, { paranoid: false })).reports_to_user_id, null);
+    assert.equal((await request(`admin/users/${inherited.user_id}/restore`, "POST", {})).status, 200);
+    assert.equal((await loadUser(inherited.user_id)).reports_to_user_id, replacement.user_id);
+    assert.equal((await request(`admin/users/${inherited.user_id}`, "DELETE")).status, 200);
+    assert.equal((await request(`admin/departments/${department.department_id}`, "DELETE")).status, 200);
+    for (const user of [inherited, overridden, noManager]) {
+      assert.equal((await request(`admin/users/${user.user_id}/restore`, "POST", {})).status, 200);
+      const restored = await loadUser(user.user_id);
+      assert.equal(restored.department_id, null);
+      assert.equal(restored.reports_to_user_id, user === overridden ? manager.user_id : null);
+      assert.equal(restored.reporting_manager_mode, user === inherited ? "department" : "override");
+    }
+  });
+  test("reporting cycles through deleted users remain forbidden without making them selectable managers", async () => {
+    const root = await createUser(), middle = await createUser(), leaf = await createUser(), employee = await createUser();
+    await setReporting(middle, { reports_to_user_id: root.user_id });
+    await setReporting(leaf, { reports_to_user_id: middle.user_id });
+    assert.equal((await request(`admin/users/${middle.user_id}`, "DELETE")).status, 200);
+    const cycle = await request(`workforce/management/users/${root.user_id}`, "PUT", { reports_to_user_id: leaf.user_id });
+    assert.equal(cycle.status, 409); assert.match(cycle.message, /cycle/);
+    assert.equal((await loadUser(root.user_id)).reports_to_user_id, null);
+    assert.equal((await request(`workforce/management/users/${employee.user_id}`, "PUT", { reports_to_user_id: middle.user_id })).status, 404);
+    const department = await Department.create({ name: randomUUID(), code: randomUUID(), manager_user_id: middle.user_id });
+    assert.equal((await request(`workforce/management/users/${employee.user_id}`, "PUT", { department_id: department.department_id })).status, 400);
+    assert.equal((await request(`admin/departments/${department.department_id}`, "PUT", { manager_user_id: middle.user_id })).status, 400);
+    assert.equal((await request(`admin/users/${middle.user_id}/restore`, "POST", {})).status, 200);
+    assert.equal((await loadUser(middle.user_id)).reports_to_user_id, root.user_id);
+    assert.equal((await loadUser(leaf.user_id)).reports_to_user_id, middle.user_id);
+  });
+  test("soft deletion and restoration roll back metadata, session changes and audits when lifecycle auditing fails", async (t) => {
+    const user = await createUser();
+    const createAudit = AuditLog.create.bind(AuditLog);
+    let failedAction = "user.soft_delete";
+    const auditMock = t.mock.method(AuditLog, "create", (values, options) => {
+      if (values.action === failedAction) throw new Error("Lifecycle audit unavailable");
+      return createAudit(values, options);
+    });
+    const before = await AuditLog.count();
+    assert.equal((await request(`admin/users/${user.user_id}`, "DELETE")).status, 500);
+    const unchanged = await loadUser(user.user_id);
+    assert.equal(unchanged.session_version, user.session_version); assert.equal(unchanged.deleted_by_user_id, null);
+    assert.equal(await AuditLog.count(), before);
+    failedAction = "user.restore";
+    assert.equal((await request(`admin/users/${user.user_id}`, "DELETE")).status, 200);
+    const deleted = await User.findByPk(user.user_id, { paranoid: false });
+    const deletedCount = await AuditLog.count();
+    assert.equal((await request(`admin/users/${user.user_id}/restore`, "POST", {})).status, 500);
+    assert.equal(await loadUser(user.user_id), null);
+    const stillDeleted = await User.findByPk(user.user_id, { paranoid: false });
+    assert.equal(stillDeleted.deleted_by_user_id, admin.user_id);
+    assert.equal(stillDeleted.session_version, deleted.session_version);
+    assert.equal(await AuditLog.count(), deletedCount);
+    auditMock.mock.restore();
   });
   test("Employee ID validation covers empty, overlong, existing and reserved values and concurrent edits", async () => {
     for (const employee_id of ["", "   ", "x".repeat(256)]) assert.equal((await request(`admin/users/${other.user_id}/employee-id`, "PUT", { employee_id })).status, 400);
@@ -567,7 +737,9 @@ if (!url) {
     const newManagerUser = await createUser("project_manager");
     const newManager = await models.ProjectManager.create({ user_id: newManagerUser.user_id });
     assert.equal((await request(`projects/${project.projects_id}`, "PUT", { project_manager_id: newManager.project_managers_id })).status, 200);
-    assert.equal((await request(`admin/users/${newManagerUser.user_id}`, "DELETE")).status, 409);
+    assert.equal((await request(`admin/users/${newManagerUser.user_id}`, "DELETE")).status, 200);
+    await project.reload(); assert.equal(project.project_managers_id, newManager.project_managers_id);
+    assert.equal((await request(`admin/users/${newManagerUser.user_id}/restore`, "POST", {})).status, 200);
     assert.equal((await request(`projects/${project.projects_id}`, "PUT", { project_manager_id: null })).status, 200);
     assert.equal((await request(`admin/users/${newManagerUser.user_id}`, "DELETE")).status, 200);
     assert.equal(await Notification.create({ user_id: talentUser.user_id, title: "Excluded", message: "Deleted recipient" }), null);
