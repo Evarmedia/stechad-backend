@@ -393,8 +393,8 @@ const getDashboard = async (req, res) => {
     /* ===============================
        PROJECT STATS (M2M FIX)
        =============================== */
-    const allProjects = await talent.getTalent_projects({
-      where: {},
+    const allProjects = await Project.findAll({
+      include: [{ model: Talent, as: 'talents', attributes: [], required: true, where: { talent_id: talent.talent_id }, through: { attributes: [] } }],
     });
 
     const activeProjects = allProjects.filter((p) =>

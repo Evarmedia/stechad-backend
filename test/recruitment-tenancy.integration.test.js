@@ -24,7 +24,7 @@ else {
     }
     async function identity(label, role = 'staff') { return models.User.create({ email: `${label}@example.test`, first_name: label, role_id: roles.a[role].role_id }); }
     shared = await identity('shared', 'admin'); talentUser = await identity('talent', 'talent'); pmUser = await identity('pm', 'project_manager'); otherPmUser = await identity('other-pm', 'project_manager');
-    for (const [org, key] of [[orgA, 'a'], [orgB, 'b']]) for (const [user, role] of [[shared, key === 'a' ? 'admin' : 'staff'], [talentUser, 'talent'], [pmUser, 'project_manager'], [otherPmUser, 'project_manager']]) {
+    for (const [org, key] of [[orgA, 'a'], [orgB, 'b']]) for (const [user, role] of [[shared, key === 'a' ? 'admin' : 'staff'], [talentUser, 'talent'], [pmUser, 'project_manager'], [otherPmUser, key === 'a' ? 'project_manager' : 'admin']]) {
       const membership = await models.OrganizationMembership.create({ organization_id: org.organization_id, user_id: user.user_id });
       profiles[`${key}:${user.user_id}`] = await models.HRProfile.create({ organization_id: org.organization_id, membership_id: membership.membership_id, user_id: user.user_id, role_id: roles[key][role].role_id, reward: 0, workforce_permissions: user === shared && key === 'b' ? ['create_projects'] : [] });
     }
@@ -45,6 +45,9 @@ else {
       const row = await models.UserReward.create({ organization_id: org.organization_id, user_id: shared.user_id, reward_id: reward.reward_id, reward_amount: amount, reward_status: 'approved' });
       if (key === 'a') rewardA = row; else rewardB = row;
     }
+    await models.Referral.create({ organization_id: orgA.organization_id, referrer_id: shared.user_id, referee_id: talentUser.user_id, referral_code: 'A-CODE', status: 'completed' });
+    await models.Referral.create({ organization_id: orgB.organization_id, referrer_id: shared.user_id, referee_id: pmUser.user_id, referral_code: 'B-CODE', status: 'completed' });
+    await models.Referral.create({ organization_id: orgB.organization_id, referrer_id: shared.user_id, referee_id: bOnly.user_id, referral_code: 'B-CODE', status: 'pending' });
     const express = require('express'); const app = express(); app.use(express.json());
     app.use('/jobs', require('../routes/jobsRoutes'));
     for (const [prefix, name] of [['projects', 'project'], ['talents', 'talent'], ['interviews', 'interview'], ['applications', 'application'], ['referrals', 'referral'], ['pm', 'pm']]) app.use(`/${prefix}`, require(`../routes/${name}Routes`));
@@ -86,6 +89,21 @@ else {
     assert.equal((await privateRequest(`/projects/${id}`, orgA, otherPmUser, 'PUT', { title: 'Forbidden' })).status, 403);
     assert.equal((await privateRequest(`/projects/${id}`, orgA, shared, 'PUT', { title: 'Renamed' })).data.title, 'Renamed');
     assert.equal((await privateRequest(`/projects/${id}`, orgA, shared, 'DELETE')).status, 200);
+  });
+  test('job creation, management, deletion and private counts retain the PM resource boundary', async () => {
+    const created = await privateRequest('/pm/jobs', orgA, pmUser, 'POST', { title: 'New job', company: 'A', location: 'Remote', description: 'Description', employment_type: 'contract', openings: 1, experience_level: 'expert', skills_required: ['Engineering'], requirements: ['Experience'], responsibilities: ['Delivery'], organization_id: orgB.organization_id, posted_by: otherPmUser.user_id });
+    assert.equal(created.status, 201, JSON.stringify(created));
+    assert.equal(created.data.organization_id, orgA.organization_id); assert.equal(created.data.posted_by, pmUser.user_id);
+    const id = created.data.jobs_id;
+    const [a, b] = await Promise.all([privateRequest('/pm/jobs', orgA, pmUser), privateRequest('/pm/jobs', orgB, pmUser)]);
+    assert.equal(a.data.pagination.totalItems, 2); assert.equal(b.data.pagination.totalItems, 0);
+    assert.equal((await privateRequest('/jobs/stats/overview', orgA)).data.overview.totalJobs, 3);
+    assert.equal((await privateRequest('/jobs/stats/overview', orgB, pmUser)).data.overview.totalJobs, 1);
+    assert.equal((await privateRequest(`/jobs/update/${id}`, orgB, pmUser, 'PUT', { title: 'Foreign update' })).status, 404);
+    assert.equal((await privateRequest(`/jobs/${id}`, orgA, otherPmUser, 'DELETE')).status, 403);
+    assert.equal((await privateRequest(`/jobs/update/${id}`, orgA, pmUser, 'PUT', { title: 'Updated job' })).data.title, 'Updated job');
+    assert.equal((await privateRequest(`/jobs/${id}`, orgA, pmUser, 'DELETE')).status, 200);
+    assert.equal((await privateRequest('/jobs/stats/overview', orgA)).data.overview.totalJobs, 2);
   });
   test('talent onboarding and nested profile lists preserve independent tenant profiles', async () => {
     const changed = await privateRequest('/talents/onboarding', orgA, talentUser, 'PUT', { years_of_experience: '8', specialization: ['A-private'], organization_id: orgB.organization_id });
@@ -136,5 +154,26 @@ else {
     assert.equal(Number(aProfile.data.reward_balance), 12.5, JSON.stringify(aProfile));
     const bProfile = await privateRequest('/referrals/dashboard', orgB);
     assert.equal(Number(bProfile.data.reward_balance), 0);
+  });
+  test('referral grouped leaderboards, sums and nested HR roles use the selected organization', async () => {
+    const [a, b] = await Promise.all([privateRequest('/referrals/leaderboard'), privateRequest('/referrals/leaderboard', orgB, otherPmUser)]);
+    assert.equal(a.status, 200, JSON.stringify(a)); assert.equal(b.status, 200, JSON.stringify(b));
+    assert.equal(Number(a.data.leaderboard[0].total_referrals), 1); assert.equal(Number(b.data.leaderboard[0].total_referrals), 2);
+    assert.equal(a.data.leaderboard[0].referrer.role, 'admin'); assert.equal(b.data.leaderboard[0].referrer.role, 'staff');
+    const [aStats, bStats] = await Promise.all([privateRequest('/referrals/analytics'), privateRequest('/referrals/analytics', orgB, otherPmUser)]);
+    assert.equal(aStats.status, 200, JSON.stringify(aStats)); assert.equal(bStats.status, 200, JSON.stringify(bStats));
+    assert.equal(aStats.data.total_referrals, 1); assert.equal(bStats.data.total_referrals, 2);
+    assert.equal(Number(aStats.data.total_rewards_claimed), 12.5); assert.equal(Number(bStats.data.total_rewards_claimed), 0);
+  });
+  test('a real balance write failure rolls back the claim ledger', async () => {
+    await profiles[`b:${shared.user_id}`].update({ reward: '99999999.99' });
+    const failed = await privateRequest('/referrals/rewards/claim', orgB);
+    assert.equal(failed.status, 500, JSON.stringify(failed));
+    const history = await privateRequest('/referrals/rewards', orgB);
+    assert.equal(history.data.rewards[0].reward_status, 'approved');
+    assert.equal(history.data.rewards[0].claimed_at, null);
+    const profile = await privateRequest('/referrals/dashboard', orgB);
+    assert.equal(Number(profile.data.reward_balance), 99999999.99);
+    assert.equal(Number((await privateRequest('/referrals/dashboard')).data.reward_balance), 12.5);
   });
 }
