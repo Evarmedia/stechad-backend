@@ -4,45 +4,33 @@ const { getRoleKey } = require('../utils/roleUtils');
 
 const { hasPermission } = require("../utils/permissions");
 
-// Verify JWT token
-const authenticate = async (req, res, next) => {
+// Global identity verification does not join a legacy HR role.
+const authenticateIdentity = async (req, res, next) => {
+  let user;
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'No token provided, authorization denied' 
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    const user = await User.findByPk(decoded.user_id);
-    
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'User Doesnt Exist' 
-      });
-    }
-
-    if (!user.is_active || (decoded.session_version || 0) !== user.session_version) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account has been deactivated' 
-      });
-    }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Token is not valid' 
-    });
-  }
+    const token = req.header('Authorization')?.replace(/^Bearer /i, '');
+    if (!token) return res.status(401).json({ success: false, message: 'No token provided, authorization denied' });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    user = await require('../services/tenantContext').runWithoutTenant(() => User.unscoped().findByPk(decoded.user_id));
+    if (!user?.is_active || user.deleted_at || (decoded.session_version || 0) !== user.session_version) return res.status(401).json({ success: false, message: 'Session is no longer valid' });
+  } catch (error) { return res.status(401).json({ success: false, message: 'Token is not valid' }); }
+  req.identity = user; req.user = user;
+  return require('../services/tenantContext').runWithoutTenant(next);
 };
+const authenticate = (req, res, next) => authenticateIdentity(req, res, async () => {
+  const globalAuth = /\/auth$/.test(req.baseUrl || '') && req.path !== '/preferences';
+  if (globalAuth || /\/organizations$/.test(req.baseUrl || '')) return next();
+  if (process.env.TENANCY_ENFORCED !== 'true' && !req.get('X-Organization-ID') && !await require('../models').OrganizationMembership.count({ where: { user_id: req.identity.user_id } })) {
+    req.user = await User.findByPk(req.identity.user_id);
+    return next();
+  }
+  try {
+    const { resolveTenantContext, runWithTenant, getHRIdentity } = require('../services/tenantContext');
+    const context = await resolveTenantContext({ userId: req.identity.user_id, organizationId: req.get('X-Organization-ID') });
+    req.tenant = context; req.user = getHRIdentity(req.identity, context);
+    return runWithTenant(context, next);
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, code: error.code || (error.status === 403 ? 'MEMBERSHIP_UNAVAILABLE' : undefined) }); }
+});
 
 // Role-based authorization
 const authorize = (...roles) => {
@@ -95,4 +83,4 @@ const authorizeApprovalAction = async (req, res, next) => {
   return authorizePermission(permissionKey)(req, res, next);
 };
 
-module.exports = { authenticate, authorize, hasPermission, authorizePermission, authorizeAnyPermission, authorizeApprovalAction };
+module.exports = { authenticateIdentity, authenticate, authorize, hasPermission, authorizePermission, authorizeAnyPermission, authorizeApprovalAction };
