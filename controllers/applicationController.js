@@ -1,4 +1,4 @@
-const { Application, Job, User, Talent, ProjectManager } = require('../models');
+const { Application, Job, User, Talent, ProjectManager } = require('../services/hrModels');
 const { Op } = require('sequelize');
 const { createNotification } = require('../utils/notificationUtil');
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
@@ -124,12 +124,12 @@ const getApplicationById = async (req, res) => {
           }]
         },
         {
-          model: User, paranoid: false,
+          model: Talent,
           as: 'applicant',
-          attributes: ['first_name', 'last_name', 'email'],
           include: [{
-            model: Talent,
-            as: 'talent'
+            model: User, paranoid: false,
+            as: 'user',
+            attributes: ['first_name', 'last_name', 'email']
           }]
         }
       ]
@@ -140,6 +140,11 @@ const getApplicationById = async (req, res) => {
         success: false,
         message: 'Application not found'
       });
+    }
+
+    const role = require('../utils/roleUtils').getRoleKey(req.user);
+    if (!['admin', 'super_admin', 'project_manager'].includes(role) && application.applicant?.user_id !== req.user.user_id) {
+      return res.status(403).json({ success: false, message: 'Access denied to this application' });
     }
 
     res.json({

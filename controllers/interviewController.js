@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const path = require('path');
-const { Interview, Talent, ProjectManager, Job, User } = require('../models');
+const { Interview, Talent, ProjectManager, Job, User } = require('../services/hrModels');
 const notificationUtil = require('../utils/notificationUtil'); // assumes sendNotification()
 const sendEmail = require('../utils/sendEmail');
 const { getRoleKey } = require('../utils/roleUtils');
@@ -185,7 +185,7 @@ async function getInterviewById(req, res) {
     // authZ
     const roleKey = getRoleKey(req.user);
     const isAdmin = ['admin', 'super_admin'].includes(roleKey);
-    const isPM    = roleKey === 'project_manager' && interview.interviewer_id != null;
+    const isPM    = roleKey === 'project_manager' && interview.interviewer?.user_id === req.user.user_id;
     const isTalent = roleKey === 'talent' && interview.candidate_id === interview.candidate?.talent_id && interview.candidate?.user_id === req.user.user_id;
     if (!(isAdmin || isPM || isTalent)) {
       return res.status(403).json({ success: false, message: 'Forbidden' });

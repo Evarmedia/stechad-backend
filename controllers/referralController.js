@@ -1,4 +1,4 @@
-const { User, Role, Referral, Reward, UserReward } = require('../models');
+const { User, Role, Referral, Reward, UserReward } = require('../services/hrModels');
 const { 
   getUserReferralStats, 
   getUserRewards, 
@@ -127,16 +127,14 @@ const claimReward = async (req, res) => {
         user_id: req.user.user_id,
         reward_status: 'approved'
       },
-      include: [
-        {
-          model: Reward,
-          attributes: ['reward_type', 'reward_description']
-        }
-      ],
-      transaction
+      // Serialize claims on the ledger rows; a concurrent claim observes the
+      // committed status and cannot credit the same reward twice.
+      transaction,
+      lock: transaction.LOCK.UPDATE
     });
     
     if (!userRewards || userRewards.length === 0) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: 'No eligible rewards found for claiming'
@@ -168,15 +166,15 @@ const claimReward = async (req, res) => {
       claimedRewards.push(reward);
     }
 
-    await transaction.commit();
-
-    // add reward to user.reward balance
+    // The HR profile balance and ledger must commit together.
     if (totalAmount > 0) {
       await User.increment(
         { reward: totalAmount },
-        { where: { user_id: req.user.user_id } }
+        { where: { user_id: req.user.user_id }, transaction }
       );
     }
+
+    await transaction.commit();
 
     // Send notification after transaction commits
     if (claimedRewards.length > 0) {
@@ -193,7 +191,7 @@ const claimReward = async (req, res) => {
             amount: r.reward_amount
           }))
         }
-      });
+      }).catch((error) => console.error('Reward notification failed:', error.message));
     }
 
     res.json({
@@ -209,7 +207,7 @@ const claimReward = async (req, res) => {
     });
 
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) await transaction.rollback();
     res.status(500).json({
       success: false,
       message: 'Failed to claim rewards',
