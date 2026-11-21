@@ -14,8 +14,8 @@ const refreshAccessToken = async (req, res) => {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, {
       algorithms: ["HS256"],
     });
-    const user = await User.findByPk(decoded.user_id);
-    if (!user?.is_active || (decoded.session_version || 0) !== user.session_version)
+    const user = await require('../services/tenantContext').runWithoutTenant(() => User.unscoped().findByPk(decoded.user_id));
+    if (!user?.is_active || user.deleted_at || (decoded.session_version || 0) !== user.session_version)
       return res
         .status(401)
         .json({ success: false, message: "Session is no longer valid" });

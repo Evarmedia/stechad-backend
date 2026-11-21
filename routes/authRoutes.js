@@ -17,7 +17,7 @@ const {
   acceptInvite,
   getMe
 } = require('../controllers/authController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authenticateIdentity } = require('../middleware/auth');
 const { validateRegistration, validateLogin, validateEmail } = require('../middleware/validation');
 
 const passport = require('passport');
@@ -619,7 +619,7 @@ router.post('/edit-password', authenticate, editPassword);
  *                   type: string
  *                   example: Failed to accept invite
  */
-router.post('/accept-invite/:token', acceptInvite);
+router.post('/accept-invite/:token', (req, res, next) => req.get('Authorization') ? authenticateIdentity(req, res, next) : next(), acceptInvite);
 
 // Protected routes
 /**
