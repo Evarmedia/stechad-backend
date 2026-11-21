@@ -97,6 +97,14 @@ const migrateRoleColumn = async ({ queryInterface, tableName, transaction }) => 
 
 const migrateRoleStorage = async () => {
   const queryInterface = sequelize.getQueryInterface();
+  // The tenancy command owns role uniqueness and same-org foreign keys after
+  // cutover. Legacy bootstrap must not recreate global uniqueness or drop them.
+  if (await tableExists(queryInterface, 'tenancy_migration_state')) {
+    await sequelize.transaction(async (transaction) => {
+      await seedSystemRoles({ transaction, organizationId: require('../services/tenancyInventory').STECHAD_ORGANIZATION_ID });
+    });
+    return;
+  }
   await Role.sync();
   // Legacy startup bootstraps roles before Umzug runs. Upgrade this column before
   // the current Role model is used by the system-role seeder; Umzug records the
