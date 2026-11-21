@@ -103,7 +103,10 @@ passport.use(
     async (accessToken, refreshToken, profile, done) => {
       // profile contains user information from Google
       try {
-        const { email, first_name, last_name, id } = profile._json;
+        const { email, given_name, family_name } = profile._json;
+        if (!email || !(profile._json.email_verified === true || profile._json.verified_email === true)) throw new Error('Google must verify your email address');
+        const first_name = profile._json.first_name || given_name;
+        const last_name = profile._json.last_name || family_name;
 
         // Check if the user exists in the database
         let user = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false });
@@ -330,7 +333,7 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.log(error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
       message: "Login failed",
       error: error.message,

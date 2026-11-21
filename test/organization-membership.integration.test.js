@@ -123,4 +123,30 @@ else {
     delete process.env.ENABLE_ORGANIZATION_CREATION;
   });
 
+  test('concurrent owner departures leave an active owner', async () => {
+    const organization = await models.Organization.create({ name: 'Concurrent owners', slug: 'concurrent-owners' });
+    for (const user of [owner, member]) await models.OrganizationMembership.create({ organization_id: organization.organization_id, user_id: user.user_id, membership_role: 'owner' });
+    const results = await Promise.all([request(`/api/organizations/${organization.organization_id}/leave`, owner, {}), request(`/api/organizations/${organization.organization_id}/leave`, member, {})]);
+    assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+    const survivor = results[0].status === 409 ? owner : member;
+    const members = await request(`/api/organizations/${organization.organization_id}/members`, survivor);
+    assert.equal(members.body.data.members.filter((row) => row.membership_role === 'owner' && row.status === 'active').length, 1);
+  });
+  test('public talent signup joins stechad with its scoped HR profile and a global identity', async () => {
+    const organizationId = require('../services/tenancyInventory').STECHAD_ORGANIZATION_ID;
+    await models.Organization.create({ organization_id: organizationId, name: 'Stechad', slug: 'stechad' });
+    await models.Role.create({ organization_id: organizationId, role_key: 'talent', name: 'Talent', is_system: true });
+    await db.query(`CREATE TABLE "${schema}".tenancy_migration_state (id integer)`);
+    const registered = await request('/api/auth/signup', null, { email: 'signup@example.test', password: 'Signup-pass123!', confirm_password: 'Signup-pass123!', first_name: 'Signup', role: 'talent' });
+    assert.equal(registered.status, 201, JSON.stringify(registered.body));
+    assert.equal(registered.body.data.active_organization_id, organizationId);
+    assert.equal(registered.body.data.user.role, 'talent');
+    assert.equal(registered.body.data.user.talent.organization_id, organizationId);
+    assert.equal(registered.body.data.organizations.length, 1);
+    const login = await request('/api/auth/login', null, { email: 'signup@example.test', password: 'Signup-pass123!' });
+    assert.equal(login.status, 200); assert.equal(login.body.data.user.is_verified, false, 'password knowledge does not verify email ownership');
+    const organizationList = await fetch(origin + '/api/organizations', { headers: { authorization: `Bearer ${registered.body.data.token}` } });
+    assert.equal((await organizationList.json()).data.organizations[0].organization_id, organizationId);
+  });
+
 }
