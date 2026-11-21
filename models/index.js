@@ -385,3 +385,32 @@ module.exports = {
   Reward,
   UserReward,
 };
+
+// Add ownership to every HR model, including implicit many-to-many join models.
+// Column nullability remains migration-controlled during the additive rollout.
+const { DataTypes } = require('sequelize');
+const { TENANT_TABLES } = require('../services/tenancyInventory');
+for (const model of Object.values(User.sequelize.models)) {
+  if (!TENANT_TABLES.includes(model.tableName)) continue;
+  model.rawAttributes.organization_id = { type: DataTypes.UUID, allowNull: true };
+  for (const [field, attribute] of Object.entries(model.rawAttributes)) {
+    if (attribute.unique && !attribute.primaryKey) {
+      attribute.unique = false;
+      model.options.indexes.push({ name: `${model.tableName}_${field}_tenant_unique`, unique: true, fields: ['organization_id', field] });
+    }
+  }
+  for (const index of model.options.indexes) if (index.unique && !index.fields.includes('organization_id')) index.fields = ['organization_id', ...index.fields];
+  model.uniqueKeys = {};
+  model.refreshAttributes();
+}
+const Organization = require('./Organization');
+const OrganizationMembership = require('./OrganizationMembership');
+const HRProfile = require('./HRProfile');
+Organization.hasMany(OrganizationMembership, { foreignKey: 'organization_id', as: 'memberships', onDelete: 'RESTRICT' });
+OrganizationMembership.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
+User.hasMany(OrganizationMembership, { foreignKey: 'user_id', as: 'organization_memberships', onDelete: 'RESTRICT' });
+OrganizationMembership.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+OrganizationMembership.hasOne(HRProfile, { foreignKey: 'membership_id', as: 'hr_profile', onDelete: 'RESTRICT' });
+HRProfile.belongsTo(OrganizationMembership, { foreignKey: 'membership_id', as: 'membership' });
+HRProfile.belongsTo(Role, { foreignKey: 'role_id', as: 'role', onDelete: 'RESTRICT' });
+Object.assign(module.exports, { Organization, OrganizationMembership, HRProfile });

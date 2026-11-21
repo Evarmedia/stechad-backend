@@ -13,7 +13,8 @@
     "migrate:chat": "node scripts/migrate-chat.js",
     "db:migrate": "sequelize-cli db:migrate",
     "db:migrate:status": "sequelize-cli db:migrate:status",
-    "db:migrate:undo": "sequelize-cli db:migrate:undo"
+    "db:migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:tenancy": "node scripts/migrate-tenancy.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.17.2",

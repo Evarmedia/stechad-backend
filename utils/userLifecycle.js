@@ -92,6 +92,7 @@ async function permanentlyDeleteUser(id, actor) {
         const key = `${model.name}.${attribute}`;
         if (excludedFields.has(key) || cleared.has(key)) continue;
         if (!model.rawAttributes[attribute]?.allowNull) {
+          if (!await model.unscoped().count({ where: { [attribute]: id }, paranoid: false, transaction })) continue;
           throw new Error(`Cannot unlink required user relationship ${key}`);
         }
         await setNullWhere(model, attribute, id, transaction);
