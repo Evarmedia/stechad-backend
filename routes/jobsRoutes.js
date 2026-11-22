@@ -7,7 +7,7 @@ const express = require('express');
  */
 
 const { authenticate, authorize } = require('../middleware/auth');
-const { getJobs, getJobById, getJobApplicants, getJobStats, updateJob, deleteJob } = require('../controllers/jobsController');
+const { getPublicJobs, getPublicJobById, getJobApplicants, getJobStats, updateJob, deleteJob } = require('../controllers/jobsController');
 
 const router = express.Router();
 
@@ -15,9 +15,15 @@ const router = express.Router();
  * @swagger
  * /jobs:
  *   get:
- *     summary: Get all jobs with filtering and pagination
+ *     summary: Get published active jobs with filtering and pagination
  *     tags: [Jobs]
  *     parameters:
+ *       - in: query
+ *         name: organization_slug
+ *         schema:
+ *           type: string
+ *           default: stechad
+ *         description: Public organization careers page slug
  *       - in: query
  *         name: page
  *         schema:
@@ -34,8 +40,8 @@ const router = express.Router();
  *         name: status
  *         schema:
  *           type: string
- *           enum: [active, closed, draft]
- *         description: Filter by job status
+ *           enum: [active]
+ *         description: Public listings always include only active published jobs
  *       - in: query
  *         name: location
  *         schema:
@@ -91,15 +97,21 @@ const router = express.Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/', getJobs);
+router.get('/', getPublicJobs);
 
 /**
  * @swagger
  * /jobs/{jobs_id}:
  *   get:
- *     summary: Get job details by ID
+ *     summary: Get published active job details by ID
  *     tags: [Jobs]
  *     parameters:
+ *       - in: query
+ *         name: organization_slug
+ *         schema:
+ *           type: string
+ *           default: stechad
+ *         description: Public organization careers page slug
  *       - in: path
  *         name: jobs_id
  *         required: true
@@ -133,7 +145,7 @@ router.get('/', getJobs);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:jobs_id', getJobById);
+router.get('/:jobs_id', getPublicJobById);
 
 /**
  * @swagger

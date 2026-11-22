@@ -1,4 +1,4 @@
-const { User, Referral, Reward, UserReward } = require('../models');
+const { User, Referral, Reward, UserReward } = require('../services/hrModels');
 const { createNotification } = require('./notificationUtil');
 const sequelize = require("../config/database");
 
@@ -25,9 +25,12 @@ const createReferral = async (referrerCode, refereeId) => {
   const transaction = await sequelize.transaction();
   
   try {
+    const organizationId = require('../services/tenantContext').getTenantContext().organizationId;
+    await sequelize.query('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))', { replacements: { key: `referral:${organizationId}:${refereeId}` }, transaction });
+    if (!await User.findByPk(refereeId, { transaction })) throw new Error('Referee not found in organization');
     // Find the referrer
     const referrer = await User.findOne({
-      where: { referral_code: referrerCode }
+      where: { referral_code: referrerCode }, transaction
     });
 
     if (!referrer) {
@@ -36,7 +39,7 @@ const createReferral = async (referrerCode, refereeId) => {
 
     // Check if referee already has a referral
     const existingReferral = await Referral.findOne({
-      where: { referee_id: refereeId }
+      where: { referee_id: refereeId }, transaction
     });
 
     if (existingReferral) {
@@ -52,14 +55,8 @@ const createReferral = async (referrerCode, refereeId) => {
       completed_at: new Date()
     }, { transaction });
 
-    // Update the referee's referred_by field
-    await User.update(
-      { referred_by: referrer.user_id },
-      { 
-        where: { user_id: refereeId },
-        transaction 
-      }
-    );
+    // Attribution belongs to this organization's ledger. The legacy global
+    // User.referred_by value is retained unchanged for historical migration.
 
     // Get active rewards
     const referralRewards = await Reward.findAll({
@@ -133,7 +130,7 @@ const createReferral = async (referrerCode, refereeId) => {
     return referral;
 
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) await transaction.rollback();
     console.error('Error creating referral:', error);
     throw error;
   }
@@ -195,6 +192,7 @@ const getUserReferralStats = async (userId) => {
 
     return {
       referral_code: user.referral_code,
+      reward_balance: user.reward,
       referrals_made: referralsMade,
       completed_referrals: completedReferrals,
       total_rewards: totalRewards || 0,

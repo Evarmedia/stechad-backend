@@ -18,8 +18,8 @@ const authenticateIdentity = async (req, res, next) => {
   return require('../services/tenantContext').runWithoutTenant(next);
 };
 const authenticate = (req, res, next) => authenticateIdentity(req, res, async () => {
-  const globalAuth = /\/auth$/.test(req.baseUrl || '') && req.path !== '/preferences';
-  if (globalAuth || /\/organizations$/.test(req.baseUrl || '')) return next();
+  const globalAuth = /\/auth$/i.test(req.baseUrl || '') && !/^\/preferences\/?$/i.test(req.path);
+  if (globalAuth || /\/organizations$/i.test(req.baseUrl || '')) return next();
   if (process.env.TENANCY_ENFORCED !== 'true' && !req.get('X-Organization-ID') && !await require('../models').OrganizationMembership.count({ where: { user_id: req.identity.user_id } })) {
     req.user = await User.findByPk(req.identity.user_id);
     return next();
