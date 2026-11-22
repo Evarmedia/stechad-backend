@@ -1,0 +1,3 @@
+# Separate product assignments while retaining HR role identities
+
+The existing HR roles are already referenced by employment profiles, invitations and retained business records, so Phase 3 reuses their organization-owned identities for HR product role instances instead of introducing a competing role store. Product activation and member assignments become separate authority, with an explicit one-time cutover preserving existing HR access; later revocations cannot be repaired from employment profiles. Explicit implemented permissions govern HR authority while role keys retain employment and navigation meaning, trading a compatibility adapter for preservation of the functioning HR product; commercial eligibility and other runnable products remain in their later phases.

@@ -57,3 +57,19 @@ _Avoid_: HR super-admin upgrade
 **Platform assurance**:
 Recent verification of a platform operator's additional authentication factor for one managed session.
 _Avoid_: HR permission, permanent MFA bypass
+
+**Product activation**:
+An organization's enabled use of an available product. Activation alone grants no member access and is distinct from a commercial subscription.
+_Avoid_: Member assignment, paid subscription
+
+**Product assignment**:
+An explicit grant of one product's access to an organization member through an organization-owned product role.
+_Avoid_: Membership, employment profile
+
+**Product role template**:
+A versioned product default from which organizations create their own role copies. Publishing a new version does not change existing copies.
+_Avoid_: Shared organization role
+
+**Product role instance**:
+An organization's own named set of permissions within one product, copied from a template or created locally.
+_Avoid_: Global role, universal administrator
