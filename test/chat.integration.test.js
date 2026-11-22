@@ -502,11 +502,12 @@ if (!databaseUrl) {
     assert.equal(response.headers.get("cache-control"), "no-store");
     const result = await response.json();
     assert.equal(jwt.verify(result.data.token, secret).user_id, alice.user_id);
-    assert.equal(
-      jwt.verify(result.data.refreshToken, process.env.JWT_REFRESH_SECRET)
-        .user_id,
-      alice.user_id,
-    );
+    assert.equal(typeof result.data.refreshToken, 'string');
+    const rotated = await refresh({ refresh_token: result.data.refreshToken });
+    assert.equal(rotated.status, 200);
+    const next = await rotated.json();
+    assert.equal(jwt.verify(next.data.token, secret).user_id, alice.user_id);
+    assert.equal(next.data.session.session_id, result.data.session.session_id);
     assert.equal((await refresh({})).status, 400);
     assert.equal((await refresh({ refresh_token: token(alice) })).status, 401);
     const inactiveRefresh = jwt.sign(

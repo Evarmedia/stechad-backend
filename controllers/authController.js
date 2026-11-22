@@ -1,5 +1,4 @@
 const { User, Talent, ProjectManager, Admin, Invite, RolePermission } = require("../models");
-const { generateTokens } = require("../utils/generateTokens");
 const sendEmail = require("../utils/sendEmail");
 const { generateOTP, generateOTPExpiry } = require("../utils/otpGenerator");
 const path = require("path");
@@ -176,26 +175,6 @@ const signup = async (req, res) => {
       }
     }
 
-    // If Google sign-in is being used, check if the user exists
-    if (googleSignIn) {
-      const existingUser = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false });
-      if (existingUser) {
-        // If the user exists, generate a token and return the user data
-        const { token } = generateTokens({
-          user_id: existingUser.user_id,
-          role: getRoleKey(existingUser),
-        });
-        return res.status(200).json({
-          success: true,
-          message: "User logged in successfully",
-          data: {
-            user: existingUser,
-            token,
-          },
-        });
-      }
-    }
-
     // If Google sign-in is not used, check if user already exists
     if (!googleSignIn) {
       const existingUser = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false });
@@ -325,7 +304,6 @@ const login = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log(error);
     res.status(error.status || 500).json({
       success: false,
       message: "Login failed",
@@ -487,38 +465,16 @@ const resetPassword = async (req, res) => {
     const policyError = passwordError(new_password);
     if (policyError) return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
 
-    // 2. Find user by valid OTP
-    const user = await User.unscoped().findOne({
-      where: {
-        reset_password_token: otp,
-        reset_password_expires: {
-          [Op.gt]: new Date(),
-        },
-      },
-      attributes: { include: ["password"] }, // override default scope
-    });
-
-    if (!user) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired OTP",
+    await sequelize.transaction(async transaction => {
+      const user = await User.unscoped().findOne({
+        where: { reset_password_token: otp, reset_password_expires: { [Op.gt]: new Date() }, is_active: true },
+        attributes: { include: ['password'] }, transaction, lock: transaction.LOCK.UPDATE,
       });
-    }
-
-    // 3. Prevent reusing the same password
-    const isSamePassword = await user.comparePassword(new_password);
-    if (isSamePassword) {
-      return res.status(400).json({
-        success: false,
-        message: "New password must be different from the old password",
-      });
-    }
-
-    // 4. Update password (auto-hashed by beforeUpdate hook)
-    await user.update({
-      password: new_password,
-      reset_password_token: null,
-      reset_password_expires: null,
+      if (!user || user.reset_password_token !== otp || new Date(user.reset_password_expires) <= new Date()) throw Object.assign(new Error('Invalid or expired OTP'), { status: 400 });
+      if (await user.comparePassword(new_password)) throw Object.assign(new Error('New password must be different from the old password'), { status: 400 });
+      await user.update({ password: new_password, session_version: user.session_version + 1, reset_password_token: null, reset_password_expires: null }, { transaction });
+      await require('../services/authSessions').revokeAllSessions(user.user_id, { transaction, reason: 'password_reset' });
+      await require('../utils/audit').recordAudit({ action: 'auth.password_reset', target_type: 'User', target_id: user.user_id, actor: user }, transaction);
     });
 
     return res.status(200).json({
@@ -526,11 +482,7 @@ const resetPassword = async (req, res) => {
       message: "Password reset successful",
     });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      success: false,
-      message: "Password reset failed",
-    });
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Password reset failed' });
   }
 };
 
@@ -566,8 +518,8 @@ const editPassword = async (req, res) => {
       if (!await current.comparePassword(old_password)) throw Object.assign(new Error("Current password changed. Please try again."), { status: 409 });
       await current.update({ password: new_password, session_version: current.session_version + 1, reset_password_token: null, reset_password_expires: null }, { transaction });
       await require("../utils/audit").recordAudit({ action: "auth.password_changed", target_type: "User", target_id: user.user_id, actor: user }, transaction);
-      require("../utils/events").afterCommit(transaction, () => require("../utils/events").disconnectUser(user.user_id));
-      return generateTokens({ user_id: current.user_id, role: getRoleKey(current), session_version: current.session_version });
+      await require('../services/authSessions').revokeAllSessions(current.user_id, { transaction, reason: 'password_changed' });
+      return require('../services/authSessions').createSession(current, { transaction, request: req, authMethod: 'password' });
     });
     res.json({ success: true, message: "Password updated successfully", data: tokens });
   } catch (error) {

@@ -8,9 +8,14 @@ const fail = (message = 'Session is no longer valid', status = 401, code = 'SESS
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const enforced = () => process.env.AUTH_SESSIONS_ENFORCED === 'true' || process.env.NODE_ENV === 'production';
 const view = session => ({ session_id: session.session_id, created_at: session.created_at, last_seen_at: session.last_seen_at, expires_at: session.expires_at, revoked_at: session.revoked_at, auth_method: session.auth_method, user_agent: session.user_agent });
+function validActivation(state) {
+  const activated = state && new Date(state.activated_at).getTime();
+  const until = state && new Date(state.legacy_until).getTime();
+  return !!state && Number.isFinite(activated) && Number.isFinite(until) && activated <= Date.now() && until > activated && until - activated <= 86400000;
+}
 async function activation(transaction) {
   const state = await AuthSecurityState.findByPk('sessions', { transaction });
-  if (!state && enforced()) throw fail('Managed session storage is not activated', 503, 'AUTH_SESSIONS_UNAVAILABLE');
+  if (enforced() && !validActivation(state)) throw fail('Managed session storage is not activated', 503, 'AUTH_SESSIONS_UNAVAILABLE');
   return state;
 }
 function validIdentity(user, decoded) {
@@ -105,11 +110,12 @@ async function rotateRefreshToken(token, { request } = {}) {
 }
 async function assertSessionStorageReady() {
   const q = sequelize.getQueryInterface();
-  for (const tableName of Object.keys(require('./authSessionSchema')(require('sequelize').DataTypes))) await q.describeTable({ tableName, schema: sequelize.options.schema || 'public' });
+  for (const [tableName, fields] of Object.entries(require('./authSessionSchema')(require('sequelize').DataTypes))) {
+    const columns = await q.describeTable({ tableName, schema: sequelize.options.schema || 'public' });
+    if (Object.keys(fields).some(field => !columns[field])) throw fail('Managed session schema is incomplete', 503, 'AUTH_SESSIONS_UNAVAILABLE');
+  }
   const state = await AuthSecurityState.findByPk('sessions');
-  const activated = new Date(state?.activated_at).getTime();
-  const until = new Date(state?.legacy_until).getTime();
-  if (!state || !Number.isFinite(activated) || !Number.isFinite(until) || activated > Date.now() || until <= activated || until - activated > 86400000) throw fail('Managed session activation is invalid', 503, 'AUTH_SESSIONS_UNAVAILABLE');
+  if (!validActivation(state)) throw fail('Managed session activation is invalid', 503, 'AUTH_SESSIONS_UNAVAILABLE');
   return { activated_at: state.activated_at, legacy_until: state.legacy_until };
 }
 module.exports = { assertSessionStorageReady, createSession, authenticateAccessToken, rotateRefreshToken, revokeSession, revokeAllSessions, sessionView: view };

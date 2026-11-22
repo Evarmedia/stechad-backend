@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 
+// Legacy fixture compatibility only. Runtime issuance uses authSessions.createSession.
 function generateTokens({user_id, role, session_version = 0}) {
+  if (process.env.AUTH_SESSIONS_ENFORCED === 'true' || process.env.NODE_ENV === 'production') throw new Error('Use managed session issuance');
   try {
     const token = jwt.sign(
       { user_id, role, session_version },
