@@ -1,5 +1,4 @@
-const jwt = require("jsonwebtoken");
-const { User } = require("../models");
+const { authenticateAccessToken } = require('../services/authSessions');
 const {
   getAuthorizedChat,
   sendMessage,
@@ -7,7 +6,7 @@ const {
 } = require("./chatUtil");
 const { publishChatEvent } = require("./chatEvents");
 const { resolveTenantContext, runWithTenant, runWithoutTenant } = require('../services/tenantContext');
-const { userRoom, identityRoom, chatRoom, emitToUser, canDeliver } = require('./events');
+const { userRoom, identityRoom, sessionRoom, chatRoom, emitToUser, canDeliver } = require('./events');
 
 const initializeChatSocket = (io) => {
   const onlineUsers = new Map();
@@ -15,9 +14,8 @@ const initializeChatSocket = (io) => {
     try {
       const token = socket.handshake.auth?.token;
       if (!token) throw new Error("Missing token");
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findByPk(decoded.user_id);
-      if (!user?.is_active || (decoded.session_version || 0) !== user.session_version) throw new Error("Inactive user");
+      const { identity: user, session } = await authenticateAccessToken(token);
+      socket.accessToken = token; socket.authSessionId = session?.session_id;
       socket.sessionVersion = user.session_version;
       socket.userId = user.user_id;
       const organizationId = socket.handshake.auth?.organization_id;
@@ -39,6 +37,7 @@ const initializeChatSocket = (io) => {
     const organizationId = socket.tenant?.organizationId;
     socket.join(userRoom(socket.userId, organizationId));
     socket.join(identityRoom(socket.userId));
+    if (socket.authSessionId) socket.join(sessionRoom(socket.authSessionId));
     const presenceKey = `${organizationId || 'legacy'}:${socket.userId}`;
     const entry = onlineUsers.get(presenceKey) || {
       user: socket.user,
@@ -71,10 +70,10 @@ const initializeChatSocket = (io) => {
     const handle = (event, handler) =>
       socket.on(event, async (data, acknowledge) => {
         try {
-          const currentUser = await User.findByPk(socket.userId);
-          if (!currentUser?.is_active || currentUser.session_version !== socket.sessionVersion) {
+          try { await authenticateAccessToken(socket.accessToken); }
+          catch {
             socket.disconnect(true);
-            throw Object.assign(new Error("Session is no longer valid"), { status: 401 });
+            throw Object.assign(new Error('Session is no longer valid'), { status: 401 });
           }
           let result;
           if (socket.tenant) {

@@ -13,7 +13,7 @@ module.exports = {
         }
       }
       // ON CONFLICT retains the first activation: re-running never extends compatibility.
-      await q.sequelize.query(`INSERT INTO "${schema}".auth_security_state (state_key, activated_at, legacy_until) VALUES ('sessions', NOW(), NOW() + INTERVAL '24 hours') ON CONFLICT (state_key) DO NOTHING`, { transaction });
+      await q.sequelize.query(`INSERT INTO ${q.queryGenerator.quoteTable(table('auth_security_state'))} (state_key, activated_at, legacy_until) VALUES ('sessions', NOW(), NOW() + INTERVAL '24 hours') ON CONFLICT (state_key) DO NOTHING`, { transaction });
     });
   },
   async down() { throw new Error('Session revocation and legacy activation must be retained; use an additive migration'); },
