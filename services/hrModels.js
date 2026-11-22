@@ -1,7 +1,7 @@
 // Compatibility boundary for the existing HR product. Authentication deliberately
 // imports ../models instead: a global account is not an organization membership.
 const models = require('../models');
-const { Op, literal, where: sqlWhere, col } = require('sequelize');
+const { Op, literal, where: sqlWhere, col, fn } = require('sequelize');
 const { TENANT_TABLES, PROFILE_FIELDS } = require('./tenancyInventory');
 const { peekTenantContext, getTenantContext, revalidateTenantContext } = require('./tenantContext');
 const db = models.User.sequelize;
@@ -85,6 +85,7 @@ function scopedOptions(model, input = {}, tenant, alias = model.name, nested = f
     const excluded = next.attributes.exclude || [];
     next.attributes = Object.keys(model.rawAttributes).filter((field) => !excluded.includes(field) && !['password', 'reset_password_token', 'reset_password_expires'].includes(field)).map((field) => profiles.has(field) || field === 'is_active' ? [expression(alias, field, tenant), field] : field).concat(next.attributes.include || []);
   }
+  if (model === models.User && next.attributes?.length && !input._hrAggregate && !input.group && !input.raw) next.attributes = [...next.attributes, [literal(db.escape(tenant.organizationId)), 'organization_id'], [expression(alias, 'membership_id', tenant), 'membership_id']];
   if (next.order) next.order = [].concat(next.order).map((order) => {
     if (Array.isArray(order) && typeof order[0] === 'string' && model === models.User && (profiles.has(order[0]) || order[0] === 'is_active')) return [expression(alias, order[0], tenant), ...order.slice(1)];
     return Array.isArray(order) ? order.map((value) => rewriteExpression(value, model, alias, tenant)) : rewriteExpression(order, model, alias, tenant);
@@ -153,16 +154,8 @@ async function writeUser(row, values, options, tenant) {
       const membership = await models.OrganizationMembership.findOne({ where: { membership_id: profile.membership_id, organization_id: tenant.organizationId }, transaction });
       await require('./organizationMembership').changeMembership({ actor: { user_id: tenant.userId }, organizationId: tenant.organizationId, membershipId: membership.membership_id, updates: { status: values.is_active ? 'active' : 'suspended' }, authority: 'hr', transaction });
     }
-    if (employment.role_id || Object.hasOwn(employment, 'auto_clock_out_enabled') || Object.hasOwn(employment, 'auto_clock_out_time')) {
-      const role = await facade(models.Role).findByPk(employment.role_id || profile.role_id, { transaction });
-      if (require('../utils/personalWorkforce').isAdmin(role?.role_key)) { employment.auto_clock_out_enabled = false; employment.auto_clock_out_time = null; }
-    }
     if (Object.keys(employment).length) await profile.update(employment, { ...opts, fields: undefined });
     if (Object.keys(identity).length) await models.User.unscoped().update(identity, { where: { user_id: row.user_id }, transaction, individualHooks: true });
-    if (employment.role_id) {
-      const role = await facade(models.Role).findByPk(employment.role_id, { transaction });
-      if (require('../utils/personalWorkforce').isAdmin(role?.role_key)) await require('../utils/personalWorkforce').cancelAdminAttendance(row.user_id, transaction);
-    }
     const fresh = await facade(models.User).findByPk(row.user_id, { ...opts, paranoid: false });
     if (fresh) { row.dataValues = fresh.dataValues; row._previousDataValues = { ...fresh.dataValues }; row._changed.clear(); }
     return row;
@@ -175,10 +168,12 @@ function decorate(row, model, tenant) {
   if (decorated.has(row)) return row;
   decorated.set(row, tenant);
   Object.defineProperty(row, '_tenantContext', { value: tenant });
+  if (model === models.User) for (const key of ['organization_id', 'membership_id']) Object.defineProperty(row, key, { configurable: true, get: () => row.getDataValue(key), set: (value) => row.setDataValue(key, value) });
   const original = {};
   for (const method of ['save', 'update', 'destroy', 'restore', 'reload', 'increment', 'decrement']) if (typeof row[method] === 'function') original[method] = row[method].bind(row);
   row.update = async (values, options = {}) => {
     await access(options, tenant);
+    if (row.organization_id !== undefined && row.organization_id !== tenant.organizationId) fail('Conflicting organization identifier');
     if (model === models.User) return writeUser(row, values, options, tenant);
     await validateRelations(model, values, tenant, options);
     if (row.organization_id !== tenant.organizationId) fail('Conflicting organization identifier');
@@ -186,6 +181,7 @@ function decorate(row, model, tenant) {
   };
   row.save = async (options = {}) => {
     await access(options, tenant);
+    if (row.organization_id !== undefined && row.organization_id !== tenant.organizationId) fail('Conflicting organization identifier');
     const values = Object.fromEntries((row.changed() || []).map((key) => [key, row.get(key)]));
     if (model === models.User) return writeUser(row, values, options, tenant);
     await validateRelations(model, values, tenant, options);
@@ -210,28 +206,68 @@ function decorate(row, model, tenant) {
     return original.restore(options);
   };
   for (const method of ['increment', 'decrement']) row[method] = async (fields, options = {}) => {
-    await access(options, tenant); await facade(model)[method](fields, { ...options, where: { [model.primaryKeyAttribute]: row.get(model.primaryKeyAttribute) } }); return row.reload(options);
+    await access(options, tenant); if (row.organization_id !== undefined && row.organization_id !== tenant.organizationId) fail('Conflicting organization identifier'); await facade(model)[method](fields, { ...options, where: { [model.primaryKeyAttribute]: row.get(model.primaryKeyAttribute) } }); return row.reload(options);
   };
   for (const association of Object.values(model.associations)) {
     const target = association.target;
     const getter = association.accessors.get;
     if (getter && typeof row[getter] === 'function') {
       const get = row[getter].bind(row);
-      row[getter] = async (options = {}) => { await access(options, tenant); return decorateResult(await get(scopedOptions(target, options, tenant)), target, tenant); };
+      row[getter] = async (options = {}) => {
+        await access(options, tenant);
+        if (!owned(target) && target !== models.User) fail('Use the organization management service', 403);
+        if (association.associationType === 'BelongsToMany') return decorateResult(await get({ ...scopedOptions(target, options, tenant), through: { ...options.through, where: { [Op.and]: [{ organization_id: tenant.organizationId }, options.through?.where || {}] } } }), target, tenant);
+        const belongs = association.associationType === 'BelongsTo';
+        const foreignKey = belongs ? association.targetKey : association.foreignKey;
+        const sourceValue = row.get(belongs ? association.foreignKey : association.sourceKey);
+        const query = { ...options, where: { [Op.and]: [{ [foreignKey]: sourceValue }, options.where || {}] } };
+        return facade(target)[association.isMultiAssociation ? 'findAll' : 'findOne'](query);
+      };
+    }
+    const countName = association.accessors.count;
+    if (countName && getter) row[countName] = async (options = {}) => { const result = await row[getter](options); return Array.isArray(result) ? result.length : result ? 1 : 0; };
+    for (const key of ['hasSingle', 'hasAll']) {
+      const name = association.accessors[key]; if (!name || !getter) continue;
+      row[name] = async (input, options = {}) => {
+        const result = [].concat(await row[getter](options) || []);
+        const ids = new Set(result.map((item) => String(item.get(target.primaryKeyAttribute))));
+        return [].concat(input || []).every((item) => ids.has(String(typeof item === 'object' ? item.get?.(target.primaryKeyAttribute) || item[target.primaryKeyAttribute] : item)));
+      };
     }
     for (const method of ['set', 'add', 'addMultiple', 'remove', 'removeMultiple', 'create']) {
       const name = association.accessors[method];
       if (!name || typeof row[name] !== 'function') continue;
-      const invoke = row[name].bind(row);
       row[name] = async (input, options = {}) => {
         await access(options, tenant);
-        if (method === 'create') return facade(target).create({ ...input, [association.foreignKey]: row.get(model.primaryKeyAttribute) }, options);
+        if (!owned(target) && target !== models.User) fail('Use the organization management service', 403);
+        if (method === 'create') {
+          if (association.associationType === 'BelongsTo') { const related = await facade(target).create(input, options); await row.update({ [association.foreignKey]: related.get(association.targetKey) }, options); return related; }
+          if (association.associationType === 'BelongsToMany') { const related = await facade(target).create(input, options); await row[association.accessors.add](related, options); return related; }
+          return facade(target).create({ ...input, [association.foreignKey]: row.get(association.sourceKey) }, options);
+        }
+        const ids = [];
         for (const value of [].concat(input || [])) {
           const id = typeof value === 'object' ? value.get?.(target.primaryKeyAttribute) || value[target.primaryKeyAttribute] : value;
           if (!await facade(target).findByPk(id, { transaction: options.transaction, paranoid: false })) fail('Related record was not found in this organization', 404);
+          ids.push(id);
         }
         if (association.associationType === 'BelongsTo') return row.update({ [association.foreignKey]: input == null ? null : typeof input === 'object' ? input.get(target.primaryKeyAttribute) : input }, options);
-        return invoke(input, { ...options, through: { ...options.through, organization_id: tenant.organizationId } });
+        const sourceId = row.get(association.sourceKey);
+        const remove = method === 'remove' || method === 'removeMultiple';
+        const run = async (transaction) => {
+          const opts = { ...options, transaction };
+          if (association.associationType === 'BelongsToMany') {
+            const through = facade(association.through.model);
+            if (method === 'set' || remove) await through.destroy({ ...opts, where: { [association.foreignKey]: sourceId, ...(remove ? { [association.otherKey]: { [Op.in]: ids } } : {}) } });
+            if (!remove && ids.length) await through.bulkCreate(ids.map((id) => ({ ...options.through, [association.foreignKey]: sourceId, [association.otherKey]: id })), { ...opts, ignoreDuplicates: true });
+          } else {
+            const targetFacade = facade(target);
+            if (method === 'set' || remove) await targetFacade.update({ [association.foreignKey]: null }, { ...opts, where: { [association.foreignKey]: sourceId, ...(remove ? { [target.primaryKeyAttribute]: { [Op.in]: ids } } : { [target.primaryKeyAttribute]: { [Op.notIn]: ids } }) } });
+            if (!remove && ids.length) await targetFacade.update({ [association.foreignKey]: sourceId }, { ...opts, where: { [target.primaryKeyAttribute]: { [Op.in]: ids } } });
+          }
+          return row;
+        };
+        return options.transaction ? run(options.transaction) : db.transaction(run);
       };
     }
   }
@@ -262,6 +298,14 @@ function facade(model) {
     const options = args[optionIndex] || {};
     const tenant = await access(options);
     if (!tenant) return model[name](...args);
+    if (model === models.User && ['sum', 'min', 'max', 'aggregate'].includes(name)) {
+      const field = args[0]; const operation = name === 'aggregate' ? args[1] : name;
+      if (typeof field !== 'string' || !models.User.rawAttributes[field] || !['sum', 'min', 'max', 'count'].includes(String(operation).toLowerCase())) fail('Use an explicit supported HR aggregate');
+      const attribute = profiles.has(field) || field === 'is_active' ? expression(model.name, field, tenant) : col(`${model.name}.${field}`);
+      const query = scopedOptions(model, { ...options, attributes: [[fn(operation, attribute), 'value']], raw: true, _hrAggregate: true }, tenant);
+      const result = await model.unscoped().findAll(query);
+      return options.group ? result : result[0]?.value == null ? null : Number(result[0].value);
+    }
     if (name === 'upsert') {
       if (model === models.User) fail('Create identities through organization invitations', 403);
       const values = args[0]; await validateRelations(model, values, tenant, options);
@@ -289,6 +333,7 @@ function facade(model) {
       args[0] = name === 'bulkCreate' ? values.map((v) => valuesFor(model, v, tenant)) : valuesFor(model, args[0], tenant);
       args[optionIndex] = { ...options, fields: options.fields ? [...new Set([...options.fields, 'organization_id'])] : undefined };
     } else if (model === models.User && ['update', 'destroy', 'restore', 'increment', 'decrement'].includes(name)) {
+      if (!options.transaction) return db.transaction((transaction) => { const transactional = [...args]; transactional[optionIndex] = { ...options, transaction }; return methods[name](...transactional); });
       const rows = await methods.findAll({ ...options, attributes: undefined, raw: false });
       for (const row of rows) {
         if (name === 'update') await row.update(args[0], options);

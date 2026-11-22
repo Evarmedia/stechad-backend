@@ -1,4 +1,4 @@
-const { User, Department, Kpi, KpiAppraisal } = require("../models");
+const { User, Department, Kpi, KpiAppraisal } = require("../services/hrModels");
 const { directoryWhere, requireDirectoryTarget } = require("../utils/roleUtils");
 const sequelize = require("../config/database");
 const { hasPermission } = require("../utils/permissions");

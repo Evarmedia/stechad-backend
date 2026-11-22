@@ -11,7 +11,7 @@ function denyAdminPersonalWorkforce(req, res, next) {
 
 // Call with the user row locked before acquiring attendance locks.
 async function cancelAdminAttendance(userId, transaction) {
-  const Attendance = require("../models/Attendance");
+  const Attendance = require("../services/hrModels").Attendance;
   const entries = await Attendance.findAll({ where: { user_id: userId, clock_out: null }, transaction, lock: transaction.LOCK.UPDATE });
   for (const entry of entries) {
     await entry.update({ auto_clock_out_at: null, ...(!["absent", "cancelled"].includes(entry.status) ? { status: "cancelled", clock_out_source: null } : {}) }, { transaction });
