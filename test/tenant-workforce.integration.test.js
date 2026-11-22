@@ -9,6 +9,8 @@ else {
   const db = new Sequelize(url, { schema, logging: false }); db.schema = schema;
   db.afterDefine((model) => { model.options.schema = schema; });
   const path = require.resolve('../config/database'); require.cache[path] = { id: path, filename: path, loaded: true, exports: db };
+  const sentInvitations = [];
+  const emailPath = require.resolve('../utils/sendEmail'); require.cache[emailPath] = { id: emailPath, filename: emailPath, loaded: true, exports: async (message) => sentInvitations.push(message) };
   const models = require('../models');
   process.env.JWT_SECRET = 'tenant-workforce-test'; process.env.TENANCY_ENFORCED = 'true';
   process.env.GOOGLE_CLIENT_ID = 'test-client'; process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
@@ -35,11 +37,46 @@ else {
     app.use('/management', require('../routes/managementRoutes'));
     app.use('/staff', require('../routes/staffRoutes'));
     app.use('/auth', require('../routes/authRoutes'));
+    app.use('/organizations', require('../routes/organizationRoutes'));
     app.use((e, req, res, next) => res.status(e.status || 500).json({ error: e.message }));
     server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve)); origin = `http://127.0.0.1:${server.address().port}`;
   });
   after(async () => { if (server) await new Promise((resolve) => server.close(resolve)); await db.dropSchema(schema, { cascade: true }); await db.close(); });
   const request = async (path, org, options = {}, who = shared) => { const token = require('jsonwebtoken').sign({ user_id: who.user_id, session_version: 0 }, process.env.JWT_SECRET); const response = await fetch(origin + path, { ...options, headers: { 'content-type': 'application/json', 'x-organization-id': org.organization_id, authorization: `Bearer ${token}` } }); return { status: response.status, body: await response.json() }; };
+  test('HR staff management cannot suspend or remove organization owners while two owners are active', async () => {
+    const org = await models.Organization.create({ slug: 'owner-boundary', name: 'Owner boundary' });
+    const staffRole = await models.Role.create({ organization_id: org.organization_id, role_key: 'staff', name: 'Staff', is_system: true });
+    const adminRole = await models.Role.create({ organization_id: org.organization_id, role_key: 'admin', name: 'HR administrator', is_system: true });
+    const people = [];
+    for (const [name, membershipRole, role] of [['first-owner', 'owner', staffRole], ['second-owner', 'owner', staffRole], ['hr-manager', 'member', adminRole], ['regular-member', 'member', staffRole]]) {
+      const user = await models.User.create({ email: `${name}@owner.test`, role_id: role.role_id });
+      const membership = await models.OrganizationMembership.create({ organization_id: org.organization_id, user_id: user.user_id, membership_role: membershipRole });
+      await models.HRProfile.create({ organization_id: org.organization_id, user_id: user.user_id, membership_id: membership.membership_id, role_id: role.role_id, workforce_permissions: name === 'hr-manager' ? ['manage_staff'] : [] });
+      people.push({ user, membership });
+    }
+    const [firstOwner, secondOwner, hrManager, regular] = people;
+    const invitation = await request('/admin/workforce/invite', org, { method: 'POST', body: JSON.stringify({ email: 'new-colleague@owner.test', role_id: staffRole.role_id, first_name: 'New', last_name: 'Colleague' }) }, hrManager.user);
+    assert.equal(invitation.status, 201, JSON.stringify(invitation.body));
+    assert.equal(sentInvitations.at(-1).to, 'new-colleague@owner.test', 'HR manage_staff still allows ordinary member invitations');
+    assert.equal((await request(`/organizations/${org.organization_id}/members`, org, {}, hrManager.user)).status, 403, 'HR grants do not grant organization management');
+    for (const owner of [firstOwner, secondOwner]) {
+      const suspended = await request(`/admin/workforce/users/${owner.user.user_id}`, org, { method: 'PUT', body: JSON.stringify({ is_active: false }) }, hrManager.user);
+      assert.equal(suspended.status, 403, JSON.stringify(suspended.body));
+      for (const suffix of ['', '/permanent']) {
+        const removed = await request(`/admin/users/${owner.user.user_id}${suffix}`, org, { method: 'DELETE' }, hrManager.user);
+        assert.equal(removed.status, 403, JSON.stringify(removed.body));
+      }
+    }
+    const members = await request(`/organizations/${org.organization_id}/members`, org, {}, firstOwner.user);
+    assert.equal(members.status, 200, JSON.stringify(members.body));
+    assert.equal(members.body.data.members.filter((row) => row.membership_role === 'owner' && row.status === 'active').length, 2);
+    const ordinaryUpdate = await request(`/admin/workforce/users/${regular.user.user_id}`, org, { method: 'PUT', body: JSON.stringify({ is_active: false }) }, hrManager.user);
+    assert.equal(ordinaryUpdate.status, 200, JSON.stringify(ordinaryUpdate.body));
+    const restored = await request(`/organizations/${org.organization_id}/members/${regular.membership.membership_id}`, org, { method: 'PATCH', body: JSON.stringify({ status: 'active' }) }, firstOwner.user);
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+    const removed = await request(`/organizations/${org.organization_id}/members/${regular.membership.membership_id}`, org, { method: 'DELETE' }, firstOwner.user);
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  });
   test('tenant role and employment criteria drive directory filtering and pagination before serialization', async () => {
     const result = await request('/admin/users?search=EMP-1&role=admin&limit=1', a);
     assert.equal(result.status, 200, JSON.stringify(result.body)); assert.equal(result.body.data.pagination.totalItems, 1);

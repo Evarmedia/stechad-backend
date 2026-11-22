@@ -3,8 +3,8 @@ const { Op } = require('sequelize');
 const { Invite, User, Role, Organization, OrganizationMembership, HRProfile, Department, Talent, ProjectManager, Admin } = require('../models');
 const sequelize = require('../config/database');
 const { normalizeEmail, emailWhere } = require('../utils/email');
-const { fail, uuid, requireMembership, audit } = require('./organizationMembership');
-const { runWithoutTenant, resolveTenantContext, runWithTenant, getHRIdentity, isUUID } = require('./tenantContext');
+const { fail, uuid, requireMembership, requireHRStaffManagement, audit } = require('./organizationMembership');
+const { runWithoutTenant, isUUID } = require('./tenantContext');
 const hash = (token) => createHash('sha256').update(token).digest('hex');
 async function createInvitation({ actor, organizationId, input, transaction, authority }) {
   uuid(organizationId);
@@ -13,10 +13,7 @@ async function createInvitation({ actor, organizationId, input, transaction, aut
   const work = async (tx) => runWithoutTenant(async () => {
     await Organization.findByPk(organizationId, { transaction: tx, lock: tx.LOCK.UPDATE });
     const acting = await requireMembership(actor.user_id, organizationId, { transaction: tx, manage: authority !== 'hr' });
-    if (authority === 'hr') {
-      const context = await resolveTenantContext({ userId: actor.user_id, organizationId, transaction: tx });
-      if (!await runWithTenant(context, () => require('../utils/permissions').hasPermission(getHRIdentity(actor, context), 'manage_staff'))) throw fail('HR staff management permission is required');
-    }
+    if (authority === 'hr') await requireHRStaffManagement(actor, organizationId, tx);
     const membershipRole = input.membership_role || 'member';
     if (!['owner', 'admin', 'member'].includes(membershipRole)) throw fail('Invalid membership role', 400);
     if (membershipRole !== 'member' && (authority === 'hr' || acting.membership_role !== 'owner')) throw fail('Only organization owners can invite administrators or owners');
