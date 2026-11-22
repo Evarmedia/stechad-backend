@@ -1,6 +1,6 @@
 const { Op } = require('sequelize');
 const path = require('path');
-const { Interview, Talent, ProjectManager, Job, User } = require('../models');
+const { Interview, Talent, ProjectManager, Job, User } = require('../services/hrModels');
 const notificationUtil = require('../utils/notificationUtil'); // assumes sendNotification()
 const sendEmail = require('../utils/sendEmail');
 const { getRoleKey } = require('../utils/roleUtils');
@@ -81,20 +81,20 @@ async function scheduleInterview(req, res) {
 
     // Notifications (best-effort)
     try {
-      await notificationUtil.sendNotification({
+      await notificationUtil.createNotification({
         user_id: talent.user_id,
         title: 'Interview Scheduled',
         message: `Your interview for "${job_title}" is scheduled on ${new Date(date_time).toLocaleString()}`,
-        type: 'interview',
-      data: { interview_id: interview.interviews_id, job_id }
+        type: 'info',
+      metadata: { interview_id: interview.interviews_id, job_id }
     });
       if (pm) {
-        await notificationUtil.sendNotification({
+        await notificationUtil.createNotification({
           user_id: pm.user_id,
           title: 'Interview Created',
           message: `Interview with ${candidate_name} for "${job_title}" has been scheduled.`,
-          type: 'interview',
-          data: { interview_id: interview.interviews_id, job_id }
+          type: 'info',
+          metadata: { interview_id: interview.interviews_id, job_id }
         });
       }
     } catch (e) {
@@ -185,7 +185,7 @@ async function getInterviewById(req, res) {
     // authZ
     const roleKey = getRoleKey(req.user);
     const isAdmin = ['admin', 'super_admin'].includes(roleKey);
-    const isPM    = roleKey === 'project_manager' && interview.interviewer_id != null;
+    const isPM    = roleKey === 'project_manager' && interview.interviewer?.user_id === req.user.user_id;
     const isTalent = roleKey === 'talent' && interview.candidate_id === interview.candidate?.talent_id && interview.candidate?.user_id === req.user.user_id;
     if (!(isAdmin || isPM || isTalent)) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
@@ -289,22 +289,22 @@ async function updateInterview(req, res) {
     // Notifications
     try {
       const payload = {
-        user_id: interview.talent?.user_id,
+        user_id: interview.candidate?.user_id,
         title: 'Interview Updated',
         message: `Interview ${status ? `status: ${status}. ` : ''}${date_time ? `Rescheduled to ${new Date(date_time).toLocaleString()}.` : ''}`.trim(),
-        type: 'interview',
-        data: { interview_id: interview.interviews_id }
+        type: 'info',
+        metadata: { interview_id: interview.interviews_id }
       };
-      if (payload.user_id) await notificationUtil.sendNotification(payload);
+      if (payload.user_id) await notificationUtil.createNotification(payload);
 
       // notify PM too
-      if (interview.project_manager?.user_id) {
-        await notificationUtil.sendNotification({
-          user_id: interview.project_manager.user_id,
+      if (interview.interviewer?.user_id) {
+        await notificationUtil.createNotification({
+          user_id: interview.interviewer.user_id,
           title: 'Interview Updated',
           message: `An interview was updated (status: ${interview.status}).`,
-          type: 'interview',
-          data: { interview_id: interview.interviews_id }
+          type: 'info',
+          metadata: { interview_id: interview.interviews_id }
         });
       }
 
