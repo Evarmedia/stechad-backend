@@ -73,10 +73,22 @@ async function revokeAllSessions(userId, { reason = 'logout_all', transaction } 
     require('../utils/events').afterCommit(transaction, () => require('../utils/events').disconnectUser(userId));
   });
 }
+// Both managed refresh operations use this lock order and eligibility check.
+// Their consumed-token policies stay with rotation and revocation respectively.
+async function lockManagedCredential(candidate, transaction) {
+  const initial = await AuthSession.findByPk(candidate.session_id, { transaction });
+  const user = initial && await User.unscoped().findByPk(initial.user_id, { transaction, lock: transaction.LOCK.UPDATE });
+  if (!user) throw fail();
+  const session = await AuthSession.findByPk(candidate.session_id, { transaction, lock: transaction.LOCK.UPDATE });
+  validIdentity(user, session);
+  const credential = await AuthRefreshToken.findByPk(candidate.token_hash, { transaction, lock: transaction.LOCK.UPDATE });
+  if (session.revoked_at || new Date(session.expires_at) <= new Date() || new Date(credential.expires_at) <= new Date()) throw fail();
+  await activation(transaction);
+  return { user, session, credential };
+}
 async function rotateRefreshToken(token, { request } = {}) {
   return runWithoutTenant(async () => {
     const result = await sequelize.transaction(async transaction => {
-      // Consistently lock identity before session before refresh credential.
       const candidate = await AuthRefreshToken.findByPk(digest(token), { transaction });
       if (!candidate) {
         let decoded; try { decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] }); } catch { throw fail(); }
@@ -87,14 +99,7 @@ async function rotateRefreshToken(token, { request } = {}) {
         await AuthLegacyExchange.create({ token_hash: digest(token), user_id: user.user_id }, { transaction });
         return createSession(user, { transaction, request, authMethod: 'legacy_exchange' });
       }
-      const initial = await AuthSession.findByPk(candidate.session_id, { transaction });
-      const user = initial && await User.unscoped().findByPk(initial.user_id, { transaction, lock: transaction.LOCK.UPDATE });
-      if (!user) throw fail();
-      const session = await AuthSession.findByPk(candidate.session_id, { transaction, lock: transaction.LOCK.UPDATE });
-      validIdentity(user, session);
-      const credential = await AuthRefreshToken.findByPk(digest(token), { transaction, lock: transaction.LOCK.UPDATE });
-      if (session.revoked_at || new Date(session.expires_at) <= new Date() || new Date(credential.expires_at) <= new Date()) throw fail();
-      await activation(transaction);
+      const { user, session, credential } = await lockManagedCredential(candidate, transaction);
       if (credential.consumed_at) {
         const raceMs = refreshRaceMs();
         if (Date.now() - new Date(credential.consumed_at).getTime() <= raceMs) return { error: fail('Refresh already rotated; adopt the newer token', 409, 'REFRESH_ALREADY_ROTATED') };
@@ -117,14 +122,7 @@ async function revokeWithRefreshProof(token, { all = false } = {}) {
     if (typeof token !== 'string' || !token) throw fail();
     const candidate = await AuthRefreshToken.findByPk(digest(token), { transaction });
     if (!candidate) throw fail(); // Legacy JWT refresh credentials are excluded.
-    const initial = await AuthSession.findByPk(candidate.session_id, { transaction });
-    const user = initial && await User.unscoped().findByPk(initial.user_id, { transaction, lock: transaction.LOCK.UPDATE });
-    if (!user) throw fail();
-    const session = await AuthSession.findByPk(candidate.session_id, { transaction, lock: transaction.LOCK.UPDATE });
-    validIdentity(user, session);
-    const credential = await AuthRefreshToken.findByPk(digest(token), { transaction, lock: transaction.LOCK.UPDATE });
-    if (session.revoked_at || new Date(session.expires_at) <= new Date() || new Date(credential.expires_at) <= new Date()) throw fail();
-    await activation(transaction);
+    const { user, session, credential } = await lockManagedCredential(candidate, transaction);
     const raceMs = refreshRaceMs();
     if (credential.consumed_at && Date.now() - new Date(credential.consumed_at).getTime() > raceMs) throw fail();
     if (all) {
