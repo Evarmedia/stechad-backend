@@ -91,6 +91,7 @@ const initializeChatSocket = (io) => {
               ? error.message
               : "Unable to complete chat action",
             status: error.status || 500,
+            code: error.code,
           };
           if (!error.status) console.error(`Socket ${event} failed:`, error);
           if (typeof acknowledge === "function") acknowledge(result);

@@ -147,7 +147,7 @@ app.use(
 let serverlessReadiness;
 if (process.env.VERCEL) app.use(async (req, res, next) => {
   try {
-    serverlessReadiness ||= require('./services/tenancyReadiness').assertTenancyReady(sequelize).catch((error) => { serverlessReadiness = undefined; throw error; });
+    serverlessReadiness ||= require('./services/tenancyReadiness').assertTenancyReady(sequelize).then(() => installAuditing(require('./models'))).catch((error) => { serverlessReadiness = undefined; throw error; });
     await serverlessReadiness;
     next();
   } catch (error) {

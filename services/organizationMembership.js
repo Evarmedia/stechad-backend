@@ -17,6 +17,12 @@ async function requireMembership(userId, organizationId, { transaction, manage =
 async function sessionView(user, organizationId) {
   return runWithoutTenant(async () => {
     const organizations = await listOrganizations(user.user_id);
+    // Preserve pre-cutover fixtures only. The server composition always enables
+    // enforcement; any recorded membership also disables this legacy path.
+    if (process.env.TENANCY_ENFORCED !== 'true' && organizationId === undefined && !await OrganizationMembership.count({ where: { user_id: user.user_id } })) {
+      const legacy = await require('../models').User.findByPk(user.user_id);
+      return { user: await require('../controllers/authController').formatUserResponse(legacy), organizations: [], active_organization_id: null };
+    }
     if (organizationId !== undefined) uuid(organizationId);
     const selected = organizationId || (organizations.length === 1 ? organizations[0].organization_id : null);
     const data = user.get ? user.get({ plain: true }) : { ...user };

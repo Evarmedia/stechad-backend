@@ -87,17 +87,19 @@ else {
   });
 
   test('new invitees use emailed single-use tokens, expiry is enforced and stored digests are not credentials', async () => {
-    const create = async (email) => {
-      const result = await request(`/api/organizations/${orgA.organization_id}/invitations`, owner, { email, role_id: roleA.role_id });
+    const create = async (email, roleId = roleA.role_id) => {
+      const result = await request(`/api/organizations/${orgA.organization_id}/invitations`, owner, { email, role_id: roleId });
       assert.equal(result.status, 201, JSON.stringify(result.body));
       return { invitation: result.body.data.invitation, token: new URL(messages.at(-1).replacements.url).searchParams.get('token') };
     };
-    const fresh = await create('new@example.test');
+    const custom = await models.Role.create({ organization_id: orgA.organization_id, role_key: 'finance_custom', name: 'Custom Finance', is_system: false, permission_keys: ['create_projects'] });
+    const fresh = await create('new@example.test', custom.role_id);
     const credentials = { new_password: 'New-valid123!', confirm_password: 'New-valid123!' };
     const accepted = await request(`/api/auth/accept-invite/${fresh.token}`, null, credentials); assert.equal(accepted.status, 201, JSON.stringify(accepted.body));
     assert.equal((await request(`/api/auth/accept-invite/${fresh.token}`, null, credentials)).status, 400);
     const login = await request('/api/auth/login', null, { email: 'new@example.test', password: credentials.new_password });
     assert.equal(login.status, 200); assert.equal(login.body.data.user.organization_id, orgA.organization_id); assert.equal(login.body.data.user.is_verified, true);
+    assert.equal(login.body.data.user.role, custom.role_key); assert.ok(login.body.data.user.effective_permissions.includes('create_projects'));
     const expired = await create('expired@example.test');
     await models.Invite.unscoped().update({ expires_at: new Date(0) }, { where: { invite_id: expired.invitation.invite_id } });
     assert.equal((await request(`/api/auth/accept-invite/${expired.token}`, null, credentials)).status, 400);

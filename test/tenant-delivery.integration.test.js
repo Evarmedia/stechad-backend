@@ -23,6 +23,7 @@ else {
   const wait = (milliseconds = 80) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   before(async () => {
     await db.createSchema(schema); await db.sync();
+    await require('../utils/chatMigration').migrateChatStorage();
     orgA = await models.Organization.create({ slug: 'delivery-a', name: 'A' });
     orgB = await models.Organization.create({ slug: 'delivery-b', name: 'B' });
     const role = await models.Role.create({ organization_id: orgA.organization_id, role_key: 'staff', name: 'Staff', is_system: true });
@@ -37,6 +38,7 @@ else {
     const express = require('express'); const app = express(); app.use(express.json());
     app.use(require('../middleware/auth').authenticate);
     app.use(require('../middleware/organization').requireOrganization);
+    app.use('/api/chat', require('../routes/chatRoutes'));
     app.post('/publish', async (req, res, next) => {
       try { await events.emitUser(shared.user_id, 'notification_created', { marker: req.body.marker }); res.json({ success: true }); }
       catch (error) { next(error); }
@@ -87,6 +89,27 @@ else {
   test('a forged organization cannot open a socket', { timeout: 5000 }, async () => {
     const socket = connect(origin, { auth: { token: token(), organization_id: randomUUID() }, transports: ['websocket'], reconnection: false, forceNew: true });
     sockets.add(socket); const [error] = await once(socket, 'connect_error'); assert.match(error.message, /Authentication/);
+  });
+  test('real chat routes isolate foreign IDs, personal history SQL and participant assignments', { timeout: 15000 }, async () => {
+    const role = await models.Role.create({ organization_id: orgB.organization_id, role_key: 'staff', name: 'Staff', is_system: true });
+    await models.HRProfile.update({ role_id: role.role_id }, { where: { organization_id: orgB.organization_id, user_id: shared.user_id } });
+    const peer = await models.User.create({ email: 'peer-b@example.test', role_id: role.role_id, first_name: 'B peer' });
+    const membership = await models.OrganizationMembership.create({ organization_id: orgB.organization_id, user_id: peer.user_id });
+    await models.HRProfile.create({ organization_id: orgB.organization_id, membership_id: membership.membership_id, user_id: peer.user_id, role_id: role.role_id });
+    const foreignChat = await models.Chat.create({ organization_id: orgA.organization_id, participants: [shared.user_id], chat_type: 'direct' });
+    const request = async (path, method = 'GET', body) => {
+      const response = await fetch(origin + '/api/chat' + path, { method, headers: { authorization: `Bearer ${token()}`, 'x-organization-id': orgB.organization_id, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      return { status: response.status, ...await response.json() };
+    };
+    assert.equal((await request('/' + foreignChat.chats_id)).status, 404);
+    const created = await request('', 'POST', { participant_ids: [peer.user_id] }); assert.equal(created.status, 201, JSON.stringify(created));
+    const id = created.data.chats_id;
+    const sent = await request('/' + id + '/messages', 'POST', { content: 'B private message' }); assert.equal(sent.status, 201, JSON.stringify(sent));
+    const list = await request(''); assert.equal(list.status, 200, JSON.stringify(list)); assert.doesNotMatch(JSON.stringify(list), new RegExp(foreignChat.chats_id));
+    assert.equal((await request('/' + id + '/messages', 'POST', { content: 'Forged attachment', attachments: [{ object_name: 'unknown/private.pdf' }] })).status, 403);
+    const cleared = await request('/' + id + '/clear', 'POST', {}); assert.equal(cleared.status, 200, JSON.stringify(cleared));
+    assert.equal((await request('/' + id + '/messages')).data.messages.length, 0);
+    assert.equal(await models.ChatUserState.count({ where: { organization_id: orgA.organization_id } }), 0);
   });
   test('another organization cannot invoke the legacy Zoho credentials', async (t) => {
     for (const name of ['ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'ZOHO_ORGANIZATION_ID', 'ZOHO_DEFAULT_ITEM_ID']) process.env[name] = 'test-legacy-only';

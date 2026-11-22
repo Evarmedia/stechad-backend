@@ -3,7 +3,7 @@ const { peekTenantContext, revalidateTenantContext } = require('./tenantContext'
 const denied = () => Object.assign(new Error('File is not available in this organization'), { status: 403 });
 
 async function fileOwner(objectName, context) {
-  const { StoredFile, Talent, ExpenseClaim, Chat, User, OrganizationMembership } = require('../models');
+  const { StoredFile, Talent, ExpenseClaim, Chat, Message, User, OrganizationMembership } = require('../models');
   const registered = await StoredFile.findOne({ where: { organization_id: context.organizationId, object_name: objectName } });
   if (registered) return { owner: registered.owner_user_id, purpose: registered.purpose };
   // Legacy references retain their object names. Resolve ownership through data,
@@ -14,6 +14,8 @@ async function fileOwner(objectName, context) {
   if (expense) return { owner: expense.user_id, purpose: 'receipts' };
   const chat = await Chat.findOne({ where: { organization_id: context.organizationId, avatar_object_name: objectName, participants: { [Op.contains]: [context.userId] } } });
   if (chat) return { owner: chat.created_by, purpose: 'chat-avatars', chat };
+  const attachment = await Message.findOne({ where: { organization_id: context.organizationId, [Op.or]: [{ attachments: { [Op.contains]: [{ object_name: objectName }] } }, { attachments: { [Op.contains]: [{ objectName }] } }] }, include: [{ model: Chat, as: 'chat', where: { organization_id: context.organizationId, participants: { [Op.contains]: [context.userId] } }, required: true }] });
+  if (attachment) return { owner: attachment.sender_id, purpose: 'chat-attachments', chat: attachment.chat };
   const avatar = await User.unscoped().findOne({ where: { avatar_object_name: objectName }, attributes: ['user_id'], paranoid: false });
   if (avatar && await OrganizationMembership.findOne({ where: { organization_id: context.organizationId, user_id: avatar.user_id } })) return { owner: avatar.user_id, purpose: 'avatars' };
   return null;

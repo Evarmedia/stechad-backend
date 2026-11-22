@@ -40,11 +40,13 @@ else {
   });
   after(async () => { await db.dropSchema(schema, { cascade: true }); await db.close(); });
   test('dry-run is read-only; apply twice and verify preserve identifiers, credentials, grants and deleted history', async () => {
+    await assert.rejects(require('../services/tenancyReadiness').assertTenancyReady(db), /Apply the explicit tenancy migration/);
     const dry = await command('dry-run'); assert.equal(dry.mode, 'dry-run'); assert.equal(dry.inventory.users, 1);
     assert.equal(await db.getQueryInterface().tableExists({ tableName: 'organizations', schema }), false);
     assert.equal((await command('apply')).ok, true);
     await db.query(`UPDATE "${schema}".hr_profiles SET job_title = 'Changed after migration' WHERE user_id = :id`, { replacements: { id: userId } });
     assert.equal((await command('apply')).ok, true);
+    assert.equal((await require('../services/tenancyReadiness').assertTenancyReady(db)).ok, true);
     const report = await command('verify'); assert.equal(report.ok, true); assert.equal(report.inventory.ChatParticipants, 1); assert.equal(report.inventory.talent_project, 0);
     assert.ok(report.unresolvedRelationships.some((r) => r.child === 'audit_logs' && r.column === 'actor_user_id' && r.count === 1));
     const [user] = await db.query(`SELECT * FROM "${schema}".users`, { type: QueryTypes.SELECT });

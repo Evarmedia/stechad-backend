@@ -70,7 +70,8 @@ else {
     assert.equal((await request('/jobs?organization_slug=missing')).status, 404);
   });
   test('HR project CRUD, counts, assignments and talent access stay in the selected organization', async () => {
-    const a = await privateRequest('/projects', orgA, shared, 'POST', { title: 'A project', project_managers_id: pmA.project_managers_id, talent_ids: [talentA.talent_id], organization_id: orgB.organization_id });
+    assert.equal((await privateRequest('/projects', orgA, shared, 'POST', { title: 'Forged', organization_id: orgB.organization_id })).status, 400);
+    const a = await privateRequest('/projects', orgA, shared, 'POST', { title: 'A project', project_managers_id: pmA.project_managers_id, talent_ids: [talentA.talent_id] });
     assert.equal(a.status, 201, JSON.stringify(a));
     assert.equal(a.data.organization_id, orgA.organization_id);
     const id = a.data.projects_id;
@@ -91,7 +92,7 @@ else {
     assert.equal((await privateRequest(`/projects/${id}`, orgA, shared, 'DELETE')).status, 200);
   });
   test('job creation, management, deletion and private counts retain the PM resource boundary', async () => {
-    const created = await privateRequest('/pm/jobs', orgA, pmUser, 'POST', { title: 'New job', company: 'A', location: 'Remote', description: 'Description', employment_type: 'contract', openings: 1, experience_level: 'expert', skills_required: ['Engineering'], requirements: ['Experience'], responsibilities: ['Delivery'], organization_id: orgB.organization_id, posted_by: otherPmUser.user_id });
+    const created = await privateRequest('/pm/jobs', orgA, pmUser, 'POST', { title: 'New job', company: 'A', location: 'Remote', description: 'Description', employment_type: 'contract', openings: 1, experience_level: 'expert', skills_required: ['Engineering'], requirements: ['Experience'], responsibilities: ['Delivery'], posted_by: otherPmUser.user_id });
     assert.equal(created.status, 201, JSON.stringify(created));
     assert.equal(created.data.organization_id, orgA.organization_id); assert.equal(created.data.posted_by, pmUser.user_id);
     const id = created.data.jobs_id;
@@ -106,7 +107,7 @@ else {
     assert.equal((await privateRequest('/jobs/stats/overview', orgA)).data.overview.totalJobs, 2);
   });
   test('talent onboarding and nested profile lists preserve independent tenant profiles', async () => {
-    const changed = await privateRequest('/talents/onboarding', orgA, talentUser, 'PUT', { years_of_experience: '8', specialization: ['A-private'], organization_id: orgB.organization_id });
+    const changed = await privateRequest('/talents/onboarding', orgA, talentUser, 'PUT', { years_of_experience: '8', specialization: ['A-private'] });
     assert.equal(changed.status, 200, JSON.stringify(changed));
     const [a, b] = await Promise.all([privateRequest('/talents/all?page=1&limit=10', orgA), privateRequest('/talents/all?page=1&limit=10', orgB, pmUser)]);
     assert.equal(a.status, 200, JSON.stringify(a)); assert.equal(b.status, 200, JSON.stringify(b));

@@ -25,13 +25,13 @@ async function resolveTenantContext({ userId, organizationId, transaction } = {}
     where: { user_id: userId, status: 'active', ...(organizationId ? { organization_id: organizationId } : {}) },
     include: [{ model: Organization, as: 'organization', where: { status: 'active' }, required: true }], transaction,
   });
-  if (!memberships.length) throw error('No active membership for this organization');
+  if (!memberships.length) throw Object.assign(error('No active membership for this organization'), { code: 'MEMBERSHIP_UNAVAILABLE' });
   if (!organizationId && memberships.length !== 1) throw Object.assign(error('Select an organization explicitly', 409), { code: 'ORGANIZATION_REQUIRED' });
   const membership = memberships[0];
   const profile = await HRProfile.findOne({ where: { membership_id: membership.membership_id, organization_id: membership.organization_id, user_id: userId }, transaction });
-  if (!profile || profile.deleted_at || profile.archived_at) throw error('HR access is unavailable');
+  if (!profile || profile.deleted_at || profile.archived_at) throw Object.assign(error('HR access is unavailable'), { code: 'HR_PROFILE_REQUIRED' });
   const role = await Role.findOne({ where: { role_id: profile.role_id, organization_id: membership.organization_id }, transaction });
-  if (!role) throw error('HR role does not belong to this organization');
+  if (!role) throw Object.assign(error('HR role does not belong to this organization'), { code: 'HR_PROFILE_REQUIRED' });
   return Object.freeze({ organizationId: membership.organization_id, membershipId: membership.membership_id, userId, membershipRole: membership.membership_role, roleId: profile.role_id, hrProfile: profile, role, organization: membership.organization });
 }
 async function revalidateTenantContext(context = getTenantContext(), options = {}) {

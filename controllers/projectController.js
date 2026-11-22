@@ -14,7 +14,8 @@ const { getRoleKey } = require("../utils/roleUtils");
 
 async function assignTalents(project, talents, transaction, replace = false) {
   const join = Project.associations.talents.through.model;
-  const repository = require('../services/tenantRepository').tenantRepository(join);
+  const context = require('../services/tenantContext').peekTenantContext();
+  const repository = context || process.env.TENANCY_ENFORCED === 'true' ? require('../services/tenantRepository').tenantRepository(join) : join;
   if (replace) await repository.destroy({ where: { projects_id: project.projects_id }, transaction });
   if (talents.length) await repository.bulkCreate(talents.map((talent) => ({ projects_id: project.projects_id, talent_id: talent.talent_id })), { transaction });
 }
