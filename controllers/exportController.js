@@ -1,4 +1,4 @@
-const { User, Talent, ProjectManager, Job, Application, Project } = require('../models');
+const { User, Talent, ProjectManager, Job, Application, Project } = require('../services/hrModels');
 const { Op } = require('sequelize');
 
 // Export talents data

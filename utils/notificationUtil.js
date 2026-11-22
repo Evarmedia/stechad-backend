@@ -1,5 +1,5 @@
 const path = require("path");
-const { Notification } = require("../models");
+const { Notification } = require("../services/hrModels");
 const sendEmail = require("./sendEmail");
 
 /**
@@ -340,6 +340,8 @@ const notifyJobPosterOfApplication = async ({ job, application, talent }) => {
       },
     });
 
+    const organizationId = require('../services/tenantContext').peekTenantContext()?.organizationId;
+    if (!await require('./events').canDeliver(pmUserId, organizationId)) return;
     await sendEmail({
       to: pmEmail,
       subject: `New application for ${job.title}`,

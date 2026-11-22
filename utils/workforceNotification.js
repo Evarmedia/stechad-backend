@@ -1,6 +1,6 @@
 const path = require("path");
 const { Op } = require("sequelize");
-const { User, Notification } = require("../models");
+const { User, Notification } = require("../services/hrModels");
 const { hasPermission } = require("../middleware/auth");
 const sendEmail = require("./sendEmail");
 const { ROLE_INCLUDE } = require("./roleUtils");
@@ -44,10 +44,12 @@ const notifyPermissionHolders = async ({
     process.env.NODE_ENV === "production"
       ? process.env.FRONTEND_PROD_URL
       : process.env.FRONTEND_URL;
+  const organizationId = require('../services/tenantContext').peekTenantContext()?.organizationId;
   setImmediate(() => {
     Promise.allSettled(
-      recipients.map((user) =>
-        sendEmail({
+      recipients.map(async (user) => {
+        if (!await require("./events").canDeliver(user.user_id, organizationId)) return;
+        return sendEmail({
           to: user.email,
           subject: title,
           htmlFilePath: path.join(
@@ -59,8 +61,8 @@ const notifyPermissionHolders = async ({
             message,
             url: `${frontendUrl || ""}${actionUrl}`,
           },
-        }),
-      ),
+        });
+      }),
     ).then((results) => {
       const failures = results.filter(
         (result) => result.status === "rejected",

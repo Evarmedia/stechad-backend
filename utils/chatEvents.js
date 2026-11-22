@@ -1,5 +1,6 @@
-const { Chat, Notification } = require("../models");
+const { Chat, Notification } = require("../services/hrModels");
 const { findMessage } = require("./chatUtil");
+const { emitToUser } = require('./events');
 
 // Personal rooms reach every participant's tabs, including those viewing another chat.
 const publishChatEvent = async (io, chatId, event, payload) => {
@@ -16,7 +17,7 @@ const publishChatEvent = async (io, chatId, event, payload) => {
       );
       if (!personalized.message) continue;
     }
-    io.to(`user_${userId}`).emit(event, personalized);
+    await emitToUser(io, userId, event, personalized);
     if (event === "new_message") {
       const notification = await Notification.findOne({
         where: {
@@ -25,13 +26,13 @@ const publishChatEvent = async (io, chatId, event, payload) => {
         },
       });
       if (notification)
-        io.to(`user_${userId}`).emit("notification_created", {
+        await emitToUser(io, userId, "notification_created", {
           notification: notification.toJSON(),
         });
     }
   }
   if (event === "messages_read")
-    io.to(`user_${payload.user_id}`).emit("notifications_changed", {
+    await emitToUser(io, payload.user_id, "notifications_changed", {
       chat_id: chatId,
     });
 };

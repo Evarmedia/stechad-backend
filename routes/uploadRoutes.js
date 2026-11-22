@@ -66,7 +66,8 @@ router.post("/resume", upload.single("resume"), async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "No resume uploaded" });
-    const userId = req.body.user_id || req.user?.user_id;
+    if (req.body.user_id && req.body.user_id !== req.user.user_id) return res.status(403).json({ success: false, message: 'Uploads must belong to your own account' });
+    const userId = req.user?.user_id;
     if (!userId)
       return res
         .status(400)
@@ -148,7 +149,8 @@ router.post("/avatar", upload.single("avatar"), async (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "No avatar uploaded" });
-    const userId = req.body.user_id || req.user?.user_id;
+    if (req.body.user_id && req.body.user_id !== req.user.user_id) return res.status(403).json({ success: false, message: 'Uploads must belong to your own account' });
+    const userId = req.user?.user_id;
     if (!userId)
       return res
         .status(400)
@@ -247,10 +249,11 @@ router.post("/avatar", upload.single("avatar"), async (req, res) => {
  */
 // Endpoint to delete a file from Google Cloud Storage
 router.delete("/delete-file", async (req, res) => {
-  const { user_id, fileName, folderName } = req.body;
+  const { user_id, fileName, folderName, objectName } = req.body;
 
   try {
-    if (!fileName || !folderName) {
+    if (user_id && user_id !== req.user.user_id) return res.status(403).json({ success: false, message: 'You may only delete your own files' });
+    if (!objectName && (!fileName || !folderName)) {
       return res.status(400).json({
         success: false,
         message: "File name and folder name are required to delete the file.",
@@ -258,13 +261,8 @@ router.delete("/delete-file", async (req, res) => {
     }
 
     // Construct the file path in the bucket
-    const filePath = `${folderName}/${user_id}_${fileName}`;
-
-    // Get a reference to the file in the bucket
-    const file = bucket.file(filePath);
-
-    // Delete the file from the bucket
-    await file.delete();
+    const filePath = objectName || `${folderName}/${req.user.user_id}_${fileName}`;
+    await deleteFromGCP(filePath);
 
     res.status(200).json({
       success: true,
@@ -272,7 +270,7 @@ router.delete("/delete-file", async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
       message: "Failed to delete file",
       error: error.message,

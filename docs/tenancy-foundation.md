@@ -1,6 +1,6 @@
 # Phase 1 tenancy foundation
 
-This additive foundation does not enable production organization creation. The remaining Phase 1 work must scope existing controllers, authentication projections, realtime delivery, file authorization, jobs and external connections before enabling additional production organizations. Raw legacy model calls are still available until that integration lands; use the explicit primitives below for new code.
+Organization creation remains disabled by default. The integrated Phase 1 implementation scopes HR controllers through `services/hrModels`, uses selected HR authentication, validates file ownership, isolates realtime delivery and runs background work with explicit organization predicates. Raw models are reserved for global identity, migrations and services that supply validated ownership explicitly.
 
 ## Migration command
 
@@ -16,7 +16,7 @@ npm run migrate:tenancy -- --verify --database-url "$DATABASE_URL" --schema "$DB
 
 `tenancy_migration_state` freezes the original legacy identity population on the first successful apply. Reruns only backfill that snapshot, never enroll future users from another organization into stechad, never reset edited profiles or memberships, and reject ownerless rows appearing after cutover. `users` stays global. Every legacy user, including deleted users, receives a separate membership and HR profile. Suspended/deleted identity state initializes membership status without assigning platform privileges. Bootstrap role IDs and custom permission arrays stay intact.
 
-The inventory in `services/tenancyInventory.js` includes all 30 current HR tables, including `ChatParticipants` and `talent_project`. Absent tables and unclassified tables are reported; unclassified tables block apply/verify. Tenant keys, role names, employee IDs in HR profiles, settings, departments, attendance and other owned uniqueness are indexed per organization. Global identity email/referral uniqueness stays global. Existing compatibility-only employee fields on User are no longer authoritative.
+The inventory in `services/tenancyInventory.js` includes all 31 tenant-owned HR and file registry tables, including `ChatParticipants` and `talent_project`. Absent tables and unclassified tables are reported; unclassified tables block apply/verify. Tenant keys, role names, employee IDs in HR profiles, settings, departments, attendance and other owned uniqueness are indexed per organization. Global identity email/referral uniqueness stays global. Existing compatibility-only employee fields on User are no longer authoritative.
 
 Same-organization composite foreign keys protect new scalar relationship writes, including joins and actor references. Retained orphan references are reported under `unresolvedRelationships`; their constraints stay `NOT VALID` so historical rows survive while new violations fail. Cross-organization references are separately reported and fail apply/verify. References embedded inside JSON/arrays (chat participant/read state, project tasks/team) still require scoped application validation. Verify also checks that expected same-organization relationship constraints exist. A report with retained orphan history is not proof that the entire application is isolated.
 
@@ -45,3 +45,16 @@ Existing HR controllers import `services/hrModels` instead of raw models. This c
 The approved migration-command test uses disposable PostgreSQL schemas and runs dry-run, repeated apply and verify against custom grants, deleted users, orphan actors, pending invites, finance/file references and chat personal state. It also proves future organization-B identities are not enrolled into stechad by a rerun, and same-role names can coexist across organizations while cross-org role references fail.
 
 The approved HTTP/PostgreSQL test covers concurrent A/B requests, ambiguous/malformed/forged selection, scoped by-ID reads, server-owned writes, suspension and contextless repository rejection. Configure `TENANCY_TEST_DATABASE_URL` to run both tests.
+
+
+## Runtime and delivery cutover
+
+The server always enables `TENANCY_ENFORCED=true` before loading HR routes. Standalone startup and serverless requests fail closed until the explicit migration checkpoint and verification pass. Existing versioned migrations add invitation digests, the tenant file registry and global identity audit history; they do not perform the legacy tenancy backfill. Run versioned migrations, then the explicit tenancy command while old writers are drained. Repeat apply after introducing new relationship constraints, then verify before starting the new application.
+
+`services/hrModels` is the compatibility boundary for existing HR controllers and helpers. It scopes reads, aggregates, nested includes, associations and writes, projects employment fields from HRProfile and protects returned instance mutations. Authentication/global identity services import raw models deliberately. Contextless legacy behavior exists only for old regression fixtures; it is disabled in the server composition. Conflicting body/query organization IDs fail; only authenticated selection supplies ownership.
+
+Realtime rooms include organization ID. Actions and each recipient delivery revalidate membership. Membership revocation disconnects that organization's sockets; global credential/session changes disconnect all identity sockets. `online_users` uses `{ organization_id, users }` for tenant sockets. Deferred hooks capture immutable tenant context. Global `account_updated` carries no tenant data and only triggers identity refetch.
+
+New uploads register owner and organization and use organization-prefixed object names. Signing/deletion checks database ownership first; legacy CVs, receipts, avatars and chat attachment references retain original paths. Existing signed URLs cannot be revoked after issue, so their configured expiry remains the access limit. Identity audit events have a separate global table; tenant audit events retain explicit ownership, including scheduled jobs. Legacy Zoho environment credentials are usable only inside stechad; other organizations report unconfigured.
+
+Organization owners and HR administrators remain separate. Creating an organization currently gives its owner a basic staff HR profile; automatic HR super-admin provisioning was rejected by automatic approval review. Existing stechad HR super-admin access is preserved. New production organization creation stays gated pending deployment review and trusted HR-role provisioning; no platform privileges are inferred.

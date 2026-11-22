@@ -27,6 +27,7 @@ const authenticate = (req, res, next) => authenticateIdentity(req, res, async ()
   try {
     const { resolveTenantContext, runWithTenant, getHRIdentity } = require('../services/tenantContext');
     const context = await resolveTenantContext({ userId: req.identity.user_id, organizationId: req.get('X-Organization-ID') });
+    require('./organization').validateOrganizationInput(req, context);
     req.tenant = context; req.user = getHRIdentity(req.identity, context);
     return runWithTenant(context, next);
   } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, code: error.code || (error.status === 403 ? 'MEMBERSHIP_UNAVAILABLE' : undefined) }); }

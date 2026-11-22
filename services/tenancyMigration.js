@@ -13,7 +13,7 @@ async function migrateTenancy(client, { schema, mode }) {
     else await run('SELECT pg_advisory_xact_lock(hashtext($1))', [`stechad-tenancy:${schema}`]);
     const { rows: tables } = await run('SELECT tablename FROM pg_tables WHERE schemaname = $1', [schema]);
     const existing = new Set(tables.map((row) => row.tablename));
-    const known = new Set(['users', 'organizations', 'organization_memberships', 'hr_profiles', 'SequelizeMeta', 'tenancy_migration_state', ...TENANT_TABLES]);
+    const known = new Set(['users', 'organizations', 'organization_memberships', 'hr_profiles', 'identity_audit_logs', 'SequelizeMeta', 'tenancy_migration_state', ...TENANT_TABLES]);
     const unclassifiedTables = [...existing].filter((name) => !known.has(name));
     if (!existing.has('users') || !existing.has('roles')) throw new Error('Legacy users and roles tables must exist; run existing migrations first');
     if (existing.has('tenancy_migration_state') && !(await run(`SELECT 1 FROM ${table('tenancy_migration_state')} WHERE migration_key='phase1-stechad'`)).rowCount) throw new Error('Tenancy migration checkpoint is missing; refusing to infer legacy users');
@@ -105,6 +105,7 @@ async function migrateTenancy(client, { schema, mode }) {
     const relations = (await run(`SELECT c.conname, s.relname child, a.attname child_column, p.relname parent, pa.attname parent_column FROM pg_constraint c JOIN pg_class s ON s.oid=c.conrelid JOIN pg_namespace n ON n.oid=s.relnamespace JOIN pg_class p ON p.oid=c.confrelid JOIN pg_attribute a ON a.attrelid=s.oid AND a.attnum=c.conkey[1] JOIN pg_attribute pa ON pa.attrelid=p.oid AND pa.attnum=c.confkey[1] WHERE n.nspname=$1 AND c.contype='f' AND array_length(c.conkey,1)=1`, [schema])).rows.filter((r) => owned.includes(r.child) && (owned.includes(r.parent) || r.parent === 'users'));
     // Some legacy logical relationships deliberately had no FK.
     const logical = [
+      ['stored_files','owner_user_id','users','user_id'],
       ['hr_profiles','role_id','roles','role_id'], ['hr_profiles','department_id','departments','department_id'], ['hr_profiles','reports_to_user_id','users','user_id'],
       ['departments','manager_user_id','users','user_id'], ['audit_logs','actor_user_id','users','user_id'],
       ['notification_broadcasts','created_by','users','user_id'], ['invites','invited_by_user_id','users','user_id'],

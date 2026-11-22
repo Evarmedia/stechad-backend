@@ -5,7 +5,7 @@ const {
   Job,
   Application,
   Project,
-} = require("../models");
+} = require("../services/hrModels");
 const { Op } = require("sequelize");
 const { ROLE_INCLUDE } = require("../utils/roleUtils");
 
@@ -72,26 +72,26 @@ const getUserAnalytics = async (req, res) => {
     // User growth trends
     const registrationTrends = await User.unscoped().findAll({
       attributes: [
-        [User.sequelize.fn("DATE", User.sequelize.col("created_at")), "date"],
-        [User.sequelize.fn("COUNT", User.sequelize.col("user_id")), "count"],
+        [User.sequelize.fn("DATE", User.sequelize.col("User.created_at")), "date"],
+        [User.sequelize.fn("COUNT", User.sequelize.col("User.user_id")), "count"],
       ],
       where: { created_at: dateFilter },
-      group: [User.sequelize.fn("DATE", User.sequelize.col("created_at"))],
+      group: [User.sequelize.fn("DATE", User.sequelize.col("User.created_at"))],
       order: [
-        [User.sequelize.fn("DATE", User.sequelize.col("created_at")), "ASC"],
+        [User.sequelize.fn("DATE", User.sequelize.col("User.created_at")), "ASC"],
       ],
       raw: true,
     });
 
     // Calculate growth percentage
     const previousPeriodStart = new Date(
-      dateFilter[Op.gte].getTime() -
-        (now.getTime() - dateFilter[Op.gte].getTime())
+      (dateFilter[Op.gte] || dateFilter[Op.between][0]).getTime() -
+        ((dateFilter[Op.between]?.[1] || now).getTime() - (dateFilter[Op.gte] || dateFilter[Op.between][0]).getTime())
     );
     const previousPeriodUsers = await User.count({
       where: {
         created_at: {
-          [Op.between]: [previousPeriodStart, dateFilter[Op.gte]],
+          [Op.between]: [previousPeriodStart, dateFilter[Op.gte] || dateFilter[Op.between][0]],
         },
       },
     });
@@ -186,7 +186,7 @@ const getJobAnalytics = async (req, res) => {
       attributes: [
         "employment_type",
         [
-          Job.sequelize.fn("COUNT", Job.sequelize.col("employment_type")),
+          Job.sequelize.fn("COUNT", Job.sequelize.col("Job.employment_type")),
           "count",
         ],
       ],
@@ -218,13 +218,13 @@ const getJobAnalytics = async (req, res) => {
     // Job posting trends
     const jobTrends = await Job.findAll({
       attributes: [
-        [Job.sequelize.fn("DATE", Job.sequelize.col("created_at")), "date"],
-        [Job.sequelize.fn("COUNT", Job.sequelize.col("jobs_id")), "count"],
+        [Job.sequelize.fn("DATE", Job.sequelize.col("Job.created_at")), "date"],
+        [Job.sequelize.fn("COUNT", Job.sequelize.col("Job.jobs_id")), "count"],
       ],
       where: { created_at: dateFilter },
-      group: [Job.sequelize.fn("DATE", Job.sequelize.col("created_at"))],
+      group: [Job.sequelize.fn("DATE", Job.sequelize.col("Job.created_at"))],
       order: [
-        [Job.sequelize.fn("DATE", Job.sequelize.col("created_at")), "ASC"],
+        [Job.sequelize.fn("DATE", Job.sequelize.col("Job.created_at")), "ASC"],
       ],
       raw: true,
     });
@@ -347,14 +347,14 @@ const getApplicationAnalytics = async (req, res) => {
         [
           Application.sequelize.fn(
             "DATE",
-            Application.sequelize.col("applied_at")
+            Application.sequelize.col("Application.applied_at")
           ),
           "date",
         ],
         [
           Application.sequelize.fn(
             "COUNT",
-            Application.sequelize.col("applications_id")
+            Application.sequelize.col("Application.applications_id")
           ),
           "count",
         ],
@@ -363,14 +363,14 @@ const getApplicationAnalytics = async (req, res) => {
       group: [
         Application.sequelize.fn(
           "DATE",
-          Application.sequelize.col("applied_at")
+          Application.sequelize.col("Application.applied_at")
         ),
       ],
       order: [
         [
           Application.sequelize.fn(
             "DATE",
-            Application.sequelize.col("applied_at")
+            Application.sequelize.col("Application.applied_at")
           ),
           "ASC",
         ],
@@ -456,13 +456,13 @@ const getPlatformAnalytics = async (req, res) => {
     const totalUsers = await User.count();
     const newUsers = await User.count({ where: { created_at: dateFilter } });
     const previousPeriodStart = new Date(
-      dateFilter[Op.gte].getTime() -
-        (now.getTime() - dateFilter[Op.gte].getTime())
+      (dateFilter[Op.gte] || dateFilter[Op.between][0]).getTime() -
+        ((dateFilter[Op.between]?.[1] || now).getTime() - (dateFilter[Op.gte] || dateFilter[Op.between][0]).getTime())
     );
     const previousPeriodUsers = await User.count({
       where: {
         created_at: {
-          [Op.between]: [previousPeriodStart, dateFilter[Op.gte]],
+          [Op.between]: [previousPeriodStart, dateFilter[Op.gte] || dateFilter[Op.between][0]],
         },
       },
     });
@@ -480,7 +480,7 @@ const getPlatformAnalytics = async (req, res) => {
       attributes: [
         "talent_user_id",
         [
-          Project.sequelize.fn("COUNT", Project.sequelize.col("projects_id")),
+          Project.sequelize.fn("COUNT", Project.sequelize.col("Project.projects_id")),
           "projects_completed",
         ],
       ],
@@ -491,7 +491,7 @@ const getPlatformAnalytics = async (req, res) => {
       group: ["talent_user_id"],
       order: [
         [
-          Project.sequelize.fn("COUNT", Project.sequelize.col("projects_id")),
+          Project.sequelize.fn("COUNT", Project.sequelize.col("Project.projects_id")),
           "DESC",
         ],
       ],

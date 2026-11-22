@@ -7,7 +7,7 @@ const {
   User,
   Department,
   ProjectManager,
-} = require("../models");
+} = require("../services/hrModels");
 const chatUtil = require("./chatUtil");
 const policy = require("./chatPolicy");
 const { ROLE_INCLUDE } = require("./roleUtils");
@@ -38,10 +38,12 @@ const visibleLatestSequence = async (chatId, userId, transaction) => {
     : String(state.left_through_sequence);
 };
 async function deleteNotifications(chatId, userId, transaction, boundary) {
+  const organizationId = require('../services/tenantContext').peekTenantContext()?.organizationId;
+  if (!organizationId && process.env.TENANCY_ENFORCED === 'true') throw policy.chatError('Organization context is required', 403);
   await sequelize.query(
     `DELETE FROM ${policy.quoteTable("notifications")} n USING ${policy.quoteTable("messages")} m
-    WHERE n.chat_message_id = m.messages_id AND n.user_id = :userId AND m.chat_id = :chatId ${boundary === undefined ? "" : "AND m.message_sequence <= :boundary"}`,
-    { replacements: { userId, chatId, boundary }, transaction },
+    WHERE n.chat_message_id = m.messages_id ${organizationId ? 'AND n.organization_id = :organizationId AND m.organization_id = :organizationId' : ''} AND n.user_id = :userId AND m.chat_id = :chatId ${boundary === undefined ? "" : "AND m.message_sequence <= :boundary"}`,
+    { replacements: { userId, chatId, boundary, organizationId }, transaction },
   );
 }
 async function clearHistory(chatId, userId) {
