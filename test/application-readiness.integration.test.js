@@ -56,4 +56,26 @@ else {
     const auditHistory = JSON.stringify(await models.IdentityAuditLog.findAll());
     assert.equal(auditHistory.includes(refreshDigest), false, 'credential digests must not leak into generic audit targets');
   });
+  test('versioned migration commands repeat safely, preserve HR credentials and create no platform grants', async () => {
+    const fs = require('node:fs/promises'); const path = require('node:path');
+    const directory = await fs.mkdtemp(path.join(require('node:os').tmpdir(), 'phase2-migrations-'));
+    const cwd = path.resolve(__dirname, '..');
+    try {
+      const migrationPath = path.join(directory, 'migrations'); await fs.mkdir(migrationPath);
+      for (const filename of ['20261122100000-managed-auth-sessions.js', '20261122110000-explicit-platform-authority.js']) await fs.symlink(path.join(cwd, 'migrations', filename), path.join(migrationPath, filename));
+      const config = path.join(directory, 'config.json');
+      await fs.writeFile(config, JSON.stringify({ phase2: { use_env_variable: 'SESSIONS_TEST_DATABASE_URL', dialect: 'postgres', schema, migrationStorageTableSchema: schema, logging: false } }));
+      const args = [require.resolve('sequelize-cli/lib/sequelize'), 'db:migrate', '--config', config, '--env', 'phase2', '--migrations-path', migrationPath];
+      const before = await models.User.unscoped().findOne({ where: { email: 'global-only@example.test' } });
+      const state = await models.AuthSecurityState.findByPk('sessions');
+      await execute(process.execPath, args, { cwd });
+      await execute(process.execPath, args, { cwd });
+      const after = await models.User.unscoped().findByPk(before.user_id);
+      assert.equal(after.password, before.password); assert.equal(after.role_id, before.role_id);
+      assert.equal(await models.PlatformRole.count(), 3); assert.equal(await models.PlatformRoleGrant.count(), 0);
+      assert.equal(new Date((await models.AuthSecurityState.findByPk('sessions')).activated_at).getTime(), new Date(state.activated_at).getTime());
+      const verified = await execute(process.execPath, ['scripts/migrate-tenancy.js', '--verify', '--database-url', url, '--schema', schema], { cwd });
+      assert.equal(JSON.parse(verified.stdout).ok, true);
+    } finally { await fs.rm(directory, { recursive: true, force: true }); }
+  });
 }
