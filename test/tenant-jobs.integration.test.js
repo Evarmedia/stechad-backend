@@ -14,6 +14,8 @@ else {
   const m = require('../models');
   const { runWithTenant, resolveTenantContext } = require('../services/tenantContext');
   const scheduler = require('../utils/attendanceScheduler');
+  const events = require('../utils/events');
+  const delivered = [];
   let shared, removed, archivedProfileUser, orgA, orgB, archived, entries = {};
   const tick = new Date('2026-11-22T18:00:00Z');
   async function member(org, user, role, options = {}) {
@@ -36,8 +38,10 @@ else {
     for (const [key, org, user] of [['a', orgA, shared], ['b', orgB, shared], ['archived', archived, shared], ['removed', orgB, removed], ['profile', orgB, archivedProfileUser]]) {
       entries[key] = await m.Attendance.create({ organization_id: org.organization_id, user_id: user.user_id, work_date: '2026-11-22', clock_in: '2026-11-22T08:00:00Z', auto_clock_out_at: '2026-11-22T16:00:00Z' });
     }
+    require('../utils/audit').installAuditing(m);
+    events.setRealtime({ to: (room) => ({ emit: (event, payload) => delivered.push({ room, event, payload }) }), in() { return this; }, disconnectSockets() {} });
   });
-  after(async () => { await db.dropSchema(schema, { cascade: true }); await db.close(); });
+  after(async () => { events.setRealtime(null); await db.dropSchema(schema, { cascade: true }); await db.close(); });
   test('request reconciliation touches only selected organization, timer uses each active HR role', async () => {
     const ctx = await resolveTenantContext({ userId: shared.user_id, organizationId: orgA.organization_id });
     await runWithTenant(ctx, () => scheduler.reconcileUnclosedAttendance(tick));
@@ -51,6 +55,11 @@ else {
     assert.equal(await scheduler.reconcileUnclosedAttendance(tick), 1);
     await absent.reload(); assert.equal(absent.status, 'absent');
     assert.equal(await scheduler.reconcileUnclosedAttendance(tick), 0);
+    const audits = await m.AuditLog.findAll({ where: { action: ['attendance.cancelled', 'attendance.automatic_clock_out', 'attendance.absent'] } });
+    assert.equal(audits.length, 3);
+    assert.equal(audits.find((row) => row.action === 'attendance.cancelled').organization_id, orgA.organization_id);
+    assert.ok(audits.filter((row) => row.action !== 'attendance.cancelled').every((row) => row.organization_id === orgB.organization_id));
+    assert.ok(audits.every((row) => row.actor_user_id === null), 'background ticks do not impersonate an employee');
   });
   test('holiday ticks use organization recipients, HR destinations and organization deduplication', async () => {
     const tomorrow = moment().add(1, 'day').format('YYYY-MM-DD');
@@ -71,6 +80,35 @@ else {
     await m.Holiday.create({ organization_id: orgB.organization_id, name: 'After removal', date: tomorrow });
     assert.equal(await holidays.sendUpcomingHolidayNotifications(), 0);
     assert.equal(await m.Notification.count(), 2);
+    assert.equal(delivered.length, 2, 'removed memberships and archived profiles produce no reminder events');
+    assert.deepEqual(new Set(delivered.map((item) => item.room)), new Set([events.userRoom(shared.user_id, orgA.organization_id), events.userRoom(shared.user_id, orgB.organization_id)]));
+    assert.ok(delivered.every((item) => item.event === 'notification_created' && item.payload.organization_id === item.payload.notification.organization_id));
+  });
+
+  test('savepoint notifications publish after outer commit and remain silent on outer rollback', async () => {
+    const initial = delivered.length;
+    const reminder = (title) => ({ organization_id: orgA.organization_id, user_id: shared.user_id, title, message: 'Nested transaction reminder' });
+    await assert.rejects(db.transaction(async (transaction) => {
+      await m.Notification.findOrCreate({ where: reminder('Rolled back'), transaction });
+      assert.equal(delivered.length, initial, 'savepoint creation does not publish before outer commit');
+      throw new Error('rollback reminder');
+    }), /rollback reminder/);
+    assert.equal(delivered.length, initial);
+    assert.equal(await m.Notification.count({ where: reminder('Rolled back') }), 0);
+    await db.transaction(async (transaction) => {
+      await assert.rejects(db.transaction({ transaction }, async (savepoint) => {
+        await m.Notification.create(reminder('Rolled back savepoint'), { transaction: savepoint });
+        throw new Error('rollback savepoint');
+      }), /rollback savepoint/);
+    });
+    assert.equal(delivered.length, initial, 'rolled-back savepoints remain silent when the outer transaction commits');
+    await db.transaction(async (transaction) => {
+      await m.Notification.findOrCreate({ where: reminder('Committed'), transaction });
+      assert.equal(delivered.length, initial, 'delivery waits for the enclosing transaction');
+    });
+    assert.equal(delivered.length, initial + 1);
+    assert.equal(delivered.at(-1).payload.notification.title, 'Committed');
+    assert.equal(delivered.at(-1).room, events.userRoom(shared.user_id, orgA.organization_id));
   });
 
 }

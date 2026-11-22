@@ -25,8 +25,16 @@ async function emitToUser(realtime, id, event, payload = {}, organizationId = pe
 }
 const afterCommit = (transaction, callback) => {
   const tenant = peekTenantContext();
-  const safe = async () => { try { await (tenant ? runWithTenant(tenant, callback) : runWithoutTenant(callback)); } catch (error) { console.error("Realtime delivery failed:", error.message); } };
-  if (transaction) transaction.afterCommit(safe);
+  const safe = async () => {
+    // A rolled-back savepoint must not publish even if its outer transaction
+    // later commits. Sequelize leaves successful findOrCreate savepoints open.
+    for (let current = transaction; current; current = current.parent) if (current.finished === 'rollback') return;
+    try { await (tenant ? runWithTenant(tenant, callback) : runWithoutTenant(callback)); }
+    catch (error) { console.error("Realtime delivery failed:", error.message); }
+  };
+  let enclosing = transaction;
+  while (enclosing?.parent) enclosing = enclosing.parent;
+  if (enclosing) enclosing.afterCommit(safe);
   else return safe();
 };
 const emitUser = (id, event, payload = {}) => emitToUser(io, id, event, payload);
