@@ -6,6 +6,7 @@ const { User, AuthSession, AuthRefreshToken, AuthLegacyExchange, AuthSecuritySta
 const { runWithoutTenant } = require('./tenantContext');
 const fail = (message = 'Session is no longer valid', status = 401, code = 'SESSION_INVALID') => Object.assign(new Error(message), { status, code });
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
+const refreshRaceMs = () => Math.min(Math.max(Number(process.env.AUTH_REFRESH_RACE_MS) || 5000, 0), 5000);
 const enforced = () => process.env.AUTH_SESSIONS_ENFORCED === 'true' || process.env.NODE_ENV === 'production';
 const view = session => ({ session_id: session.session_id, created_at: session.created_at, last_seen_at: session.last_seen_at, expires_at: session.expires_at, revoked_at: session.revoked_at, auth_method: session.auth_method, user_agent: session.user_agent });
 function validActivation(state) {
@@ -95,7 +96,7 @@ async function rotateRefreshToken(token, { request } = {}) {
       if (session.revoked_at || new Date(session.expires_at) <= new Date() || new Date(credential.expires_at) <= new Date()) throw fail();
       await activation(transaction);
       if (credential.consumed_at) {
-        const raceMs = Math.min(Math.max(Number(process.env.AUTH_REFRESH_RACE_MS) || 5000, 0), 5000);
+        const raceMs = refreshRaceMs();
         if (Date.now() - new Date(credential.consumed_at).getTime() <= raceMs) return { error: fail('Refresh already rotated; adopt the newer token', 409, 'REFRESH_ALREADY_ROTATED') };
         await revokeSession(user.user_id, session.session_id, { transaction, reason: 'refresh_reuse' });
         return { error: fail('Refresh credential reuse revoked this session') };
@@ -108,6 +109,31 @@ async function rotateRefreshToken(token, { request } = {}) {
     return result;
   });
 }
+// A refresh proof can only end its own managed session. A just-consumed
+// credential remains usable for revocation during the same bounded race window;
+// it never authenticates reads, creates credentials or chooses a target identity.
+async function revokeWithRefreshProof(token, { all = false } = {}) {
+  return runWithoutTenant(() => sequelize.transaction(async transaction => {
+    if (typeof token !== 'string' || !token) throw fail();
+    const candidate = await AuthRefreshToken.findByPk(digest(token), { transaction });
+    if (!candidate) throw fail(); // Legacy JWT refresh credentials are excluded.
+    const initial = await AuthSession.findByPk(candidate.session_id, { transaction });
+    const user = initial && await User.unscoped().findByPk(initial.user_id, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!user) throw fail();
+    const session = await AuthSession.findByPk(candidate.session_id, { transaction, lock: transaction.LOCK.UPDATE });
+    validIdentity(user, session);
+    const credential = await AuthRefreshToken.findByPk(digest(token), { transaction, lock: transaction.LOCK.UPDATE });
+    if (session.revoked_at || new Date(session.expires_at) <= new Date() || new Date(credential.expires_at) <= new Date()) throw fail();
+    await activation(transaction);
+    const raceMs = refreshRaceMs();
+    if (credential.consumed_at && Date.now() - new Date(credential.consumed_at).getTime() > raceMs) throw fail();
+    if (all) {
+      await user.update({ session_version: user.session_version + 1 }, { transaction });
+      await revokeAllSessions(user.user_id, { transaction, reason: 'logout_all' });
+    } else await revokeSession(user.user_id, session.session_id, { transaction });
+    await require('../models').IdentityAuditLog.create({ actor_user_id: user.user_id, actor_name: user.email, action: all ? 'auth.logout_all' : 'auth.logout', target_type: 'User', target_id: user.user_id, changes: {} }, { transaction });
+  }));
+}
 async function assertSessionStorageReady() {
   const q = sequelize.getQueryInterface();
   for (const [tableName, fields] of Object.entries(require('./authSessionSchema')(require('sequelize').DataTypes))) {
@@ -118,4 +144,4 @@ async function assertSessionStorageReady() {
   if (!validActivation(state)) throw fail('Managed session activation is invalid', 503, 'AUTH_SESSIONS_UNAVAILABLE');
   return { activated_at: state.activated_at, legacy_until: state.legacy_until };
 }
-module.exports = { assertSessionStorageReady, createSession, authenticateAccessToken, rotateRefreshToken, revokeSession, revokeAllSessions, sessionView: view };
+module.exports = { revokeWithRefreshProof, assertSessionStorageReady, createSession, authenticateAccessToken, rotateRefreshToken, revokeSession, revokeAllSessions, sessionView: view };

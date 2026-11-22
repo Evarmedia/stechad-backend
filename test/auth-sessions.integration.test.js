@@ -55,6 +55,44 @@ else {
     assert.equal((await request('logout-all', {}, b.data.token)).status, 200);
     assert.equal((await request('me', undefined, b.data.token, 'GET')).status, 401);
   });
+  test('refresh proof revokes a rotating device without issuing credentials or touching another device', async () => {
+    const a = await login(), b = await login();
+    const results = await Promise.all([
+      request('refresh-token', { refresh_token: a.data.refreshToken }),
+      request('logout', { refresh_token: a.data.refreshToken }),
+    ]);
+    assert.equal(results[1].status, 200);
+    assert.equal(results[1].data?.token, undefined);
+    if (results[0].status === 200) assert.equal((await request('me', undefined, results[0].data.token, 'GET')).status, 401);
+    else assert.equal(results[0].status, 401);
+    assert.equal((await request('me', undefined, b.data.token, 'GET')).status, 200);
+    const listed = await request('sessions', undefined, b.data.token, 'GET');
+    assert.ok(listed.data.sessions.find(s => s.session_id === a.data.session.session_id).revoked_at);
+  });
+  test('logout-all accepts a just-rotated refresh proof but rejects old, expired and invalidated proofs', async () => {
+    const a = await login(), b = await login();
+    const [winner, ended] = await Promise.all([request('refresh-token', { refresh_token: a.data.refreshToken }), request('logout-all', { refresh_token: a.data.refreshToken })]);
+    assert.ok([200,401].includes(winner.status));
+    assert.equal(ended.status, 200); assert.equal(ended.data.token, undefined);
+    assert.equal((await request('me', undefined, b.data.token, 'GET')).status, 401);
+    const old = await login(); const replacement = await request('refresh-token', { refresh_token: old.data.refreshToken });
+    process.env.AUTH_REFRESH_RACE_MS = '10'; await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal((await request('logout', { refresh_token: old.data.refreshToken })).status, 401);
+    delete process.env.AUTH_REFRESH_RACE_MS;
+    assert.equal((await request('me', undefined, replacement.data.token, 'GET')).status, 200);
+    const expired = await login();
+    await require('../models').AuthRefreshToken.update({ expires_at: new Date(Date.now() - 1000) }, { where: { session_id: expired.data.session.session_id } });
+    assert.equal((await request('logout-all', { refresh_token: expired.data.refreshToken })).status, 401);
+    const expiredSession = await login();
+    await require('../models').AuthSession.update({ expires_at: new Date(Date.now() - 1000) }, { where: { session_id: expiredSession.data.session.session_id } });
+    assert.equal((await request('logout', { refresh_token: expiredSession.data.refreshToken })).status, 401);
+    const inactive = await login(); await user.reload(); await user.update({ is_active: false });
+    assert.equal((await request('logout', { refresh_token: inactive.data.refreshToken })).status, 401);
+    await user.update({ is_active: true, session_version: user.session_version + 1 });
+    assert.equal((await request('logout', { refresh_token: inactive.data.refreshToken })).status, 401);
+    assert.equal((await request('logout', { refresh_token: 'unknown-proof' })).status, 401);
+  });
+
   test('password recovery consumes its code once transactionally and invalidates existing sessions', async () => {
     const first = await login();
     await user.update({ reset_password_token: 'reset-one-use', reset_password_expires: new Date(Date.now() + 60000) });
@@ -118,6 +156,7 @@ else {
     const claims = { user_id: user.user_id, session_version: user.session_version, iat: activationSeconds - 10, exp: activationSeconds + 3600 };
     const access = jwt.sign(claims, process.env.JWT_SECRET);
     const refresh = jwt.sign(claims, process.env.JWT_REFRESH_SECRET);
+    assert.equal((await request('logout', {refresh_token:refresh})).status,401);
     assert.equal((await request('me', undefined, access, 'GET')).status, 200);
     const exchanges = await Promise.all([request('refresh-token', { refresh_token: refresh }), request('refresh-token', { refresh_token: refresh })]);
     assert.deepEqual(exchanges.map(r => r.status).sort(), [200, 401]);
@@ -132,6 +171,41 @@ else {
     const before = (await state.reload()).toJSON();
     await require('../migrations/20261122100000-managed-auth-sessions').up(db.getQueryInterface(), require('sequelize').Sequelize);
     await state.reload(); assert.equal(+state.activated_at, +before.activated_at); assert.equal(+state.legacy_until, +before.legacy_until);
+  });
+
+  test('an expired socket handshake reconnects with HTTP-rotated credentials and keeps its selected organization', { timeout: 10000 }, async () => {
+    const { Organization, OrganizationMembership, HRProfile } = require('../models');
+    const organizations = [];
+    for (const name of ['socket-a', 'socket-b']) {
+      const organization = await Organization.create({name,slug:name});
+      const role = await Role.create({organization_id:organization.organization_id,role_key:'staff',name:'Staff',is_system:true});
+      const membership = await OrganizationMembership.create({organization_id:organization.organization_id,user_id:user.user_id});
+      await HRProfile.create({organization_id:organization.organization_id,membership_id:membership.membership_id,user_id:user.user_id,role_id:role.role_id});
+      organizations.push(organization);
+    }
+    process.env.JWT_ACCESS_EXPIRATION = '2s';
+    const signed = await login(); delete process.env.JWT_ACCESS_EXPIRATION;
+    let access = signed.data.token;
+    const selected = organizations[1].organization_id;
+    const socket = require('socket.io-client').io(origin, {auth: callback => callback({token:access,organization_id:selected}),transports:['websocket'],reconnection:false,forceNew:true});
+    try {
+      await once(socket, 'connect');
+      const expires = require('jsonwebtoken').decode(access).exp * 1000;
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, expires - Date.now() + 50)));
+      const refreshed = await request('refresh-token', {refresh_token:signed.data.refreshToken});
+      assert.equal(refreshed.status,200); access = refreshed.data.token;
+      const me = await fetch(`${origin}/api/auth/me`, {headers:{authorization:`Bearer ${access}`,'X-Organization-Id':selected}});
+      const projection = await me.json();
+      assert.equal(projection.data.organizations.length,2); assert.equal(projection.data.active_organization_id,selected);
+      const disconnected = once(socket, 'disconnect'); socket.emit('get_online_users');
+      assert.equal((await disconnected)[0], 'io server disconnect');
+      socket.connect(); await once(socket, 'connect');
+      const result = await new Promise(resolve => socket.emit('get_online_users', {}, resolve));
+      assert.equal(result.success,true); assert.equal(result.organization_id,selected);
+      socket.disconnect();
+      await OrganizationMembership.update({status:'suspended'}, {where:{user_id:user.user_id,organization_id:selected}});
+      socket.connect(); const [error] = await once(socket,'connect_error'); assert.equal(error.message,'Authentication error');
+    } finally { socket.disconnect(); delete process.env.JWT_ACCESS_EXPIRATION; }
   });
 
 }

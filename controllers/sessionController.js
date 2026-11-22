@@ -8,6 +8,14 @@ const refreshAccessToken = async (req, res) => {
   try { const data = await sessions.rotateRefreshToken(token, { request: req }); res.set('Cache-Control', 'no-store'); return res.json({ success: true, data }); }
   catch (error) { return respondError(res, error); }
 };
+const refreshLogout = (all = false) => async (req, res, next) => {
+  if (req.body?.refresh_token === undefined) return next();
+  try {
+    await sessions.revokeWithRefreshProof(req.body.refresh_token, { all });
+    res.set('Cache-Control', 'no-store');
+    return res.json({ success: true, data: { revoked: true } });
+  } catch (error) { return respondError(res, error); }
+};
 const listSessions = async (req, res) => {
   try {
     const currentId = req.authSession?.session_id || null;
@@ -34,4 +42,4 @@ const logoutAll = async (req, res) => {
   try { await invalidateAll(req.identity.user_id, 'logout_all'); return res.json({ success: true, data: { revoked: true } }); }
   catch (error) { return respondError(res, error); }
 };
-module.exports = { refreshAccessToken, listSessions, deleteSession, logoutAll, invalidateAll };
+module.exports = { refreshLogout, refreshAccessToken, listSessions, deleteSession, logoutAll, invalidateAll };

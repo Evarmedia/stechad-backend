@@ -30,3 +30,9 @@ The callback validates state/cookie binding before the provider exchange, then c
 ## Disposable verification
 
 Set `SESSIONS_TEST_DATABASE_URL` to a disposable PostgreSQL database and run `node --test test/auth-sessions.integration.test.js`. The suite creates a random schema, mounts the actual HTTP routes and Socket.IO, and fakes only Google's external token/profile transport. It covers device isolation, rotation races/replay, transactional reset consumption, state-bound PKCE exchange, socket revocation and the fixed legacy deadline. Existing email, user-management and chat regressions remain relevant. Never run fixture or bootstrap commands against application data.
+
+### Logout during rotation contention
+
+The existing logout and logout-all endpoints retain bearer authentication and additionally accept `{refresh_token}` solely to revoke the proof's own managed session (or all of that identity's sessions for logout-all). This is not an authentication or data-access credential exchange. The server validates the active identity/version, owning session, and both expiry bounds under identity → session → credential locks. A consumed proof is accepted only within the same maximum five-second refresh race window; older, expired, revoked, unknown and legacy JWT proofs are rejected. Logout-all atomically increments the identity version. The transaction records a sanitized global identity logout audit and returns no credentials.
+
+Browsers clear local identity immediately, submit the captured opaque proof privately, and never install a late winning rotation response. Expired legacy access retains its finite, one-use refresh exchange followed by private bearer logout; those credentials also never return to storage. Network failure can still prevent server revocation, so account session controls remain the recovery path after reconnecting.

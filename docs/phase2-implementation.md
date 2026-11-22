@@ -17,18 +17,20 @@ All database tests use disposable PostgreSQL 17 schemas on an isolated loopback 
 
 | Boundary | Result |
 | --- | --- |
-| Full backend suite at `f82f61c` | 143 passed, zero failed or skipped; actual HTTP, PostgreSQL and Socket.IO coverage |
+| Full backend suite after final-review fixes | 146 passed, zero failed or skipped; actual HTTP, PostgreSQL and Socket.IO coverage |
 | Production composition and migration CLI | Included in that suite: fail-closed readiness, public login/platform separation, repeated security migrations, unchanged fixture password/HR role, zero automatic platform grants and tenancy verification |
-| Frontend rendered and transport suite at `bd9c9f9` | 101 passed across 22 files |
+| Frontend rendered and transport suite after final-review fixes | 114 passed across 24 files |
 | Customer and platform production build | Passed for both entry points. Existing large-bundle warning remains |
 | Frontend typecheck and lint | Existing 20 type errors and 41 lint errors remain; lint warnings are 14 versus the baseline 15. These checks are not green |
-| Controlled headless-Chrome journeys | Passed: password errors/success; MFA setup/confirmation/recovery/replacement/expiry; role-limited metadata, reason-required status/grant actions, catalog/audit; search/empty/clear; narrow layout, reduced motion and focus; exactly one refresh across two tabs, logout and Google PKCE/code exchange |
+| Controlled headless-Chrome journeys | Passed: password errors/success; MFA setup/confirmation/recovery/replacement/expiry; role-limited metadata, reason-required status/grant actions, catalog/audit; search/empty/clear; narrow layout, reduced motion and focus; exactly one refresh across two tabs, logout; platform/customer Google PKCE/code exchange and customer onboarding routing; grant first-invalid focus order |
 | Actual backend + frontend Chrome smoke | Passed against the actual application server: password sign-in, real TOTP enrollment/confirmation, operator with zero memberships, sanitized organization/user/audit metadata, HR-only super-admin denial and cross-tab logout |
 | Independent Standards and Spec reviews | Pending; Phase 2 must not be reported complete until findings are resolved |
 
 The migration rehearsal runs the additive session and platform migrations twice against fixture data, preserves activation timestamps and existing credentials/HR roles, and verifies that global security tables remain outside tenant ownership. Bootstrap dry-run and explicit apply are tested only with disposable verified identities. Test doubles are confined to external-provider transport where relevant; platform authorization is exercised through its real HTTP/database boundary.
 
 The cross-repository Chrome smoke also stores an unrelated organization selection before platform reads: requests still omit `X-Organization-Id`, and the internal entry issues no HR-provider requests. The controlled browser checks exposed an in-flight response restoring the admin UI after another tab signed out; identity-revision guards and token-removal handling now prevent that restoration. Both tabs clear their admin UI in the actual-backend smoke.
+
+The final-review follow-up restores the customer Google dashboard destination through existing role, membership-selection and onboarding guards; revokes logout during rotation contention with a bounded revocation-only managed-refresh proof; and revalidates disconnected sockets with current HTTP credentials while retaining explicit organization selection. Regression coverage includes actual concurrent HTTP revocation and expired Socket.IO handshakes, rendered grant focus order, and co-located platform view behavior. These fixes await independent review rechecks.
 
 ## Rollout and operational limits
 
@@ -40,4 +42,4 @@ Supply the same dedicated MFA encryption key to every API instance and back it u
 
 The security migrations are intentionally forward-only. A rollback must preserve managed-session storage, revocation and authority enforcement; reverting to stateless authentication would discard these guarantees. Deployment domains remain configuration choices, and production readiness also requires the operator's deployment and secret-management checks.
 
-Phase 3 product activation, assignments, subscriptions, billing, payment integration, tenant HR impersonation and broader application restructuring remain outside this work. No deployment or real-account platform grant was performed.
+Phase 3 products, activation and access assignments; Phase 4 subscriptions, billing and payment integration; and Phase 5 broader application restructuring remain outside this work. Tenant HR impersonation is also excluded. No deployment or real-account platform grant was performed.

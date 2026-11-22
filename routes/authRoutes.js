@@ -23,10 +23,10 @@ const { validateRegistration, validateLogin, validateEmail } = require('../middl
 const passport = require('passport');
 
 const router = express.Router();
-const { refreshAccessToken, listSessions, deleteSession, logoutAll } = require('../controllers/sessionController');
+const { refreshLogout, refreshAccessToken, listSessions, deleteSession, logoutAll } = require('../controllers/sessionController');
 router.get('/sessions', authenticateIdentity, listSessions);
 router.delete('/sessions/:sessionId', authenticateIdentity, deleteSession);
-router.post('/logout-all', authenticateIdentity, logoutAll);
+router.post('/logout-all', refreshLogout(true), authenticateIdentity, logoutAll);
 
 /**
  * @swagger
@@ -658,7 +658,7 @@ router.post('/accept-invite/:token', (req, res, next) => req.get('Authorization'
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/logout', authenticate, logout);
+router.post('/logout', refreshLogout(), authenticate, logout);
 
 /**
  * @swagger
