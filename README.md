@@ -155,9 +155,10 @@ Create a local `.env` file and never commit real credentials.
 | `DATABASE_URL` | PostgreSQL connection URL; required in production |
 | `DB_SCHEMA` | PostgreSQL schema; defaults to `public` |
 | `JWT_SECRET` | Access-token signing secret |
-| `JWT_EXPIRATION` | Access-token lifetime, for example `7d` |
-| `JWT_REFRESH_SECRET` | Refresh-token signing secret |
-| `JWT_REFRESH_EXPIRATION` | Refresh-token lifetime, for example `1d` |
+| `JWT_ACCESS_EXPIRATION` | Managed access-token lifetime; defaults to `15m` |
+| `AUTH_SESSION_LIFETIME_SECONDS` | Device-session lifetime; defaults to 86400 seconds, bounded to 60–2592000 |
+| `JWT_REFRESH_SECRET` | Signing secret retained for the finite legacy refresh exchange |
+| `PLATFORM_MFA_ENCRYPTION_KEY` | Dedicated 32-byte base64 key for platform authenticator secrets |
 | `FRONTEND_URL` | Primary frontend origin allowed by CORS |
 | `FRONTEND_PROD_URL` | Optional production frontend origin |
 | `BACKEND_URL` | Optional primary backend origin |
@@ -279,6 +280,7 @@ The API emits JSON responses. Common response shapes include an `success` flag, 
 | Prefix | Responsibility |
 |---|---|
 | `/api/auth` | Registration, login, refresh, logout, OTP, password reset, invitations, Google OAuth |
+| `/api/platform` | Explicit platform grants, MFA and sanitized global administration |
 | `/api/talents` | Talent onboarding and role-specific profile/dashboard operations |
 | `/api/pm` | Project-manager profile and dashboard operations |
 | `/api/admin` | Administration, users, vetting, settings, roles, and audits |
@@ -301,9 +303,9 @@ Route implementations are in `routes/`; use-case logic is in `controllers/`; dat
 
 ### Identity
 
-The `authenticate` middleware verifies JWT bearer tokens and loads the current `User`. It rejects inactive accounts and accounts whose session version has changed.
+Bearer access tokens identify a live managed device session. Authentication checks the global identity, session expiry/revocation and account session version before resolving HR membership. Refresh credentials are opaque, stored as hashes and rotated once; logout revokes the current device, while logout-all and password changes invalidate older sessions. Google sign-in uses a state-bound authorization code with PKCE.
 
-Access tokens and refresh tokens are supported. Logout and account lifecycle operations can invalidate existing sessions.
+See [managed sessions](docs/managed-sessions.md) for session endpoints and the migration-anchored legacy-token transition. Both standalone and serverless composition require verified tenancy and activated session storage before serving application requests.
 
 ### Roles
 
@@ -316,6 +318,8 @@ Built-in role keys include:
 - `talent`
 
 Custom workforce roles are stored in `Role` and `RolePermission`. Super admins inherit the endpoint permissions granted to admins.
+
+These are HR roles within an organization. Platform authority requires a separate explicit grant and fresh session-bound MFA; organization ownership and HR super-admin status confer no platform access. The separate frontend entry is `/platform-admin.html`. See [platform administration](docs/platform-administration.md) for bootstrap, key configuration and API operations.
 
 ### Workforce permissions
 
