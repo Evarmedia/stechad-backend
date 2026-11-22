@@ -39,5 +39,7 @@ const afterCommit = (transaction, callback) => {
 };
 const emitUser = (id, event, payload = {}) => emitToUser(io, id, event, payload);
 const disconnectUser = (id) => io?.in(identityRoom(id)).in(userRoom(id, null)).disconnectSockets(true);
+const sessionRoom = id => `session_${id}`;
+const disconnectSession = id => io?.in(sessionRoom(id)).disconnectSockets(true);
 const disconnectMembership = (id, organizationId) => io?.in(userRoom(id, organizationId)).disconnectSockets(true);
-module.exports = { setRealtime, getRealtime, afterCommit, emitUser, emitToUser, disconnectUser, disconnectMembership, userRoom, identityRoom, chatRoom, canDeliver };
+module.exports = { setRealtime, getRealtime, afterCommit, emitUser, emitToUser, disconnectUser, disconnectSession, sessionRoom, disconnectMembership, userRoom, identityRoom, chatRoom, canDeliver };

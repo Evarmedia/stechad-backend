@@ -24,7 +24,10 @@ const passport = require('passport');
 const { generateTokens } = require('../utils/generateTokens')
 
 const router = express.Router();
-const { refreshAccessToken } = require('../controllers/sessionController');
+const { refreshAccessToken, listSessions, deleteSession, logoutAll } = require('../controllers/sessionController');
+router.get('/sessions', authenticateIdentity, listSessions);
+router.delete('/sessions/:sessionId', authenticateIdentity, deleteSession);
+router.post('/logout-all', authenticateIdentity, logoutAll);
 
 /**
  * @swagger

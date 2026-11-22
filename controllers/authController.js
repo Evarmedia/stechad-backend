@@ -245,11 +245,7 @@ const signup = async (req, res) => {
       }
     }
 
-    // Generate token for user login (both for normal signup and Google sign-in)
-    const { token, refreshToken } = generateTokens({
-      user_id: user.user_id,
-      role: roleKey,
-    });
+    const { token, refreshToken, session: managedSession } = await require('../services/authSessions').createSession(user, { request: req });
 
     const session = await require('../services/organizationMembership').sessionView(user);
 
@@ -261,6 +257,7 @@ const signup = async (req, res) => {
         : "User registered successfully",
       data: {
         ...session,
+        session: managedSession,
         token,
         refreshToken,
       },
@@ -313,12 +310,7 @@ const login = async (req, res) => {
       await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", target_id: user.user_id, actor: user }, transaction);
     });
 
-    // Generate token
-    const { token, refreshToken } = generateTokens({
-      user_id: user.user_id,
-      role: getRoleKey(user),
-      session_version: user.session_version,
-    });
+    const { token, refreshToken, session: managedSession } = await require('../services/authSessions').createSession(user, { request: req });
 
     const session = await require('../services/organizationMembership').sessionView(user, req.get('X-Organization-ID'));
 
@@ -327,6 +319,7 @@ const login = async (req, res) => {
       message: "Login successful",
       data: {
         ...session,
+        session: managedSession,
         token,
         refreshToken,
       },
@@ -344,8 +337,10 @@ const login = async (req, res) => {
 // User logout
 const logout = async (req, res) => {
   try {
+    const sessions = require('../services/authSessions');
+    if (req.authSession) await sessions.revokeSession(req.identity.user_id, req.authSession.session_id);
+    else await require('./sessionController').invalidateAll(req.identity.user_id, 'legacy_logout');
     await require("../utils/audit").recordAudit({ action: "auth.logout", target_type: "User", target_id: req.user.user_id });
-    // blacklist the token here
     res.json({
       success: true,
       message: "Logout successful",
@@ -596,6 +591,7 @@ const acceptInvite = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const data = await require('../services/organizationMembership').sessionView(req.identity || req.user, req.get('X-Organization-ID'));
+    data.current_session_id = req.authSession?.session_id || null;
     res.set('Cache-Control', 'no-store');
     return res.json({ success: true, data });
   } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, code: error.code }); }

@@ -6,16 +6,14 @@ const { hasPermission } = require("../utils/permissions");
 
 // Global identity verification does not join a legacy HR role.
 const authenticateIdentity = async (req, res, next) => {
-  let user;
   try {
     const token = req.header('Authorization')?.replace(/^Bearer /i, '');
     if (!token) return res.status(401).json({ success: false, message: 'No token provided, authorization denied' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    user = await require('../services/tenantContext').runWithoutTenant(() => User.unscoped().findByPk(decoded.user_id));
-    if (!user?.is_active || user.deleted_at || (decoded.session_version || 0) !== user.session_version) return res.status(401).json({ success: false, message: 'Session is no longer valid' });
-  } catch (error) { return res.status(401).json({ success: false, message: 'Token is not valid' }); }
-  req.identity = user; req.user = user;
-  return require('../services/tenantContext').runWithoutTenant(next);
+    const result = await require('../services/authSessions').authenticateAccessToken(token);
+    req.identity = result.identity; req.user = result.identity;
+    req.authSession = result.session; req.legacySession = result.legacy;
+    return require('../services/tenantContext').runWithoutTenant(next);
+  } catch (error) { return res.status(error.status || 401).json({ success: false, message: error.message, code: error.code }); }
 };
 const authenticate = (req, res, next) => authenticateIdentity(req, res, async () => {
   const globalAuth = /\/auth$/i.test(req.baseUrl || '') && !/^\/preferences\/?$/i.test(req.path);
