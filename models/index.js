@@ -418,3 +418,12 @@ OrganizationMembership.hasOne(HRProfile, { foreignKey: 'membership_id', as: 'hr_
 HRProfile.belongsTo(OrganizationMembership, { foreignKey: 'membership_id', as: 'membership' });
 HRProfile.belongsTo(Role, { foreignKey: 'role_id', as: 'role', onDelete: 'RESTRICT' });
 Object.assign(module.exports, { Organization, OrganizationMembership, HRProfile });
+
+// Explicit global platform authority and private MFA state.
+Object.assign(module.exports, {
+  PlatformRole: require('./PlatformRole'),
+  PlatformRoleGrant: require('./PlatformRoleGrant'),
+  PlatformMfaCredential: require('./PlatformMfaCredential'),
+  PlatformRecoveryCode: require('./PlatformRecoveryCode'),
+  PlatformSessionAssurance: require('./PlatformSessionAssurance'),
+});
