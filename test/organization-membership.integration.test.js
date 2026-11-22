@@ -51,6 +51,7 @@ else {
     const organizations = await request('/api/organizations'); assert.equal(organizations.status, 200); assert.equal(organizations.body.data.organizations.length, 2);
     const ambiguous = await request('/api/hr/identity'); assert.equal(ambiguous.status, 409); assert.equal(ambiguous.body.code, 'ORGANIZATION_REQUIRED');
     assert.equal((await request('/api/hr/admin', owner, undefined, 'GET', orgA)).status, 403);
+    for (const path of ['/api/auth/preferences', '/api/auth/preferences/', '/api/auth/PREFERENCES']) assert.equal((await request(path, owner)).status, 409);
     const selected = await request('/api/auth/me', owner, undefined, 'GET', orgB); assert.equal(selected.body.data.active_organization_id, orgB.organization_id); assert.equal(selected.body.data.user.role, 'staff');
   });
   test('organization lifecycle protects the last owner, confines revocation, and keeps global session valid', async () => {
