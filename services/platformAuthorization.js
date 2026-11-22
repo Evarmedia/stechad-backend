@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { User, PlatformRole, PlatformRoleGrant, IdentityAuditLog } = require('../models');
+const { User, AuthSession, PlatformRole, PlatformRoleGrant, IdentityAuditLog } = require('../models');
 const sequelize = require('../config/database');
 const { ROLES } = require('./platformCatalog');
 function fail(status, code, message = code) { return Object.assign(new Error(message), { status, code }); }
@@ -21,8 +21,13 @@ function reason(value) {
 }
 async function requireAccess(req, permission, transaction) {
   if (!req.authSession || req.legacySession) throw fail(403, 'SESSION_UPGRADE_REQUIRED');
-  const identity = transaction ? await User.unscoped().findByPk(req.identity.user_id, { transaction }) : req.identity;
+  const identity = transaction ? await User.unscoped().findByPk(req.identity.user_id, { transaction, lock: transaction.LOCK.SHARE }) : req.identity;
   if (!identity?.is_active || identity.deleted_at) throw fail(401, 'IDENTITY_INACTIVE');
+  if (transaction) {
+    const session = await AuthSession.findByPk(req.authSession.session_id, { transaction, lock: transaction.LOCK.SHARE });
+    if (!session || session.user_id !== identity.user_id || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now() || session.session_version !== identity.session_version) throw fail(401, 'SESSION_INVALID');
+    req.authSession = session;
+  }
   if (!identity.is_verified) throw fail(403, 'EMAIL_VERIFICATION_REQUIRED');
   const access = await authority(identity.user_id, { transaction });
   if (!access.roles.length || (permission && !access.permissions.includes(permission))) throw fail(403, 'PLATFORM_ACCESS_DENIED');

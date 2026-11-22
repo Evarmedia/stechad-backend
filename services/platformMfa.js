@@ -78,7 +78,7 @@ async function enroll(req) {
       replacementReason = reason(req.body.reason); await requireAssurance(req, transaction);
     } else {
       const primary = new Date(req.authSession.authenticated_at).getTime();
-      if (!Number.isFinite(primary) || primary < now - PENDING_MS || primary > now + 30000) throw fail(403, 'RECENT_AUTHENTICATION_REQUIRED');
+      if (!['password', 'google'].includes(req.authSession.auth_method) || !Number.isFinite(primary) || primary < now - PENDING_MS || primary > now + 30000) throw fail(403, 'RECENT_AUTHENTICATION_REQUIRED');
     }
     const secret = encode(crypto.randomBytes(20)); const expires = new Date(now + PENDING_MS);
     await credential.update({ pending_encrypted_secret: encrypt(secret, req.identity.user_id), pending_expires_at: expires, pending_session_id: req.authSession.session_id, pending_reason: replacementReason }, { transaction });
