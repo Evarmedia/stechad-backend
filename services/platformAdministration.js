@@ -52,7 +52,7 @@ async function updateOrganization(req) {
     if (!organization) throw fail(404, 'ORGANIZATION_NOT_FOUND');
     const before = organization.status; await organization.update({ status: req.body.status }, { transaction });
     await audit(req.identity, 'platform.organization.status_changed', 'Organization', id, { previous_status: before, status: organization.status, reason: why }, transaction);
-    if (organization.status === 'suspended') transaction.afterCommit(async () => {
+    if (organization.status === 'suspended') require('../utils/events').afterCommit(transaction, async () => {
       const memberships = await OrganizationMembership.findAll({ where: { organization_id: id }, attributes: ['user_id'] });
       for (const member of memberships) await require('../utils/events').disconnectMembership(member.user_id, id);
     });
