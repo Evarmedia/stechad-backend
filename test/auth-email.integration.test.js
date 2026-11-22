@@ -122,8 +122,10 @@ if (!databaseUrl) {
   });
 
   test("invited staff can set a password and subsequently change it", async () => {
+    const organization = await require('../models').Organization.create({ name: 'Legacy invitation organization', slug: 'legacy-invitation' });
+    await role.update({ organization_id: organization.organization_id });
     const invitation = await Invite.create({
-      email: " Invited@Example.com ", role_id: role.role_id, token: randomUUID(),
+      organization_id: organization.organization_id, email: " Invited@Example.com ", role_id: role.role_id, token: randomUUID(),
       invited_by_user_id: user.user_id, sent_at: new Date(), expires_at: new Date(Date.now() + 3600_000),
     });
     const path = `accept-invite/${invitation.token}`;

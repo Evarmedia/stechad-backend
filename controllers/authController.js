@@ -35,7 +35,9 @@ const associationToPlainObject = (association) => (
 
 // Helper function to format user response with signed URLs
 const formatUserResponse = async (user) => {
-  const data = user.toJSON();
+  const data = typeof user.toJSON === "function" ? user.toJSON() : { ...user };
+  if (data.role && typeof data.role === "object") { data.role_details = data.role; data.role = data.role.role_key; }
+  delete data.password; delete data.reset_password_token; delete data.reset_password_expires;
   if (data.admin) data.admin.is_super_admin = data.role === "super_admin";
 
   data.effective_permissions = await require("../utils/permissions").effectivePermissions(user);
@@ -78,6 +80,14 @@ const formatUserResponse = async (user) => {
   return data;
 };
 
+async function publicTalentRole() {
+  const { Role, Organization } = require('../models');
+  const { STECHAD_ORGANIZATION_ID } = require('../services/tenancyInventory');
+  const organization = await Organization.findByPk(STECHAD_ORGANIZATION_ID);
+  if (organization || process.env.TENANCY_ENFORCED === 'true') return Role.findOne({ where: { organization_id: STECHAD_ORGANIZATION_ID, role_key: 'talent', is_system: true } });
+  return Role.findOne({ where: { role_key: 'talent', is_system: true } });
+}
+
 const backendUrl =
   process.env.NODE_ENV === "development"
     ? process.env.BACKEND_URL
@@ -93,26 +103,25 @@ passport.use(
     async (accessToken, refreshToken, profile, done) => {
       // profile contains user information from Google
       try {
-        const { email, first_name, last_name, id } = profile._json;
+        const { email, given_name, family_name } = profile._json;
+        if (!email || !(profile._json.email_verified === true || profile._json.verified_email === true)) throw new Error('Google must verify your email address');
+        const first_name = profile._json.first_name || given_name;
+        const last_name = profile._json.last_name || family_name;
 
         // Check if the user exists in the database
-        let user = await User.findOne({ where: emailWhere(email), paranoid: false });
+        let user = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false });
         if (user && (!user.is_active || user.deleted_at)) throw new Error("Account is unavailable");
 
         if (!user) {
-          const talentRole = await findRoleByKey("talent");
+          const talentRole = await publicTalentRole();
           if (!talentRole) throw new Error("Talent system role is not seeded");
           // Create a new user if they don't exist
-          user = await User.create({
-            email,
-            first_name,
-            last_name,
-            role_id: talentRole.role_id,
+          user = await sequelize.transaction(async (transaction) => {
+            const created = await User.unscoped().create({ email, first_name, last_name, role_id: talentRole.role_id, is_verified: true }, { transaction });
+            await require('../services/legacyHRBootstrap').ensureStechadMembership(created, { transaction });
+            await Talent.create({ user_id: created.user_id, organization_id: talentRole.organization_id }, { transaction });
+            return created;
           });
-
-          // Create role-specific record (for talents)
-          await Talent.create({ user_id: user.user_id });
-          user = await User.findByPk(user.user_id);
         }
 
         await sequelize.transaction(async (transaction) => {
@@ -169,7 +178,7 @@ const signup = async (req, res) => {
 
     // If Google sign-in is being used, check if the user exists
     if (googleSignIn) {
-      const existingUser = await User.findOne({ where: emailWhere(email), paranoid: false });
+      const existingUser = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false });
       if (existingUser) {
         // If the user exists, generate a token and return the user data
         const { token } = generateTokens({
@@ -189,7 +198,7 @@ const signup = async (req, res) => {
 
     // If Google sign-in is not used, check if user already exists
     if (!googleSignIn) {
-      const existingUser = await User.findOne({ where: emailWhere(email), paranoid: false });
+      const existingUser = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false });
       if (existingUser) {
         return res.status(400).json({
           success: false,
@@ -200,7 +209,9 @@ const signup = async (req, res) => {
 
     // Validate referral code if provided (only for normal signup)
     if (referral_code) {
-      const isValidReferral = await validateReferralCode(referral_code);
+      const { OrganizationMembership } = require('../models');
+      const referrer = await User.unscoped().findOne({ where: { referral_code, is_active: true } });
+      const isValidReferral = referrer && await OrganizationMembership.findOne({ where: { organization_id: require('../services/tenancyInventory').STECHAD_ORGANIZATION_ID, user_id: referrer.user_id, status: 'active' } });
       if (!isValidReferral) {
         return res.status(400).json({
           success: false,
@@ -210,34 +221,25 @@ const signup = async (req, res) => {
     }
 
     const roleKey = googleSignIn ? "talent" : role;
-    const assignedRole = await findRoleByKey(roleKey);
+    const assignedRole = await publicTalentRole();
     if (!assignedRole || !assignedRole.is_system) {
       return res.status(400).json({ success: false, message: "A valid system role is required" });
     }
 
     // Create a new user record if Google sign-in is not used, or new user for Google login
-    const user = await User.create({
-      email,
-      password: googleSignIn ? null : password, // Skip password if Google sign-in
-      confirm_password: googleSignIn ? null : confirm_password, // Skip confirm password if Google sign-in
-      first_name,
-      last_name,
-      role_id: assignedRole.role_id,
+    const user = await sequelize.transaction(async (transaction) => {
+      const created = await User.unscoped().create({ email, password, first_name, last_name, role_id: assignedRole.role_id }, { transaction });
+      await require('../services/legacyHRBootstrap').ensureStechadMembership(created, { transaction });
+      await Talent.create({ user_id: created.user_id, organization_id: assignedRole.organization_id }, { transaction });
+      return created;
     });
-
-    // Create role-specific records based on the role provided (for normal signup or Google login)
-    if (roleKey === "talent") {
-      await Talent.create({ user_id: user.user_id });
-    } else if (roleKey === "project_manager") {
-      await ProjectManager.create({ user_id: user.user_id, status: "active" });
-    } else if (roleKey === "admin") {
-      await Admin.create({ user_id: user.user_id });
-    }
 
     // Create referral record if referral code was used
     if (referral_code) {
       try {
-        await createReferral(referral_code, user.user_id);
+        const { resolveTenantContext, runWithTenant } = require('../services/tenantContext');
+        const context = await resolveTenantContext({ userId: user.user_id, organizationId: require('../services/tenancyInventory').STECHAD_ORGANIZATION_ID });
+        await runWithTenant(context, () => createReferral(referral_code, user.user_id));
       } catch (referralError) {
         console.error("Error processing referral:", referralError);
       }
@@ -249,15 +251,7 @@ const signup = async (req, res) => {
       role: roleKey,
     });
 
-    // Format user response with signed URLs
-    const createdUser = await User.findByPk(user.user_id, {
-      include: [
-        { model: Talent, as: "talent" },
-        { model: ProjectManager, as: "project_manager" },
-        { model: Admin, as: "admin" },
-      ],
-    });
-    const formattedUser = await formatUserResponse(createdUser);
+    const session = await require('../services/organizationMembership').sessionView(user);
 
     // Respond with success message and user data + token (matching login format)
     res.status(201).json({
@@ -266,7 +260,7 @@ const signup = async (req, res) => {
         ? "User logged in successfully"
         : "User registered successfully",
       data: {
-        user: formattedUser,
+        ...session,
         token,
         refreshToken,
       },
@@ -286,15 +280,7 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Find user
-    const user = await User.unscoped().findOne({
-      where: emailWhere(email),
-      include: [
-        ROLE_INCLUDE,
-        { model: Talent, as: "talent" },
-        { model: ProjectManager, as: "project_manager" },
-        { model: Admin, as: "admin" },
-      ],
-    });
+    const user = await User.unscoped().findOne({ where: emailWhere(email) });
 
     if (!user) {
       await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", outcome: "failure" });
@@ -323,7 +309,7 @@ const login = async (req, res) => {
 
     // Update last login
     await sequelize.transaction(async (transaction) => {
-      await user.update({ last_login: new Date(), is_verified: true }, { transaction });
+      await user.update({ last_login: new Date() }, { transaction });
       await require("../utils/audit").recordAudit({ action: "auth.login", target_type: "User", target_id: user.user_id, actor: user }, transaction);
     });
 
@@ -334,29 +320,20 @@ const login = async (req, res) => {
       session_version: user.session_version,
     });
 
-    const inviteRecord = await Invite.findOne({
-      where: emailWhere(user.email, "Invite", { status: "accepted" }),
-    });
-
-    if (inviteRecord) {
-      await inviteRecord.destroy();
-    }
-
-    // Format user response with signed URLs
-    const formattedUser = await formatUserResponse(user);
+    const session = await require('../services/organizationMembership').sessionView(user, req.get('X-Organization-ID'));
 
     res.json({
       success: true,
       message: "Login successful",
       data: {
-        user: formattedUser,
+        ...session,
         token,
         refreshToken,
       },
     });
   } catch (error) {
     console.log(error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
       message: "Login failed",
       error: error.message,
@@ -387,7 +364,7 @@ const sendOtp = async (req, res) => {
   try {
     const { email, purpose } = req.body;
 
-    const user = await User.findOne({ where: emailWhere(email) });
+    const user = await User.unscoped().findOne({ where: emailWhere(email) });
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -448,7 +425,7 @@ const verifyEmail = async (req, res) => {
   try {
     const { email, otp } = req.body;
 
-    const user = await User.findOne({
+    const user = await User.unscoped().findOne({
       where: {
         ...emailWhere(email),
         reset_password_token: otp,
@@ -516,7 +493,7 @@ const resetPassword = async (req, res) => {
     if (policyError) return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
 
     // 2. Find user by valid OTP
-    const user = await User.findOne({
+    const user = await User.unscoped().findOne({
       where: {
         reset_password_token: otp,
         reset_password_expires: {
@@ -569,7 +546,7 @@ const editPassword = async (req, res) => {
   try {
     const policyError = passwordError(new_password);
     if (policyError) return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
-    const user = await User.findByPk(req.user.user_id, { attributes: { include: ["password"] } });
+    const user = await User.unscoped().findByPk(req.user.user_id, { attributes: { include: ["password"] } });
 
     if (!user.password) return res.status(409).json({ success: false, message: "This account has no password. Use Forgot password to establish one first." });
     // Check if old password matches
@@ -590,7 +567,7 @@ const editPassword = async (req, res) => {
 
     if (await user.comparePassword(new_password)) return res.status(400).json({ success: false, message: "New password must be different from the current password" });
     const tokens = await sequelize.transaction(async (transaction) => {
-      const current = await User.findByPk(user.user_id, { attributes: { include: ["password"] }, transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
+      const current = await User.unscoped().findByPk(user.user_id, { attributes: { include: ["password"] }, transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
       if (!await current.comparePassword(old_password)) throw Object.assign(new Error("Current password changed. Please try again."), { status: 409 });
       await current.update({ password: new_password, session_version: current.session_version + 1, reset_password_token: null, reset_password_expires: null }, { transaction });
       await require("../utils/audit").recordAudit({ action: "auth.password_changed", target_type: "User", target_id: user.user_id, actor: user }, transaction);
@@ -607,198 +584,21 @@ const editPassword = async (req, res) => {
   }
 };
 
-// accept invite
+// Both existing and new invitees redeem through the same transactionally locked service.
 const acceptInvite = async (req, res) => {
-  const transaction = await sequelize.transaction();
-
   try {
-    const {
-      // temp_password,
-      new_password,
-      confirm_password,
-      first_name,
-      last_name,
-    } = req.body;
-
-    const { token } = req.params;
-
-    // const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-
-
-    // 1️⃣ Find invite (outside transaction is fine)
-    const invitedUser = await Invite.findOne({
-      where: { token, status: "pending" },
-    });
-
-    if (!invitedUser) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired invite",
-      });
-    }
-
-    const invitedRoleKey = getRoleKey(invitedUser);
-    if (invitedRoleKey === "super_admin") {
-      await transaction.rollback();
-      return res.status(409).json({
-        success: false,
-        message: "Super Admin invitations are no longer accepted. Use the manual seed command.",
-      });
-    }
-
-    if (new Date() > invitedUser.expires_at) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Invite has expired",
-      });
-    }
-
-    // 2️⃣ Validate temp password
-    // const isTempMatch = await invitedUser.compareTempPassword(temp_password);
-    // if (!isTempMatch) {
-    //   await transaction.rollback();
-    //   return res.status(401).json({
-    //     success: false,
-    //     message: "Temporary password is incorrect",
-    //   });
-    // }
-
-    // 3️⃣ Validate password confirmation
-    if (new_password !== confirm_password) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Passwords do not match",
-      });
-    }
-
-    const policyError = passwordError(new_password);
-    if (policyError) {
-      await transaction.rollback();
-      return res.status(400).json({ success: false, message: policyError, errors: { new_password: policyError } });
-    }
-
-    // 4️⃣ Prevent duplicate user creation
-    const alreadyUser = await User.findOne({
-      paranoid: false,
-      where: emailWhere(invitedUser.email),
-    });
-
-    if (alreadyUser) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Account already created",
-      });
-    }
-
-    // ================================
-    // 🔐 TRANSACTIONAL OPERATIONS START
-    // ================================
-
-    // 5️⃣ Create user
-    const { lockHierarchy, reportingUpdates } = require("../utils/reporting");
-    await lockHierarchy(transaction);
-    const employeeId = invitedUser.employee_id || await generateUniqueEmployeeId({ transaction });
-    const user = await User.create(
-      {
-        email: invitedUser.email,
-        password: new_password,
-        first_name: first_name || invitedUser.first_name,
-        last_name: last_name || invitedUser.last_name,
-        role_id: invitedUser.role_id,
-        department_id: invitedUser.department_id || null,
-        job_title: invitedUser.job_title || null,
-        employee_id: employeeId,
-      },
-      { transaction }
-    );
-
-    await user.update(await reportingUpdates(user, { department_id: invitedUser.department_id || null, reporting_manager_mode: "department" }, transaction), { transaction });
-
-    // 6️⃣ Create role-specific record
-    if (invitedRoleKey === "project_manager") {
-      await ProjectManager.create(
-        { user_id: user.user_id, status: "active" },
-        { transaction }
-      );
-    } else if (["admin", "super_admin"].includes(invitedRoleKey)) {
-      await Admin.create(
-        { user_id: user.user_id, is_super_admin: invitedRoleKey === "super_admin" },
-        { transaction }
-      );
-    }
-
-    // 7️⃣ Invalidate invite
-    await invitedUser.update(
-      {
-        status: "accepted",
-        token: null,
-        // temp_password: null,
-        responded_at: new Date(),
-      },
-      { transaction }
-    );
-
-    // 8️⃣ Commit transaction
-    await transaction.commit();
-
-    res.status(201).json({
-      success: true,
-      message:
-        "Invite accepted and user registered successfully. Please login with your new password.",
-    });
-  } catch (error) {
-    // ❌ Rollback EVERYTHING on failure
-    await transaction.rollback();
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to accept invite",
-      error: error.message,
-    });
-  }
+    const data = await require('../services/organizationInvitations').acceptInvitation({ token: req.params.token || req.body.token, input: req.body, identity: req.identity });
+    return res.status(201).json({ success: true, message: 'Invitation accepted successfully', data });
+  } catch (error) { return res.status(error.status || (error.name === 'SequelizeUniqueConstraintError' ? 409 : 500)).json({ success: false, message: error.message, code: error.code }); }
 };
 
-// Get current user profile /auth/me
+// Global session remains available after membership revocation.
 const getMe = async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.user_id, {
-      attributes: { include: ["password"] },
-      include: [
-        { model: Talent, as: "talent" },
-        { model: ProjectManager, as: "project_manager" },
-        { model: Admin, as: "admin" },
-      ],
-    });
-
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
-    }
-
-    // Format user response with signed URLs using shared helper
-    const formattedUser = await formatUserResponse(user);
-
-    return res.json({
-      success: true,
-      data: {
-        user: formattedUser,
-      },
-      meta: {
-        signed_url_ttl_seconds: SIGNED_URL_TTL_SECONDS,
-      },
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to get user profile",
-      error: error.message,
-    });
-  }
+    const data = await require('../services/organizationMembership').sessionView(req.identity || req.user, req.get('X-Organization-ID'));
+    res.set('Cache-Control', 'no-store');
+    return res.json({ success: true, data });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, code: error.code }); }
 };
 
 module.exports = {
