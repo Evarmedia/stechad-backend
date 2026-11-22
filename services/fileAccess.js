@@ -1,11 +1,13 @@
 const { Op } = require('sequelize');
-const { peekTenantContext, revalidateTenantContext } = require('./tenantContext');
+const { peekTenantContext, revalidateTenantContext, getHRIdentity, runWithTenant } = require('./tenantContext');
 const denied = () => Object.assign(new Error('File is not available in this organization'), { status: 403 });
+const normalizePurpose = (purpose) => purpose === 'profile-images' ? 'avatars' : purpose;
 
 async function fileOwner(objectName, context) {
   const { StoredFile, Talent, ExpenseClaim, Chat, Message, User, OrganizationMembership } = require('../models');
   const registered = await StoredFile.findOne({ where: { organization_id: context.organizationId, object_name: objectName } });
-  if (registered) return { owner: registered.owner_user_id, purpose: registered.purpose };
+  if (registered) return { owner: registered.owner_user_id, purpose: normalizePurpose(registered.purpose) };
+  if (await StoredFile.findOne({ where: { object_name: objectName } })) return null;
   // Legacy references retain their object names. Resolve ownership through data,
   // never by accepting a caller-controlled storage path or UUID prefix.
   const talent = await Talent.findOne({ where: { organization_id: context.organizationId, cv_object_name: objectName } });
@@ -22,13 +24,13 @@ async function fileOwner(objectName, context) {
 }
 
 async function assertFileOwnership(objectName, { write = false } = {}) {
-  const context = peekTenantContext();
+  let context = peekTenantContext();
   if (!context) {
     if (process.env.TENANCY_ENFORCED === 'true') throw denied();
     return null;
   }
   if (typeof objectName !== 'string' || !objectName || objectName.includes('..') || objectName.includes('://')) throw denied();
-  await revalidateTenantContext(context);
+  context = await revalidateTenantContext(context);
   const file = await fileOwner(objectName, context);
   if (!file) throw denied();
   if (file.owner === context.userId) return file;
@@ -40,12 +42,12 @@ async function assertFileOwnership(objectName, { write = false } = {}) {
     if (await Chat.findOne({ where: { organization_id: context.organizationId, avatar_object_name: objectName, participants: { [Op.contains]: [context.userId] } } })) return file;
     throw denied();
   }
-  if (['admin', 'super_admin'].includes(role) || (file.purpose === 'resumes' && role === 'project_manager')) return file;
-  const { RolePermission } = require('../models');
+  // Recruiting roles retain their existing candidate-CV access independently of
+  // staff-management permissions. All permission keys use the shared resolver.
+  if (file.purpose === 'resumes' && ['admin', 'super_admin', 'project_manager'].includes(role)) return file;
   const keys = file.purpose.includes('receipt') ? ['approve_expenses', 'verify_receipts'] : ['manage_staff'];
-  if (keys.some((key) => context.hrProfile.workforce_permissions?.includes(key) || context.role.permission_keys?.includes(key))) return file;
-  const rows = await RolePermission.findAll({ where: { organization_id: context.organizationId, permission_key: { [Op.in]: keys } } });
-  if (['staff', 'project_manager'].includes(role) && rows.some((row) => row[role])) return file;
+  const permissions = await runWithTenant(context, () => require('../utils/permissions').effectivePermissions(getHRIdentity({ user_id: context.userId }, context)));
+  if (permissions.includes('*') || keys.some((key) => permissions.includes(key))) return file;
   throw denied();
 }
 
@@ -57,7 +59,7 @@ async function registerFile(objectName, ownerUserId, purpose) {
   }
   await revalidateTenantContext(context);
   if (ownerUserId !== context.userId) throw denied();
-  return require('../models/StoredFile').create({ organization_id: context.organizationId, owner_user_id: ownerUserId, object_name: objectName, purpose });
+  return require('../models/StoredFile').create({ organization_id: context.organizationId, owner_user_id: ownerUserId, object_name: objectName, purpose: normalizePurpose(purpose) });
 }
 
 module.exports = { assertFileOwnership, registerFile };

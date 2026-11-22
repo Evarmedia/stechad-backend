@@ -17,9 +17,11 @@ Organization APIs provide creation, listing, settings, invitations, membership c
 
 Workforce, recruitment, projects, referrals, rewards, chat, notifications, files, reports and background work use validated ownership. Shared-account tests exercise different HR roles in two organizations. Socket delivery revalidates recipients; deferred events wait for the outer transaction and do not publish rolled-back writes. Legacy Zoho credentials are restricted to stechad.
 
+Registered avatars are organization-owned files, including uploads stored under the legacy `profile-images` folder. Members of that organization may read them; a different organization cannot sign a registered avatar even when the same global User references its path. Existing object names are preserved, and unregistered legacy avatar references remain readable only through validated same-organization membership. CV and receipt reads retain their separate owner/HR-permission checks. File permissions use the canonical HR grant resolver, with existing admin, HR super-admin and project-manager recruiting CV eligibility retained independently of workforce-management grants.
+
 ## Validation
 
-- Full backend regression: 120 tests passed, zero skipped, using disposable schemas in an isolated local PostgreSQL cluster. Subsequent notification transaction fixes additionally passed three jobs/audit tests, four tenant Socket.IO/chat tests and a legacy broadcast test.
+- Full backend regression after review fixes: 124 tests passed, zero skipped, using disposable schemas in an isolated local PostgreSQL cluster. The final recruiting-role CV compatibility adjustment additionally passed all six tenant-file HTTP/PostgreSQL tests, including admin CV access with workforce-management grants disabled.
 - Frontend: 19 suites / 87 tests passed; production build passed. Headless Chrome exercised switching, keyboard/mobile behavior, independent tabs, delayed responses, membership revocation, no-HR membership and existing-account invitation acceptance against controlled HTTP fixtures.
 - Migration rehearsal: dry-run, apply twice, verify, stable identifiers/hashes/grants, deleted/orphan history, pending invitations and file references; future organization identities remain outside the stechad backfill. Runtime readiness rejects a missing checkpoint.
 - Existing frontend debt remains: typecheck has 20 baseline errors; lint has 41 baseline errors and 15 warnings. Comparison against the original baseline found no new failures. These checks are not reported as passing.

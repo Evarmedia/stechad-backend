@@ -40,6 +40,7 @@ else {
     app.use('/api/export', require('../routes/exportRoutes'));
     app.use('/api/notifications', require('../routes/notificationRoutes'));
     app.use('/api/upload', require('../routes/uploadRoutes'));
+    app.use('/api/staff', require('../routes/staffRoutes'));
     app.get('/api/sign', require('../middleware/auth').authenticate, async (req, res, next) => {
       try { res.json({ url: await require('../config/gcpStorage').getV4ReadSignedUrl(req.query.objectName) }); } catch (error) { next(error); }
     });
@@ -51,7 +52,45 @@ else {
     server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve)); origin = `http://127.0.0.1:${server.address().port}`;
   });
   after(async () => { delete process.env.TENANCY_ENFORCED; if (server) await new Promise((resolve) => server.close(resolve)); await db.dropSchema(schema, { cascade: true }); await db.close(); });
-  const request = (path, organization, options = {}) => fetch(origin + path, { ...options, headers: { authorization: `Bearer ${generateTokens(shared).token}`, ...(organization ? { 'x-organization-id': organization.organization_id } : {}), ...options.headers } });
+  const request = (path, organization, options = {}, user = shared) => fetch(origin + path, { ...options, headers: { authorization: `Bearer ${generateTokens(user).token}`, ...(organization ? { 'x-organization-id': organization.organization_id } : {}), ...options.headers } });
+  test('saved uploaded avatars remain visible to colleagues while private CVs and foreign organizations stay denied', async () => {
+    const role = await models.Role.findOne({ where: { organization_id: orgA.organization_id, role_key: 'staff' } });
+    const colleague = await models.User.create({ email: 'colleague@example.test', role_id: role.role_id });
+    const membership = await models.OrganizationMembership.create({ organization_id: orgA.organization_id, user_id: colleague.user_id });
+    await models.HRProfile.create({ organization_id: orgA.organization_id, membership_id: membership.membership_id, user_id: colleague.user_id, role_id: role.role_id });
+    const body = new FormData(); body.append('avatar', new Blob(['image-test'], { type: 'image/png' }), 'avatar.png');
+    const saved = await request('/api/staff/profile', orgA, { method: 'PUT', body });
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const objectName = (await saved.json()).data.avatar_object_name;
+    assert.match(objectName, /\/profile-images\//, 'existing storage names remain compatible');
+    const signed = await request(`/api/sign?objectName=${encodeURIComponent(objectName)}`, orgA, {}, colleague);
+    assert.equal(signed.status, 200, await signed.clone().text());
+    assert.match((await signed.json()).url, /storage\.test/);
+    // Entries uploaded before purpose normalization retain the old value.
+    await models.StoredFile.update({ purpose: 'profile-images' }, { where: { object_name: objectName } });
+    assert.equal((await request(`/api/sign?objectName=${encodeURIComponent(objectName)}`, orgA, {}, colleague)).status, 200);
+    const count = calls.length;
+    assert.equal((await request('/api/sign?objectName=resumes/legacy-private.pdf', orgA, {}, colleague)).status, 403);
+    assert.equal((await request(`/api/sign?objectName=${encodeURIComponent(objectName)}`, orgB)).status, 403);
+    assert.equal(calls.length, count, 'denied reads never reach storage');
+  });
+  test('private file reads honor current HR grants and preserve recruiting-role CV access', async () => {
+    const people = {};
+    for (const [key, permissionKeys] of [['project_manager', []], ['reviewer', ['manage_staff']], ['admin', []]]) {
+      const role = await models.Role.create({ organization_id: orgA.organization_id, role_key: key, name: key, is_system: key !== 'reviewer', permission_keys: permissionKeys });
+      const user = await models.User.create({ email: `${key}@files.test`, role_id: role.role_id });
+      const membership = await models.OrganizationMembership.create({ organization_id: orgA.organization_id, user_id: user.user_id });
+      await models.HRProfile.create({ organization_id: orgA.organization_id, membership_id: membership.membership_id, user_id: user.user_id, role_id: role.role_id });
+      people[key] = user;
+    }
+    for (const user of [people.project_manager, people.reviewer]) assert.equal((await request('/api/sign?objectName=resumes/legacy-private.pdf', orgA, {}, user)).status, 200);
+    await models.StoredFile.create({ organization_id: orgA.organization_id, owner_user_id: shared.user_id, object_name: 'receipts/private.pdf', purpose: 'receipts' });
+    assert.equal((await request('/api/sign?objectName=receipts/private.pdf', orgA, {}, people.admin)).status, 200, 'default expense approval permits receipt reads');
+    for (const permission_key of ['approve_expenses', 'verify_receipts']) await models.RolePermission.create({ organization_id: orgA.organization_id, permission_key, name: permission_key, admin: false });
+    assert.equal((await request('/api/sign?objectName=receipts/private.pdf', orgA, {}, people.admin)).status, 403, 'configured grants govern file access too');
+    await models.RolePermission.create({ organization_id: orgA.organization_id, permission_key: 'manage_staff', name: 'Manage staff', admin: false });
+    assert.equal((await request('/api/sign?objectName=resumes/legacy-private.pdf', orgA, {}, people.admin)).status, 200, 'recruiting CV access is independent of workforce management');
+  });
   test('legacy CV ownership and signing use selected organization even for a shared identity', async () => {
     assert.equal((await request('/api/sign?objectName=resumes/legacy-private.pdf', orgA)).status, 200);
     const count = calls.length;

@@ -14,6 +14,10 @@ async function requireMembership(userId, organizationId, { transaction, manage =
   if (manage && !['owner', 'admin'].includes(membership.membership_role)) throw fail('Organization administrator access is required');
   return membership;
 }
+async function requireHRStaffManagement(actor, organizationId, transaction) {
+  const context = await resolveTenantContext({ userId: actor.user_id, organizationId, transaction });
+  if (!await runWithTenant(context, () => require('../utils/permissions').hasPermission(getHRIdentity(actor, context), 'manage_staff'))) throw fail('HR staff management permission is required');
+}
 async function sessionView(user, organizationId) {
   return runWithoutTenant(async () => {
     const organizations = await listOrganizations(user.user_id);
@@ -70,14 +74,11 @@ async function changeMembership({ actor, organizationId, membershipId, updates, 
     const org = await Organization.findByPk(organizationId, { transaction: tx, lock: tx.LOCK.UPDATE });
     if (!org || org.status !== 'active') throw fail('Organization is unavailable', 403, 'MEMBERSHIP_UNAVAILABLE');
     const acting = await requireMembership(actor.user_id, organizationId, { transaction: tx, manage: !leave && authority !== 'hr' });
-    if (authority === 'hr') {
-      const context = await resolveTenantContext({ userId: actor.user_id, organizationId, transaction: tx });
-      if (!await runWithTenant(context, () => require('../utils/permissions').hasPermission(getHRIdentity(actor, context), 'manage_staff'))) throw fail('HR staff management permission is required');
-    }
+    if (authority === 'hr') await requireHRStaffManagement(actor, organizationId, tx);
     const target = await OrganizationMembership.findOne({ where: { organization_id: organizationId, membership_id: membershipId }, transaction: tx, lock: tx.LOCK.UPDATE });
     if (!target) throw fail('Membership not found', 404);
     if (leave && target.user_id !== actor.user_id) throw fail('Only your own membership can be left');
-    if (!leave && authority !== 'hr' && acting.membership_role !== 'owner' && (target.membership_role === 'owner' || updates.membership_role === 'owner')) throw fail('Only owners can change organization owners');
+    if (!leave && acting.membership_role !== 'owner' && (target.membership_role === 'owner' || updates.membership_role === 'owner')) throw fail('Only owners can change organization owners');
     if (authority === "hr" && updates.membership_role !== undefined) throw fail("HR permissions cannot change organization management roles");
     const values = {};
     if (updates.status !== undefined) { if (!['active', 'suspended', 'removed'].includes(updates.status)) throw fail('Invalid membership status', 400); values.status = updates.status; }
@@ -94,4 +95,4 @@ async function changeMembership({ actor, organizationId, membershipId, updates, 
   };
   return transaction ? work(transaction) : sequelize.transaction(work);
 }
-module.exports = { fail, uuid, listOrganizations, requireMembership, sessionView, createOrganization, changeMembership, audit };
+module.exports = { fail, uuid, listOrganizations, requireMembership, requireHRStaffManagement, sessionView, createOrganization, changeMembership, audit };
