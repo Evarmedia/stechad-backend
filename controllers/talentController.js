@@ -13,7 +13,6 @@ const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { toInt, toTextArray, toBool } = require("../utils/helpers");
 const { formatUserResponse } = require("./authController");
-const { generateTokens } = require("../utils/generateTokens");
 const { getRoleKey, ROLE_INCLUDE } = require("../utils/roleUtils");
 const {
   notifyJobPosterOfApplication,
@@ -255,16 +254,14 @@ const completeOnboarding = async (req, res) => {
     const formattedUser = await formatUserResponse(userWithAssociations);
 
     // Generate tokens
-    const { token, refreshToken } = generateTokens({
-      user_id: req.user.user_id,
-      role: getRoleKey(userWithAssociations),
-    });
+    const { token, refreshToken, session } = await require('../services/authSessions').createSession(req.identity || req.user, { request: req, authMethod: req.authSession?.auth_method || 'legacy_exchange', authenticatedAt: req.authSession?.authenticated_at || new Date(0) });
 
     res.json({
       success: true,
       message: "Onboarding completed successfully",
       data: {
         user: formattedUser,
+        session,
         token,
         refreshToken,
       },
@@ -670,10 +667,7 @@ const updateProfile = async (req, res) => {
     const formattedUser = await formatUserResponse(userWithAssociations);
 
     // Generate tokens
-    const { token, refreshToken } = generateTokens({
-      user_id: req.user.user_id,
-      role: getRoleKey(userWithAssociations),
-    });
+    const { token, refreshToken, session } = await require('../services/authSessions').createSession(req.identity || req.user, { request: req, authMethod: req.authSession?.auth_method || 'legacy_exchange', authenticatedAt: req.authSession?.authenticated_at || new Date(0) });
 
     console.log("✅ [updateProfile] Profile updated successfully");
 
@@ -682,6 +676,7 @@ const updateProfile = async (req, res) => {
       message: "Profile updated successfully",
       data: {
         user: formattedUser,
+        session,
         token,
         refreshToken,
       },
