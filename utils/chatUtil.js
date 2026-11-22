@@ -4,7 +4,7 @@ const {
   User,
   ChatUserState,
   Notification,
-} = require("../models");
+} = require("../services/hrModels");
 const { Op, QueryTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const { ROLE_INCLUDE } = require("./roleUtils");
@@ -388,19 +388,21 @@ const getUserChats = async (userId, options = {}) => {
       throw chatError("Invalid chat type");
     where.chat_type = options.chat_type;
   }
+  const organizationId = require('../services/tenantContext').peekTenantContext()?.organizationId;
+  if (!organizationId && process.env.TENANCY_ENFORCED === 'true') throw chatError('Organization context is required', 403);
   const hidden = await sequelize.query(
     `SELECT state.chat_id
     FROM ${policy.quoteTable("chat_user_states")} state
-    LEFT JOIN ${policy.quoteTable("chats")} chat ON chat.chats_id = state.chat_id
-    LEFT JOIN ${policy.quoteTable("messages")} message ON message.messages_id = chat.last_message_id
-    WHERE state.user_id = :userId
+    LEFT JOIN ${policy.quoteTable("chats")} chat ON chat.chats_id = state.chat_id ${organizationId ? 'AND chat.organization_id = :organizationId AND chat.organization_id = state.organization_id' : ''}
+    LEFT JOIN ${policy.quoteTable("messages")} message ON message.messages_id = chat.last_message_id ${organizationId ? 'AND message.organization_id = :organizationId' : ''}
+    WHERE state.user_id = :userId ${organizationId ? 'AND state.organization_id = :organizationId' : ''}
       AND state.hidden_through_sequence IS NOT NULL
       AND (
         (state.left_through_sequence IS NOT NULL AND state.left_through_sequence <= state.hidden_through_sequence)
         OR
         (state.left_through_sequence IS NULL AND (message.message_sequence IS NULL OR message.message_sequence <= state.hidden_through_sequence))
       )`,
-    { replacements: { userId }, type: QueryTypes.SELECT },
+    { replacements: { userId, organizationId }, type: QueryTypes.SELECT },
   );
   if (hidden.length)
     where.chats_id = { [Op.notIn]: hidden.map((state) => state.chat_id) };
@@ -490,6 +492,13 @@ const sendMessage = async (
     throw chatError("Invalid message type");
   if (!Array.isArray(attachments) || attachments.length > 10)
     throw chatError("Attachments must be an array of at most 10 items");
+  if (require('../services/tenantContext').peekTenantContext()) {
+    for (const attachment of attachments) {
+      const objectName = attachment?.object_name || attachment?.objectName;
+      if (!objectName) throw chatError('Attachments must reference an uploaded file');
+      await require('../services/fileAccess').assertFileOwnership(objectName);
+    }
+  }
   if (replyTo) validateId(replyTo, "reply message ID");
   if (clientMessageId) validateId(clientMessageId, "client message ID");
   let newlyCreated = false;

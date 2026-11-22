@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { User, Message, ChatUserState } = require("../models");
+const { User, Message, ChatUserState } = require("../services/hrModels");
 const sequelize = require("../config/database");
 const { getRoleKey, isCustomRole } = require("./roleUtils");
 const chatError = (message, status = 400) =>

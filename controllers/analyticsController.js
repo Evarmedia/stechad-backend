@@ -5,7 +5,7 @@ const {
   Job,
   Application,
   Project,
-} = require("../models");
+} = require("../services/hrModels");
 const { Op } = require("sequelize");
 const { ROLE_INCLUDE } = require("../utils/roleUtils");
 

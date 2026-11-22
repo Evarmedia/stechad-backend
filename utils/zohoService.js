@@ -1,4 +1,10 @@
 const axios = require("axios");
+const { peekTenantContext, revalidateTenantContext } = require('../services/tenantContext');
+const { STECHAD_ORGANIZATION_ID } = require('../services/tenancyInventory');
+const ownsLegacyConnection = () => {
+  const tenant = peekTenantContext();
+  return tenant ? tenant.organizationId === STECHAD_ORGANIZATION_ID : process.env.TENANCY_ENFORCED !== 'true';
+};
 
 let cachedAccessToken = null;
 let accessTokenExpiresAt = 0;
@@ -14,11 +20,14 @@ const getConfiguration = () => ({
 });
 
 const isConfigured = () => {
+  if (!ownsLegacyConnection()) return false;
   const config = getConfiguration();
   return Boolean(config.clientId && config.clientSecret && config.refreshToken && config.organizationId && config.defaultItemId);
 };
 
 const getAccessToken = async () => {
+  if (!ownsLegacyConnection()) throw Object.assign(new Error('Zoho is not configured for this organization'), { code: 'ZOHO_NOT_CONFIGURED' });
+  if (peekTenantContext()) await revalidateTenantContext();
   if (cachedAccessToken && Date.now() < accessTokenExpiresAt) return cachedAccessToken;
   const config = getConfiguration();
   if (!isConfigured()) {
@@ -67,6 +76,7 @@ const resolveCustomer = async (contactName) => {
 };
 
 const syncProjectInvoice = async (invoice) => {
+  if (!ownsLegacyConnection()) throw Object.assign(new Error('Zoho is not configured for this organization'), { code: 'ZOHO_NOT_CONFIGURED' });
   if (invoice.zoho_invoice_id) return { invoice_id: invoice.zoho_invoice_id, alreadySynced: true };
   if (invoice.invoice_type !== "project") throw new Error("Only client project invoices can be raised as Zoho Books sales invoices");
   const config = getConfiguration();

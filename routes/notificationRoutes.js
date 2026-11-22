@@ -135,7 +135,7 @@ router.get('/', async (req, res) => {
 router.put('/:id/read', async (req, res) => {
   try {
     const notification = await markAsRead(req.params.id, req.user.user_id);
-    req.app.get('io')?.to(`user_${req.user.user_id}`).emit('notifications_changed', {});
+    await require('../utils/events').emitToUser(req.app.get('io'), req.user.user_id, 'notifications_changed', {});
     res.json({
       success: true,
       message: 'Notification marked as read',
@@ -192,7 +192,7 @@ router.put('/:id/read', async (req, res) => {
 router.put('/read-all', async (req, res) => {
   try {
     const updatedCount = await markAllAsRead(req.user.user_id);
-    req.app.get('io')?.to(`user_${req.user.user_id}`).emit('notifications_changed', {});
+    await require('../utils/events').emitToUser(req.app.get('io'), req.user.user_id, 'notifications_changed', {});
     res.json({
       success: true,
       message: 'All notifications marked as read',

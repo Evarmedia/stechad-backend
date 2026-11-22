@@ -6,7 +6,7 @@ const TENANT_TABLES = Object.freeze([
   'holidays', 'interviews', 'invites', 'invoices', 'jobs', 'kpis', 'kpi_appraisals',
   'messages', 'notifications', 'notification_broadcasts', 'projects',
   'project_managers', 'referrals', 'rewards', 'role_permissions', 'roles',
-  'settings', 'talents', 'talent_project', 'user_rewards', 'leave_requests',
+  'settings', 'talents', 'talent_project', 'user_rewards', 'leave_requests', 'stored_files',
 ]);
 const PROFILE_FIELDS = Object.freeze([
   'role_id', 'employee_id', 'department_id', 'job_title', 'reports_to_user_id',

@@ -1,4 +1,6 @@
 const AuditLog = require("./AuditLog");
+const IdentityAuditLog = require('./IdentityAuditLog');
+const StoredFile = require('./StoredFile');
 const NotificationBroadcast = require("./NotificationBroadcast");
 // Models
 const User = require("./User");
@@ -355,6 +357,8 @@ UserReward.belongsTo(Referral, {
 });
 
 module.exports = {
+  IdentityAuditLog,
+  StoredFile,
   AuditLog,
   NotificationBroadcast,
   User,

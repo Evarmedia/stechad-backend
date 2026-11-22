@@ -1,10 +1,12 @@
 const { Reward } = require('../models');
+const { STECHAD_ORGANIZATION_ID } = require('../services/tenancyInventory');
 const { v4: uuidv4 } = require('uuid');
 
 const createDefaultRewards = async () => {
   try {
     // Create default referral reward
     await Reward.create({
+      organization_id: STECHAD_ORGANIZATION_ID,
       reward_id: uuidv4(),
       reward_type: 'referral',
       reward_amount: 50.00, // $50 for referrer
@@ -15,6 +17,7 @@ const createDefaultRewards = async () => {
 
     // Create signup reward
     await Reward.create({
+      organization_id: STECHAD_ORGANIZATION_ID,
       reward_id: uuidv4(),
       reward_type: 'signup',
       reward_amount: 25.00, // $25 for referee (signup bonus)
