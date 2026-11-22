@@ -14,4 +14,12 @@ async function assertTenancyReady(sequelize) {
     return report;
   } finally { await sequelize.connectionManager.releaseConnection(client); }
 }
-module.exports = { assertTenancyReady };
+
+async function assertApplicationReady(sequelize) {
+  // Release tenancy's dedicated connection before checking session models; this
+  // also works with a single-connection pool in serverless deployments.
+  const tenancy = await assertTenancyReady(sequelize);
+  const sessions = await require('./authSessions').assertSessionStorageReady();
+  return { tenancy, sessions };
+}
+module.exports = { assertTenancyReady, assertApplicationReady };
