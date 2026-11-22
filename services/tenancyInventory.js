@@ -8,6 +8,13 @@ const TENANT_TABLES = Object.freeze([
   'project_managers', 'referrals', 'rewards', 'role_permissions', 'roles',
   'settings', 'talents', 'talent_project', 'user_rewards', 'leave_requests', 'stored_files',
 ]);
+// These security records belong to global identity/platform authority, never HR.
+const GLOBAL_SECURITY_TABLES = Object.freeze([
+  'auth_sessions', 'auth_refresh_tokens', 'auth_legacy_exchanges',
+  'auth_security_state', 'auth_oauth_attempts', 'platform_roles',
+  'platform_role_grants', 'platform_mfa_credentials',
+  'platform_recovery_codes', 'platform_session_assurances',
+]);
 const PROFILE_FIELDS = Object.freeze([
   'role_id', 'employee_id', 'department_id', 'job_title', 'reports_to_user_id',
   'reporting_manager_mode', 'employment_type', 'hire_date', 'date_of_birth',
@@ -19,4 +26,4 @@ const PROFILE_FIELDS = Object.freeze([
   'browser_location_state', 'browser_location_country', 'browser_location_country_code',
   'reward', 'deleted_at', 'deleted_by_user_id',
 ]);
-module.exports = { STECHAD_ORGANIZATION_ID, TENANT_TABLES, PROFILE_FIELDS };
+module.exports = { STECHAD_ORGANIZATION_ID, TENANT_TABLES, GLOBAL_SECURITY_TABLES, PROFILE_FIELDS };

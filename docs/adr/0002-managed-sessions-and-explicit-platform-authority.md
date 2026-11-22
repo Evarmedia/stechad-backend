@@ -1,0 +1,5 @@
+# Keep platform authority explicit and session-bound
+
+Retain the current global identity and authentication providers while adding revocable managed sessions and separately assigned platform roles. Internal platform operations require a live grant and recent session-bound MFA verification; existing HR super-admin roles and organization ownership never imply platform authority. This adds server-side session and credential lifecycle state instead of relying on JWT role claims, while a finite legacy-token transition preserves existing HR access during coordinated deployment.
+
+Phase 2 was explicitly authorized by the user after Phase 1 review. The internal admin interface is a separate entry in the current frontend repository, avoiding an early monorepo or identity-provider rewrite. TOTP uses the [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238.html) algorithm and replay controls; refresh protection follows [RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14), with a bounded no-token concurrent-retry response as this application's race policy. TOTP is not phishing-resistant; this implementation does not claim NIST assurance-level certification.

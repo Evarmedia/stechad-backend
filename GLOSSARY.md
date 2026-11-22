@@ -45,3 +45,15 @@ A project managed by the existing HR product, including its managers and talent 
 
 **HR invoice**:
 A staff, talent or project invoice handled by the existing HR product. It is distinct from platform subscription billing and future Finance invoices.
+
+**Managed session**:
+A revocable sign-in on one browser or device for a global user, independent of organization selection.
+_Avoid_: Organization session
+
+**Platform grant**:
+An explicit assignment of platform authority to a global user, independent of HR roles or organization ownership.
+_Avoid_: HR super-admin upgrade
+
+**Platform assurance**:
+Recent verification of a platform operator's additional authentication factor for one managed session.
+_Avoid_: HR permission, permanent MFA bypass

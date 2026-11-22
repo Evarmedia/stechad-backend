@@ -1,5 +1,5 @@
 const { randomUUID, createHash } = require('node:crypto');
-const { TENANT_TABLES, PROFILE_FIELDS, STECHAD_ORGANIZATION_ID } = require('./tenancyInventory');
+const { TENANT_TABLES, GLOBAL_SECURITY_TABLES, PROFILE_FIELDS, STECHAD_ORGANIZATION_ID } = require('./tenancyInventory');
 const qi = (value) => `"${String(value).replaceAll('"', '""')}"`;
 const constraintName = (...parts) => `tenant_${createHash('sha256').update(parts.join(':')).digest('hex').slice(0, 24)}`;
 
@@ -13,7 +13,7 @@ async function migrateTenancy(client, { schema, mode }) {
     else await run('SELECT pg_advisory_xact_lock(hashtext($1))', [`stechad-tenancy:${schema}`]);
     const { rows: tables } = await run('SELECT tablename FROM pg_tables WHERE schemaname = $1', [schema]);
     const existing = new Set(tables.map((row) => row.tablename));
-    const known = new Set(['users', 'organizations', 'organization_memberships', 'hr_profiles', 'identity_audit_logs', 'SequelizeMeta', 'tenancy_migration_state', ...TENANT_TABLES]);
+    const known = new Set(['users', 'organizations', 'organization_memberships', 'hr_profiles', 'identity_audit_logs', 'SequelizeMeta', 'tenancy_migration_state', ...GLOBAL_SECURITY_TABLES, ...TENANT_TABLES]);
     const unclassifiedTables = [...existing].filter((name) => !known.has(name));
     if (!existing.has('users') || !existing.has('roles')) throw new Error('Legacy users and roles tables must exist; run existing migrations first');
     if (existing.has('tenancy_migration_state') && !(await run(`SELECT 1 FROM ${table('tenancy_migration_state')} WHERE migration_key='phase1-stechad'`)).rowCount) throw new Error('Tenancy migration checkpoint is missing; refusing to infer legacy users');
