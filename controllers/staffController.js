@@ -15,7 +15,7 @@ const {
   ProjectManager,
   RolePermission,
   Notification,
-} = require("../models");
+} = require("../services/hrModels");
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { hasPermission } = require("../middleware/auth");
@@ -1289,7 +1289,9 @@ const updateProfile = async (req, res) => {
       updates.avatar_object_name = objectName;
     }
 
-    await req.user.update(updates);
+    const currentUser = await User.findByPk(req.user.user_id);
+    await currentUser.update(updates);
+    req.user = currentUser;
 
     if (
       req.file &&
