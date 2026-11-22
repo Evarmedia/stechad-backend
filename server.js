@@ -160,6 +160,7 @@ const { auditContext, installAuditing } = require("./utils/audit");
 app.use("/api", auditContext);
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/platform', require('./routes/platformRoutes'));
 app.use('/api/organizations', require('./routes/organizationRoutes'));
 app.use('/api/talents', talentRoutes);
 app.use('/api/pm', pmRoutes);

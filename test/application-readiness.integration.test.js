@@ -41,4 +41,19 @@ else {
     assert.equal(new Date(repeated.legacy_until).getTime(), new Date(first.legacy_until).getTime());
     assert.equal((await health()).status, 200);
   });
+  test('the application mounts platform authorization separately from global sign-in and organization access', async () => {
+    const role = await models.Role.create({ role_key: 'super_admin', name: 'HR super admin', is_system: true, organization_id: require('../services/tenancyInventory').STECHAD_ORGANIZATION_ID });
+    const user = await models.User.create({ email: 'global-only@example.test', password: 'Readiness-password-123', is_verified: true, role_id: role.role_id });
+    const signed = await fetch(`${origin}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: user.email, password: 'Readiness-password-123' }) });
+    assert.equal(signed.status, 200);
+    const { data } = await signed.json();
+    const headers = { Authorization: `Bearer ${data.token}`, 'X-Organization-Id': randomUUID() };
+    const platform = await fetch(`${origin}/api/platform/me`, { headers });
+    assert.equal(platform.status, 403);
+    assert.equal((await platform.json()).code, 'PLATFORM_ACCESS_DENIED');
+    assert.equal((await fetch(`${origin}/api/organizations`, { headers })).status, 200);
+    const refreshDigest = require('node:crypto').createHash('sha256').update(data.refreshToken).digest('hex');
+    const auditHistory = JSON.stringify(await models.IdentityAuditLog.findAll());
+    assert.equal(auditHistory.includes(refreshDigest), false, 'credential digests must not leak into generic audit targets');
+  });
 }

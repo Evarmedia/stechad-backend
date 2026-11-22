@@ -36,8 +36,12 @@ function installAuditing(models) {
   if (installed) return;
   installed = true;
   const sequelize = require("../config/database");
+  const securityTables = new Set(require('../services/tenancyInventory').GLOBAL_SECURITY_TABLES);
   for (const [name, model] of Object.entries(models)) {
     if (!model?.addHook || ['AuditLog', 'IdentityAuditLog'].includes(name)) continue;
+    // Credential primary keys may be token/code hashes. Security services own
+    // their transactions and explicit sanitized audits, never generic targets.
+    if (securityTables.has(model.tableName)) continue;
     // Mutations and their hooks share a transaction, including legacy controllers.
     const wrap = (owner, method, optionIndex) => {
       const original = owner[method];
