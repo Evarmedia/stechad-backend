@@ -31,8 +31,7 @@ const { Referral } = require("./Referral");
 const { Reward } = require("./Reward");
 const { UserReward  } = require("./UserReward");
 
-/* =========================
-   USER ↔ ROLE RELATIONSHIPS
+/* ==================   USER ↔ ROLE RELATIONSHIPS
    ========================= */
 
 Role.hasMany(User, { foreignKey: "role_id", as: "users", onDelete: "RESTRICT", onUpdate: "CASCADE" });
@@ -121,8 +120,7 @@ User.hasMany(User, {
   constraints: false,
 });
 
-/* =========================
-   WORKFORCE OPERATIONS
+/* ==================   WORKFORCE OPERATIONS
    ========================= */
 
 User.hasMany(Attendance, { foreignKey: "user_id", as: "attendance_entries", onDelete: "CASCADE" });
@@ -159,8 +157,7 @@ User.hasMany(Invoice, { foreignKey: "reviewed_by", as: "reviewed_invoices" });
 Project.hasMany(Invoice, { foreignKey: "project_id", as: "invoices", onDelete: "SET NULL" });
 Invoice.belongsTo(Project, { foreignKey: "project_id", as: "project" });
 
-/* =========================
-   JOB & APPLICATION
+/* ==================   JOB & APPLICATION
    ========================= */
 
 // User (poster) - Job (One-to-Many)
@@ -191,8 +188,7 @@ Application.belongsTo(Talent, {
   as: "applicant",
 });
 
-/* =========================
-   PROJECT MANAGEMENT
+/* ==================   PROJECT MANAGEMENT
    ========================= */
 
 // ProjectManager - Project (One-to-Many)
@@ -221,8 +217,7 @@ Project.belongsToMany(Talent, {
   otherKey: "talent_id",
 });
 
-/* =========================
-   INTERVIEWS
+/* ==================   INTERVIEWS
    ========================= */
 
 Interview.belongsTo(Talent, {
@@ -260,8 +255,7 @@ Job.hasMany(Interview, {
   sourceKey: "jobs_id",
 });
 
-/* =========================
-   CHAT & MESSAGING
+/* ==================   CHAT & MESSAGING
    ========================= */
 
 // User - Chat (Many-to-Many)
@@ -303,8 +297,7 @@ Message.hasMany(Message, {
   as: "replies",
 });
 
-/* =========================
-   NOTIFICATIONS
+/* ==================   NOTIFICATIONS
    ========================= */
 
 User.hasMany(Notification, {
@@ -317,8 +310,7 @@ Notification.belongsTo(User, {
   as: "user_notifications",
 });
 
-/* =========================
-   REFERRALS & REWARDS
+/* ==================   REFERRALS & REWARDS
    ========================= */
 
 User.hasMany(Referral, { foreignKey: "referrer_id", as: "referralsMade" });
@@ -418,5 +410,14 @@ OrganizationMembership.hasOne(HRProfile, { foreignKey: 'membership_id', as: 'hr_
 HRProfile.belongsTo(OrganizationMembership, { foreignKey: 'membership_id', as: 'membership' });
 HRProfile.belongsTo(Role, { foreignKey: 'role_id', as: 'role', onDelete: 'RESTRICT' });
 Object.assign(module.exports, { Organization, OrganizationMembership, HRProfile });
+
+// Explicit global platform authority and private MFA state.
+Object.assign(module.exports, {
+  PlatformRole: require('./PlatformRole'),
+  PlatformRoleGrant: require('./PlatformRoleGrant'),
+  PlatformMfaCredential: require('./PlatformMfaCredential'),
+  PlatformRecoveryCode: require('./PlatformRecoveryCode'),
+  PlatformSessionAssurance: require('./PlatformSessionAssurance'),
+});
 const AuthSession = require('./AuthSession');
 Object.assign(module.exports, { AuthSession, AuthRefreshToken: User.sequelize.models.AuthRefreshToken, AuthLegacyExchange: User.sequelize.models.AuthLegacyExchange, AuthSecurityState: User.sequelize.models.AuthSecurityState, AuthOAuthAttempt: User.sequelize.models.AuthOAuthAttempt });
