@@ -17,6 +17,8 @@ else {
   let server, origin, user, token;
   before(async () => {
     await db.createSchema(schema); await db.sync();
+    await require('../migrations/20261122100000-managed-auth-sessions').up(db.getQueryInterface(), Sequelize);
+    await require('../migrations/20261122110000-explicit-platform-authority').up(db.getQueryInterface(), Sequelize);
     const role = await models.Role.create({ role_key: 'super_admin', name: 'HR super admin' });
     user = await models.User.create({ email: 'hr-admin@example.test', role_id: role.role_id, is_verified: true });
     token = (await require('../services/authSessions').createSession(user)).token;
