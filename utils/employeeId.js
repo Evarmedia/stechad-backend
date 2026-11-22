@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
-const { User, Invite, Setting } = require("../models");
+const { User, Invite, Setting } = require("../services/hrModels");
 
 const DEFAULT_EMPLOYEE_ID_PREFIX = "STE";
 const EMPLOYEE_ID_PREFIX_PATTERN = /^[A-Z][A-Z0-9]{0,9}$/;

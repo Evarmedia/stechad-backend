@@ -23,6 +23,7 @@ async function createInvitation({ actor, organizationId, input, transaction, aut
     const identifier = input.role_id || input.role || 'staff';
     const role = await Role.findOne({ where: { organization_id: organizationId, ...(isUUID(identifier) ? { role_id: identifier } : { role_key: identifier }) }, transaction: tx });
     if (!role || role.role_key === 'super_admin') throw fail('A valid non-super-admin HR role in this organization is required', 400);
+    if (input.department_id && !isUUID(input.department_id)) throw fail('Invalid department identifier', 400);
     if (input.department_id && !await Department.findOne({ where: { organization_id: organizationId, department_id: input.department_id }, transaction: tx })) throw fail('Department not found', 404);
     const existing = await User.unscoped().findOne({ where: emailWhere(email), paranoid: false, transaction: tx });
     if (existing && (!existing.is_active || existing.deleted_at)) throw fail('Account is unavailable', 403);

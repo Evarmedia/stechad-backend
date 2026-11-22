@@ -6,7 +6,8 @@ const {
   Application,
   Project,
   Interview,
-} = require("../models");
+  ProjectManager,
+} = require("../services/hrModels");
 const { Op } = require("sequelize");
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
@@ -392,8 +393,8 @@ const getDashboard = async (req, res) => {
     /* ===============================
        PROJECT STATS (M2M FIX)
        =============================== */
-    const allProjects = await talent.getTalent_projects({
-      where: {},
+    const allProjects = await Project.findAll({
+      include: [{ model: Talent, as: 'talents', attributes: [], required: true, where: { talent_id: talent.talent_id }, through: { attributes: [] } }],
     });
 
     const activeProjects = allProjects.filter((p) =>
@@ -929,7 +930,8 @@ const getProjects = async (req, res) => {
     /* ===============================
        FETCH PROJECTS VIA M2M
        =============================== */
-    let projects = await talent.getTalent_projects({
+    let projects = await Project.findAll({
+      include: [{ model: Talent, as: 'talents', attributes: [], required: true, where: { talent_id: talent.talent_id }, through: { attributes: [] } }],
       order: [["created_at", "DESC"]],
     });
 
@@ -983,13 +985,14 @@ const getProjects = async (req, res) => {
 // Get specific project details
 const getProjectDetails = async (req, res) => {
   try {
-    const { projects_id } = req.params;
-
+    const projects_id = req.params.projects_id || req.params.id;
+    const talent = await Talent.findOne({ where: { user_id: req.user.user_id } });
+    if (!talent) return res.status(404).json({ success: false, message: 'Talent profile not found' });
     const project = await Project.findOne({
-      where: { projects_id, talent_user_id: req.user.user_id },
+      where: { projects_id },
       include: [
-        { model: User, as: "poster", attributes: ["first_name", "last_name"] },
-        { model: Job, as: "job" },
+        { model: Talent, as: 'talents', attributes: [], required: true, where: { talent_id: talent.talent_id }, through: { attributes: [] } },
+        { model: ProjectManager, as: 'project_manager', required: false, include: [{ model: User, as: 'user', attributes: ['first_name', 'last_name'] }] },
       ],
     });
 

@@ -1,10 +1,23 @@
-const { User, Role, Referral, Reward, UserReward } = require('../models');
+const { User, Role, Referral, Reward, UserReward } = require('../services/hrModels');
 const { 
   getUserReferralStats, 
   getUserRewards, 
   validateReferralCode 
 } = require('../utils/referralUtil');
 const { createNotification } = require('../utils/notificationUtil');
+
+// Aggregate the tenant ledger first, then project each global identity through
+// its selected HR profile. Legacy User.role_id is never an aggregate join key.
+async function hydrateReferrers(rows) {
+  return Promise.all(rows.map(async (row) => ({
+    ...row.toJSON(),
+    referrer: await User.findByPk(row.referrer_id, {
+      attributes: ['first_name', 'last_name', 'role_id', 'avatar_object_name'],
+      include: [{ model: Role, as: 'role', attributes: ['role_id', 'role_key', 'name'] }],
+    }),
+  })));
+}
+
 
 // Get user's referral dashboard
 const getReferralDashboard = async (req, res) => {
@@ -84,15 +97,7 @@ const getReferralLeaderboard = async (req, res) => {
         [Referral.sequelize.fn('COUNT', Referral.sequelize.col('referral_id')), 'total_referrals'],
         [Referral.sequelize.fn('COUNT', Referral.sequelize.literal("CASE WHEN status = 'completed' THEN 1 END")), 'completed_referrals']
       ],
-      include: [
-        {
-          model: User.unscoped(),
-          as: 'referrer',
-          attributes: ['first_name', 'last_name', 'role_id', 'avatar_object_name'],
-          include: [{ model: Role, as: 'role', attributes: ['role_id', 'role_key', 'name'] }]
-        }
-      ],
-      group: ['referrer_id', 'referrer.user_id', 'referrer->role.role_id'],
+      group: ['referrer_id'],
       order: [[Referral.sequelize.fn('COUNT', Referral.sequelize.col('referral_id')), 'DESC']],
       limit: parseInt(limit),
       offset: parseInt(offset)
@@ -101,7 +106,7 @@ const getReferralLeaderboard = async (req, res) => {
     res.json({
       success: true,
       data: {
-        leaderboard,
+        leaderboard: await hydrateReferrers(leaderboard),
         pagination: {
           currentPage: parseInt(page),
           itemsPerPage: parseInt(limit)
@@ -127,16 +132,15 @@ const claimReward = async (req, res) => {
         user_id: req.user.user_id,
         reward_status: 'approved'
       },
-      include: [
-        {
-          model: Reward,
-          attributes: ['reward_type', 'reward_description']
-        }
-      ],
-      transaction
+      include: [{ model: Reward, attributes: ['reward_type', 'reward_description'] }],
+      // Serialize claims on the ledger rows; a concurrent claim observes the
+      // committed status and cannot credit the same reward twice.
+      transaction,
+      lock: { level: transaction.LOCK.UPDATE, of: UserReward }
     });
     
     if (!userRewards || userRewards.length === 0) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: 'No eligible rewards found for claiming'
@@ -168,15 +172,15 @@ const claimReward = async (req, res) => {
       claimedRewards.push(reward);
     }
 
-    await transaction.commit();
-
-    // add reward to user.reward balance
+    // The HR profile balance and ledger must commit together.
     if (totalAmount > 0) {
       await User.increment(
         { reward: totalAmount },
-        { where: { user_id: req.user.user_id } }
+        { where: { user_id: req.user.user_id }, transaction }
       );
     }
+
+    await transaction.commit();
 
     // Send notification after transaction commits
     if (claimedRewards.length > 0) {
@@ -193,7 +197,7 @@ const claimReward = async (req, res) => {
             amount: r.reward_amount
           }))
         }
-      });
+      }).catch((error) => console.error('Reward notification failed:', error.message));
     }
 
     res.json({
@@ -209,7 +213,7 @@ const claimReward = async (req, res) => {
     });
 
   } catch (error) {
-    await transaction.rollback();
+    if (!transaction.finished) await transaction.rollback();
     res.status(500).json({
       success: false,
       message: 'Failed to claim rewards',
@@ -268,15 +272,7 @@ const getReferralAnalytics = async (req, res) => {
         'referrer_id',
         [Referral.sequelize.fn('COUNT', Referral.sequelize.col('referral_id')), 'referral_count']
       ],
-      include: [
-        {
-          model: User.unscoped(),
-          as: 'referrer',
-          attributes: ['first_name', 'last_name', 'role_id'],
-          include: [{ model: Role, as: 'role', attributes: ['role_id', 'role_key', 'name'] }]
-        }
-      ],
-      group: ['referrer_id', 'referrer.user_id', 'referrer->role.role_id'],
+      group: ['referrer_id'],
       order: [[Referral.sequelize.fn('COUNT', Referral.sequelize.col('referral_id')), 'DESC']],
       limit: 10
     });
@@ -290,7 +286,7 @@ const getReferralAnalytics = async (req, res) => {
         completed_referrals: completedReferrals,
         total_rewards_claimed: totalRewardsclaimed || 0,
         conversion_rate: parseFloat(conversionRate),
-        top_referrers: topReferrers
+        top_referrers: await hydrateReferrers(topReferrers)
       }
     });
   } catch (error) {

@@ -6,7 +6,7 @@ const {
   Job,
   Application,
   Project,
-} = require("../models");
+} = require("../services/hrModels");
 const { uploadToGCP, deleteFromGCP } = require("../middleware/upload");
 const { getV4ReadSignedUrl } = require("../config/gcpStorage");
 const { formatUserResponse, generateTokens } = require("./authController");

@@ -151,17 +151,18 @@ const frontendUrl =
 
 router.get('/google/callback', 
   passport.authenticate('google', { failureRedirect: '/', session: false }),
-  (req, res) => {
+  asyncRoute(async (req, res) => {
     // Send JWT token after successful login or signup
     const { token } = generateTokens({
       user_id: req.user.user_id,
       role: req.user.role?.role_key,
       session_version: req.user.session_version,
     });
-    const role = req.user.role?.role_key;
+    const session = await require('../services/organizationMembership').sessionView(req.user);
+    const role = session.user.role;
     const home = { admin: "/admin", super_admin: "/admin", staff: "/dashboard/staff", project_manager: "/dashboard/pm", talent: "/dashboard/talent" }[role] || "/dashboard/staff";
     res.redirect(`${frontendUrl}${home}?token=${token}`);
-  }
+  })
 );
 
 /**

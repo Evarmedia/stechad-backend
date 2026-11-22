@@ -1,5 +1,5 @@
 const { Op, fn, col } = require("sequelize");
-const { User, Role, Department, Attendance, AuditLog, Notification, NotificationBroadcast } = require("../models");
+const { User, Role, Department, Attendance, AuditLog, Notification, NotificationBroadcast } = require("../services/hrModels");
 const sequelize = require("../config/database");
 const { ROLE_INCLUDE, directoryWhere, requireDirectoryTarget } = require("../utils/roleUtils");
 const { pagination, pageInfo, requireUuid } = require("../utils/http");
@@ -25,7 +25,7 @@ async function getUsers(req, res) {
 async function deleteUser(req, res) { await lifecycle.deleteUser(requireUuid(req.params.id), req.user); res.json({ success: true, message: "User deleted. Their history has been preserved." }); }
 async function permanentlyDeleteUser(req, res) {
   await lifecycle.permanentlyDeleteUser(requireUuid(req.params.user_id), req.user);
-  res.json({ success: true, message: "User permanently deleted. Related history was unlinked." });
+  res.json({ success: true, message: require('../services/tenantContext').peekTenantContext() ? 'Organization membership removed. History and the global account are preserved.' : 'User permanently deleted. Related history was unlinked.' });
 }
 async function restoreUser(req, res) { const user = await lifecycle.restoreUser(requireUuid(req.params.id), req.user); res.json({ success: true, data: { user } }); }
 async function updatePermissions(req, res) {

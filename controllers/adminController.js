@@ -21,7 +21,7 @@ const {
   RolePermission,
   Role,
   Notification,
-} = require("../models");
+} = require("../services/hrModels");
 const { Op, fn, col, where } = require("sequelize");
 const sendEmail = require("../utils/sendEmail");
 const path = require("path");
@@ -1224,6 +1224,14 @@ const getProjectManagers = async (req, res) => {
 const inviteProjectManager = async (req, res) => {
   let transaction;
   try {
+    const tenant = require('../services/tenantContext').peekTenantContext();
+    if (tenant) {
+      const invitations = require('../services/organizationInvitations');
+      const input = { ...req.body, role: req.body.role || 'project_manager' };
+      const result = await invitations.createInvitation({ actor: req.identity || req.user, organizationId: tenant.organizationId, input, authority: 'hr' });
+      await invitations.sendInvitation(result);
+      return res.status(201).json({ success: true, message: 'Invitation sent successfully.', data: result.invitation });
+    }
     const { email, first_name, last_name, department_id, job_title, role = "project_manager", role_id } = req.body;
     const assignedRole = await findRoleByIdentifier(role_id || role);
     const roleKey = assignedRole?.role_key;
@@ -1336,7 +1344,7 @@ const inviteProjectManager = async (req, res) => {
       } catch (_) {}
     }
     console.error(error);
-    res.status(500).json({
+    res.status(error.status || 500).json({
       success: false,
       message: "Failed to send workforce invitation",
       error: error.message,
