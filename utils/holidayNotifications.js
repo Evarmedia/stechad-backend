@@ -25,12 +25,14 @@ async function sendTenantHolidayNotifications() {
         for (const { holiday, days } of due) {
           const title = `Holiday in ${days} day${days === 1 ? "" : "s"}`;
           const message = `${holiday.name} is on ${holiday.date}${holiday.region ? ` for ${holiday.region}` : ""}.`;
-          const [, wasCreated] = await Notification.findOrCreate({
-            where: { organization_id: organizationId, user_id, title, message },
-            defaults: { organization_id: organizationId, user_id, title, message, type: "info", action_url: personalFeaturePath(user, "holidays"), metadata: { organization_id: organizationId, holiday_id: holiday.holiday_id, reminder_days: days } },
-            transaction,
-          });
-          if (wasCreated) count++;
+          const where = { organization_id: organizationId, user_id, title, message };
+          // The membership lock above serializes this dedupe. Avoid Sequelize's
+          // findOrCreate savepoint: notification afterCommit hooks must attach to
+          // the outer transaction so delivery runs after the reminder commits.
+          if (!await Notification.findOne({ where, transaction })) {
+            const notification = await Notification.create({ ...where, type: "info", action_url: personalFeaturePath(user, "holidays"), metadata: { organization_id: organizationId, holiday_id: holiday.holiday_id, reminder_days: days } }, { transaction });
+            if (notification) count++;
+          }
         }
         return count;
       });

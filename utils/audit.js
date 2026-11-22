@@ -92,7 +92,7 @@ function installAuditing(models) {
     const revoked = !row.is_active || row.changed("password") || row.changed("session_version");
     afterCommit(options.transaction, () => {
       if (revoked) require("./events").disconnectUser(row.user_id);
-      else emitUser(row.user_id, "account_updated");
+      else return require('../services/tenantContext').runWithoutTenant(() => emitUser(row.user_id, "account_updated"));
     });
   });
   models.Role.addHook("afterUpdate", async (role, options) => {
