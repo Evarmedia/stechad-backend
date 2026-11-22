@@ -1,4 +1,7 @@
 require('dotenv').config();
+// Runtime HR access is always tenant-bound; legacy compatibility is test-only.
+process.env.TENANCY_ENFORCED = 'true';
+process.env.AUTH_SESSIONS_ENFORCED = 'true';
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -140,10 +143,25 @@ app.use(
   })
 );
 
+// Serverless exports do not run startServer. Verify the migration before their
+// first request too; failed verification stays closed and may be retried.
+let serverlessReadiness;
+if (process.env.VERCEL) app.use(async (req, res, next) => {
+  try {
+    serverlessReadiness ||= require('./services/tenancyReadiness').assertApplicationReady(sequelize).then(() => installAuditing(require('./models'))).catch((error) => { serverlessReadiness = undefined; throw error; });
+    await serverlessReadiness;
+    next();
+  } catch (error) {
+    console.error('Application storage readiness failed:', error.message);
+    res.status(503).json({ success: false, message: 'Application storage is not ready' });
+  }
+});
 const { auditContext, installAuditing } = require("./utils/audit");
 app.use("/api", auditContext);
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/platform', require('./routes/platformRoutes'));
+app.use('/api/organizations', require('./routes/organizationRoutes'));
 app.use('/api/talents', talentRoutes);
 app.use('/api/pm', pmRoutes);
 app.use('/api/admin', adminRoutes);
@@ -214,7 +232,9 @@ const initializeDatabase = async () => {
   await migrateRoleStorage();
   console.log('Role storage verified');
 
-  const existingRewards = await Reward.count();
+  await require('./services/tenancyReadiness').assertApplicationReady(sequelize);
+  const { STECHAD_ORGANIZATION_ID } = require('./services/tenancyInventory');
+  const existingRewards = await Reward.count({ where: { organization_id: STECHAD_ORGANIZATION_ID } });
 
   if (existingRewards === 0) {
     await createDefaultRewards();

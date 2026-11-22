@@ -46,6 +46,7 @@ async function deleteWhere(model, attribute, id, transaction) {
 }
 
 async function permanentlyDeleteUser(id, actor) {
+  if (require('../services/tenantContext').peekTenantContext() || process.env.TENANCY_ENFORCED === 'true') return tenantLifecycle(id, actor, false, 'user.membership_remove');
   return sequelize.transaction(async (transaction) => {
     await lockHierarchy(transaction);
     const user = await User.findByPk(id, {
@@ -92,6 +93,7 @@ async function permanentlyDeleteUser(id, actor) {
         const key = `${model.name}.${attribute}`;
         if (excludedFields.has(key) || cleared.has(key)) continue;
         if (!model.rawAttributes[attribute]?.allowNull) {
+          if (!await model.unscoped().count({ where: { [attribute]: id }, paranoid: false, transaction })) continue;
           throw new Error(`Cannot unlink required user relationship ${key}`);
         }
         await setNullWhere(model, attribute, id, transaction);
@@ -159,6 +161,7 @@ async function permanentlyDeleteUser(id, actor) {
 }
 
 async function deleteUser(id, actor) {
+  if (require('../services/tenantContext').peekTenantContext() || process.env.TENANCY_ENFORCED === 'true') return tenantLifecycle(id, actor, false, 'user.soft_delete');
   return sequelize.transaction(async (transaction) => {
     await lockHierarchy(transaction);
     const user = await User.findByPk(id, { transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
@@ -173,6 +176,7 @@ async function deleteUser(id, actor) {
   });
 }
 async function restoreUser(id, actor) {
+  if (require('../services/tenantContext').peekTenantContext() || process.env.TENANCY_ENFORCED === 'true') return tenantLifecycle(id, actor, true, 'user.restore');
   return sequelize.transaction(async (transaction) => {
     await lockHierarchy(transaction);
     const user = await User.findByPk(id, { paranoid: false, transaction, lock: { level: transaction.LOCK.UPDATE, of: User } });
@@ -185,3 +189,18 @@ async function restoreUser(id, actor) {
   });
 }
 module.exports = { deleteUser, permanentlyDeleteUser, restoreUser };
+
+async function tenantLifecycle(id, actor, restore, action) {
+  return sequelize.transaction(async (transaction) => {
+    const ScopedUser = require('../services/hrModels').User;
+    const user = await ScopedUser.findByPk(id, { paranoid: false, transaction });
+    requireDirectoryTarget(user);
+    if (!restore && user.user_id === actor.user_id) throw Object.assign(new Error('You cannot remove your own membership here'), { status: 409 });
+    if (restore && !user.deleted_at) throw Object.assign(new Error('This membership is not removed'), { status: 409 });
+    if (restore) await user.restore({ transaction });
+    else await user.destroy({ transaction });
+    await user.update({ deleted_by_user_id: restore ? null : actor.user_id }, { transaction });
+    await recordAudit({ action, target_type: 'User', target_id: id, actor }, transaction);
+    return user;
+  });
+}

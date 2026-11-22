@@ -21,11 +21,15 @@ const seedSuperAdmin = async () => {
   await sequelize.authenticate();
   await migrateRoleStorage();
 
+  const { STECHAD_ORGANIZATION_ID } = require("../services/tenancyInventory");
+  const qi = sequelize.getQueryInterface();
+  const hasTenancy = await qi.tableExists({ schema: sequelize.schema || sequelize.options.schema || "public", tableName: "tenancy_migration_state" });
+  const ownership = hasTenancy ? { organization_id: STECHAD_ORGANIZATION_ID } : {};
   const result = await sequelize.transaction(async (transaction) => {
-    const superAdminRole = await findRoleByKey("super_admin", { transaction });
+    const superAdminRole = await findRoleByKey("super_admin", { transaction, where: { role_key: "super_admin", ...ownership } });
     if (!superAdminRole) throw new Error("Super Admin system role is not seeded");
     const existingSuperAdmin = await User.findOne({
-      where: { "$role.role_key$": "super_admin" },
+      where: { "$role.role_key$": "super_admin", ...(hasTenancy ? { role_id: superAdminRole.role_id } : {}) },
       include: [ROLE_INCLUDE],
       transaction,
       lock: transaction.LOCK.UPDATE,
@@ -36,11 +40,12 @@ const seedSuperAdmin = async () => {
         throw new Error(`A Super Admin already exists (${existingSuperAdmin.email}). Only one is allowed.`);
       }
       const [admin] = await Admin.findOrCreate({
-        where: { user_id: existingSuperAdmin.user_id },
-        defaults: { user_id: existingSuperAdmin.user_id, is_super_admin: true },
+        where: { user_id: existingSuperAdmin.user_id, ...ownership },
+        defaults: { user_id: existingSuperAdmin.user_id, is_super_admin: true, ...ownership },
         transaction,
       });
       if (!admin.is_super_admin) await admin.update({ is_super_admin: true }, { transaction });
+      await require("../services/legacyHRBootstrap").ensureStechadMembership(existingSuperAdmin, { transaction });
       return { user: existingSuperAdmin, created: false };
     }
 
@@ -56,7 +61,8 @@ const seedSuperAdmin = async () => {
       is_verified: true,
       is_active: true,
     }, { transaction });
-    await Admin.create({ user_id: user.user_id, is_super_admin: true }, { transaction });
+    await Admin.create({ user_id: user.user_id, is_super_admin: true, ...ownership }, { transaction });
+    await require("../services/legacyHRBootstrap").ensureStechadMembership(user, { transaction });
     return { user, created: true };
   });
 

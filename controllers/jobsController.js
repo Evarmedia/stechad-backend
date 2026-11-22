@@ -1,9 +1,41 @@
-const { User, Job, Application, ProjectManager, Talent } = require('../models');
+const { User, Job, Application, ProjectManager, Talent } = require('../services/hrModels');
 const { Op } = require('sequelize');
 const { getV4ReadSignedUrl } = require('../config/gcpStorage');
 const { getRoleKey } = require('../utils/roleUtils');
 
 const SIGNED_URL_TTL_SECONDS = 3600; // 1 hour
+
+// This is an intentional unauthenticated publication boundary. Never include
+// private associations or serialize a complete HR Job instance here.
+const PUBLIC_JOB_FIELDS = ['jobs_id', 'title', 'company', 'location', 'description', 'job_type', 'employment_type', 'salary', 'duration', 'openings', 'experience_level', 'skills_required', 'responsibilities', 'requirements', 'remote', 'status', 'deadline', 'posted_at'];
+async function publicOrganization(req) {
+  const { Organization } = require('../models');
+  return Organization.findOne({ where: { slug: req.query.organization_slug || 'stechad', status: 'active' } });
+}
+async function getPublicJobs(req, res) {
+  try {
+    const organization = await publicOrganization(req);
+    if (!organization) return res.status(404).json({ success: false, message: 'Organization not found' });
+    const where = { organization_id: organization.organization_id, status: 'active' };
+    for (const field of ['employment_type', 'experience_level']) if (req.query[field]) where[field] = req.query[field];
+    if (req.query.location) where.location = { [Op.iLike]: `%${req.query.location}%` };
+    if (req.query.skills) where.skills_required = { [Op.overlap]: req.query.skills.split(',').map((s) => s.trim()) };
+    if (req.query.search) where[Op.or] = ['title', 'description', 'company'].map((field) => ({ [field]: { [Op.iLike]: `%${req.query.search}%` } }));
+    const limit = req.query.limit ? Math.min(100, Math.max(1, parseInt(req.query.limit) || 10)) : undefined;
+    const page = req.query.page ? Math.max(1, parseInt(req.query.page) || 1) : undefined;
+    const jobs = await require('../models').Job.findAndCountAll({ where, attributes: PUBLIC_JOB_FIELDS, limit, offset: page && limit ? (page - 1) * limit : undefined, order: [['posted_at', 'DESC']] });
+    return res.json({ success: true, data: { jobs: jobs.rows, pagination: { currentPage: page, totalPages: limit ? Math.ceil(jobs.count / limit) : undefined, totalItems: jobs.count, itemsPerPage: limit } } });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to get jobs' }); }
+}
+async function getPublicJobById(req, res) {
+  try {
+    const organization = await publicOrganization(req);
+    if (!organization) return res.status(404).json({ success: false, message: 'Job not found' });
+    const job = await require('../models').Job.findOne({ where: { jobs_id: req.params.jobs_id, organization_id: organization.organization_id, status: 'active' }, attributes: PUBLIC_JOB_FIELDS });
+    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+    return res.json({ success: true, data: job });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to get job details' }); }
+}
 
 // Get all jobs with filtering and pagination
 const getJobs = async (req, res) => {
@@ -177,6 +209,10 @@ const getJobApplicants = async (req, res) => {
       });
     }
 
+    if (!['admin', 'super_admin'].includes(getRoleKey(req.user)) && job.posted_by !== req.user.user_id) {
+      return res.status(403).json({ success: false, message: 'Access denied to this job' });
+    }
+
     const where = { job_id: jobs_id };
     if (status) where.status = status;
 
@@ -334,6 +370,10 @@ const updateJob = async (req, res) => {
       "title","company","location","description","salary","duration","openings","employment_type","experience_level","skills_required","requirements","responsibilities","deadline", "status"
     ];
 
+    if (!['admin', 'super_admin'].includes(getRoleKey(req.user)) && job.posted_by !== req.user.user_id) {
+      return res.status(403).json({ success: false, message: 'Access denied to this job' });
+    }
+
     const updates = {};
     allowedUpdates.forEach(field => {
       if (req.body[field] !== undefined) {
@@ -377,7 +417,7 @@ const deleteJob = async (req, res) => {
 
     // Check if user is admin or the job poster
     const isAdmin = ['admin', 'super_admin'].includes(userRole);
-    const isJobPoster = job.poster_id === userId;
+    const isJobPoster = job.posted_by === userId;
 
     if (!isAdmin && !isJobPoster) {
       return res.status(403).json({
@@ -415,6 +455,8 @@ const deleteJob = async (req, res) => {
 
 
 module.exports = {
+  getPublicJobs,
+  getPublicJobById,
   getJobs,
   getJobById,
   getJobApplicants,

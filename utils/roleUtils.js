@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const Role = require("../models/Role");
+const Role = require("../services/hrModels").Role;
 
 const SYSTEM_ROLE_KEYS = Object.freeze([
   "super_admin",
@@ -16,7 +16,7 @@ const ROLE_INCLUDE = Object.freeze({
   required: true,
 });
 
-const getRoleKey = (userOrInvite) => userOrInvite?.role?.role_key || null;
+const getRoleKey = (userOrInvite) => userOrInvite?.role?.role_key || userOrInvite?.role_details?.role_key || (typeof userOrInvite?.role === 'string' ? userOrInvite.role : null);
 const roleRecord = (value) => value?.role && typeof value.role === "object" ? value.role : value;
 const isCustomRole = (value) => {
   const role = roleRecord(value);

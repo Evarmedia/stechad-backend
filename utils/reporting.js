@@ -1,4 +1,4 @@
-const { User, Department } = require("../models");
+const { User, Department } = require("../services/hrModels");
 const sequelize = require("../config/database");
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), { status }); };
 const lockHierarchy = (transaction) => sequelize.query("SELECT pg_advisory_xact_lock(hashtext(:key))", { replacements: { key: `${sequelize.schema || "public"}:workforce-hierarchy` }, transaction });

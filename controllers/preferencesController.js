@@ -1,4 +1,4 @@
-const { User, Attendance } = require("../models");
+const { User, Attendance } = require("../services/hrModels");
 const { Op } = require("sequelize");
 const sequelize = require("../config/database");
 const { getWorkforceMoment, autoClockOutDeadline, isAfterAutoClockOut, reconcileUnclosedAttendance } = require("../utils/attendanceScheduler");

@@ -1,4 +1,4 @@
-const { Project, User, Job, ProjectManager, Talent } = require("../models");
+const { Project, User, Job, ProjectManager, Talent } = require("../services/hrModels");
 const { Op } = require("sequelize");
 const { hasPermission } = require("../utils/permissions");
 
@@ -11,6 +11,40 @@ async function canViewProject(project, user) {
 }
 const { createNotification } = require("../utils/notificationUtil");
 const { getRoleKey } = require("../utils/roleUtils");
+
+async function assignTalents(project, talents, transaction, replace = false) {
+  const join = Project.associations.talents.through.model;
+  const context = require('../services/tenantContext').peekTenantContext();
+  const repository = context || process.env.TENANCY_ENFORCED === 'true' ? require('../services/tenantRepository').tenantRepository(join) : join;
+  if (replace) await repository.destroy({ where: { projects_id: project.projects_id }, transaction });
+  if (talents.length) await repository.bulkCreate(talents.map((talent) => ({ projects_id: project.projects_id, talent_id: talent.talent_id })), { transaction });
+}
+
+// Legacy team/task labels remain free text. UUID participant references embedded
+// in those fields require the same organization checks as scalar assignments.
+async function validateProjectParticipants(team, tasks, transaction) {
+  const refs = { users: new Set(), talents: new Set(), managers: new Set() };
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const member of team || []) if (uuid.test(member)) refs.users.add(member);
+  function scan(value) {
+    if (Array.isArray(value)) return value.forEach(scan);
+    if (!value || typeof value !== 'object') return;
+    for (const [key, entry] of Object.entries(value)) {
+      let bucket;
+      if (['assignee', 'assigned_to', 'assignee_id', 'assignee_ids', 'user_id', 'user_ids', 'assigned_to_user_id'].includes(key)) bucket = refs.users;
+      if (['talent_id', 'talent_ids'].includes(key)) bucket = refs.talents;
+      if (['project_manager_id', 'project_managers_id'].includes(key)) bucket = refs.managers;
+      if (bucket) for (const id of [].concat(entry || [])) if (typeof id === 'string' && uuid.test(id)) bucket.add(id);
+      scan(entry);
+    }
+  }
+  scan(tasks);
+  for (const [ids, model, primary] of [[refs.users, User, 'user_id'], [refs.talents, Talent, 'talent_id'], [refs.managers, ProjectManager, 'project_managers_id']]) {
+    if (!ids.size) continue;
+    const count = await model.count({ where: { [primary]: [...ids] }, transaction });
+    if (count !== ids.size) throw Object.assign(new Error('One or more project participants are unavailable'), { status: 400 });
+  }
+}
 
 // Lock the current account before project rows so queued mutations observe
 // account/individual-grant changes committed after REST authentication.
@@ -271,6 +305,7 @@ const createProject = async (req, res) => {
     if (!["admin", "super_admin", "project_manager"].includes(role) && (project_manager_id || project_managers_id || talent_ids.length)) return res.status(403).json({ success: false, message: "Project creation does not grant manager or talent assignment access" });
     const project = await require("../config/database").transaction(async (transaction) => {
       await require("../utils/reporting").lockHierarchy(transaction);
+      await validateProjectParticipants(team, tasks, transaction);
       let manager = null;
       if (["admin", "super_admin"].includes(role)) {
         const assigned = project_manager_id || project_managers_id;
@@ -287,7 +322,7 @@ const createProject = async (req, res) => {
       const talents = ids.length ? await Talent.findAll({ where: { talent_id: ids }, include: [{ model: User, as: "user", required: true, where: { is_active: true }, include: [{ ...require("../utils/roleUtils").ROLE_INCLUDE, where: { role_key: "talent" } }] }], transaction }) : [];
       if (talents.length !== ids.length) throw Object.assign(new Error("One or more assigned talents are unavailable"), { status: 400 });
       const row = await Project.create({ title: title.trim(), description, status, priority, progress, team, tasks, start_date: start_date || null, deadline: deadline || null, feedback, created_by_user_id: req.user.user_id, project_managers_id: manager?.project_managers_id || null }, { transaction });
-      if (talents.length) await row.addTalents(talents, { transaction });
+      if (talents.length) await assignTalents(row, talents, transaction);
       return row;
     });
     return res.status(201).json({ success: true, message: "Project created successfully", data: project });
@@ -311,6 +346,7 @@ const updateProject = async (req, res) => {
     const result = await require("../config/database").transaction(async (transaction) => {
       await require("../utils/reporting").lockHierarchy(transaction);
       const actor = await lockProjectActor(req, transaction);
+      await validateProjectParticipants(updates.team, updates.tasks, transaction);
       const role = getRoleKey(actor);
       const project = await Project.findByPk(require("../utils/http").requireUuid(req.params.projects_id), {
         include: [
@@ -353,7 +389,7 @@ const updateProject = async (req, res) => {
       if (start && deadline && new Date(start) > new Date(deadline)) fail("Project deadline must be after its start date");
       const oldStatus = project.status, oldProgress = project.progress;
       await project.update(updates, { transaction });
-      if (talents) { await project.setTalents(talents, { transaction }); project.setDataValue("talents", talents); }
+      if (talents) { await assignTalents(project, talents, transaction, true); project.setDataValue("talents", talents); }
       return { project, oldStatus, oldProgress };
     });
     const { project, oldStatus, oldProgress } = result;

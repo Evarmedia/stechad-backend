@@ -1,4 +1,6 @@
 const AuditLog = require("./AuditLog");
+const IdentityAuditLog = require('./IdentityAuditLog');
+const StoredFile = require('./StoredFile');
 const NotificationBroadcast = require("./NotificationBroadcast");
 // Models
 const User = require("./User");
@@ -29,8 +31,7 @@ const { Referral } = require("./Referral");
 const { Reward } = require("./Reward");
 const { UserReward  } = require("./UserReward");
 
-/* =========================
-   USER ↔ ROLE RELATIONSHIPS
+/* ==================   USER ↔ ROLE RELATIONSHIPS
    ========================= */
 
 Role.hasMany(User, { foreignKey: "role_id", as: "users", onDelete: "RESTRICT", onUpdate: "CASCADE" });
@@ -119,8 +120,7 @@ User.hasMany(User, {
   constraints: false,
 });
 
-/* =========================
-   WORKFORCE OPERATIONS
+/* ==================   WORKFORCE OPERATIONS
    ========================= */
 
 User.hasMany(Attendance, { foreignKey: "user_id", as: "attendance_entries", onDelete: "CASCADE" });
@@ -157,8 +157,7 @@ User.hasMany(Invoice, { foreignKey: "reviewed_by", as: "reviewed_invoices" });
 Project.hasMany(Invoice, { foreignKey: "project_id", as: "invoices", onDelete: "SET NULL" });
 Invoice.belongsTo(Project, { foreignKey: "project_id", as: "project" });
 
-/* =========================
-   JOB & APPLICATION
+/* ==================   JOB & APPLICATION
    ========================= */
 
 // User (poster) - Job (One-to-Many)
@@ -189,8 +188,7 @@ Application.belongsTo(Talent, {
   as: "applicant",
 });
 
-/* =========================
-   PROJECT MANAGEMENT
+/* ==================   PROJECT MANAGEMENT
    ========================= */
 
 // ProjectManager - Project (One-to-Many)
@@ -219,8 +217,7 @@ Project.belongsToMany(Talent, {
   otherKey: "talent_id",
 });
 
-/* =========================
-   INTERVIEWS
+/* ==================   INTERVIEWS
    ========================= */
 
 Interview.belongsTo(Talent, {
@@ -258,8 +255,7 @@ Job.hasMany(Interview, {
   sourceKey: "jobs_id",
 });
 
-/* =========================
-   CHAT & MESSAGING
+/* ==================   CHAT & MESSAGING
    ========================= */
 
 // User - Chat (Many-to-Many)
@@ -301,8 +297,7 @@ Message.hasMany(Message, {
   as: "replies",
 });
 
-/* =========================
-   NOTIFICATIONS
+/* ==================   NOTIFICATIONS
    ========================= */
 
 User.hasMany(Notification, {
@@ -315,8 +310,7 @@ Notification.belongsTo(User, {
   as: "user_notifications",
 });
 
-/* =========================
-   REFERRALS & REWARDS
+/* ==================   REFERRALS & REWARDS
    ========================= */
 
 User.hasMany(Referral, { foreignKey: "referrer_id", as: "referralsMade" });
@@ -355,6 +349,8 @@ UserReward.belongsTo(Referral, {
 });
 
 module.exports = {
+  IdentityAuditLog,
+  StoredFile,
   AuditLog,
   NotificationBroadcast,
   User,
@@ -385,3 +381,43 @@ module.exports = {
   Reward,
   UserReward,
 };
+
+// Add ownership to every HR model, including implicit many-to-many join models.
+// Column nullability remains migration-controlled during the additive rollout.
+const { DataTypes } = require('sequelize');
+const { TENANT_TABLES } = require('../services/tenancyInventory');
+for (const model of Object.values(User.sequelize.models)) {
+  if (!TENANT_TABLES.includes(model.tableName)) continue;
+  model.rawAttributes.organization_id = { type: DataTypes.UUID, allowNull: true };
+  for (const [field, attribute] of Object.entries(model.rawAttributes)) {
+    if (attribute.unique && !attribute.primaryKey) {
+      attribute.unique = false;
+      model.options.indexes.push({ name: `${model.tableName}_${field}_tenant_unique`, unique: true, fields: ['organization_id', field] });
+    }
+  }
+  for (const index of model.options.indexes) if (index.unique && !index.fields.includes('organization_id')) index.fields = ['organization_id', ...index.fields];
+  model.uniqueKeys = {};
+  model.refreshAttributes();
+}
+const Organization = require('./Organization');
+const OrganizationMembership = require('./OrganizationMembership');
+const HRProfile = require('./HRProfile');
+Organization.hasMany(OrganizationMembership, { foreignKey: 'organization_id', as: 'memberships', onDelete: 'RESTRICT' });
+OrganizationMembership.belongsTo(Organization, { foreignKey: 'organization_id', as: 'organization' });
+User.hasMany(OrganizationMembership, { foreignKey: 'user_id', as: 'organization_memberships', onDelete: 'RESTRICT' });
+OrganizationMembership.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+OrganizationMembership.hasOne(HRProfile, { foreignKey: 'membership_id', as: 'hr_profile', onDelete: 'RESTRICT' });
+HRProfile.belongsTo(OrganizationMembership, { foreignKey: 'membership_id', as: 'membership' });
+HRProfile.belongsTo(Role, { foreignKey: 'role_id', as: 'role', onDelete: 'RESTRICT' });
+Object.assign(module.exports, { Organization, OrganizationMembership, HRProfile });
+
+// Explicit global platform authority and private MFA state.
+Object.assign(module.exports, {
+  PlatformRole: require('./PlatformRole'),
+  PlatformRoleGrant: require('./PlatformRoleGrant'),
+  PlatformMfaCredential: require('./PlatformMfaCredential'),
+  PlatformRecoveryCode: require('./PlatformRecoveryCode'),
+  PlatformSessionAssurance: require('./PlatformSessionAssurance'),
+});
+const AuthSession = require('./AuthSession');
+Object.assign(module.exports, { AuthSession, AuthRefreshToken: User.sequelize.models.AuthRefreshToken, AuthLegacyExchange: User.sequelize.models.AuthLegacyExchange, AuthSecurityState: User.sequelize.models.AuthSecurityState, AuthOAuthAttempt: User.sequelize.models.AuthOAuthAttempt });

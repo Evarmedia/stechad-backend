@@ -38,7 +38,9 @@ function buildObjectName(folder, userId, originalname) {
     .replace(/[^\w\-]+/g, "_")
     .slice(0, 30);
   const rand = crypto.randomBytes(6).toString("hex");
-  return `${folder}/${userId}__${ts}__${rand}${base ? "__" + base : ""}${ext}`;
+  const organizationId = require('../services/tenantContext').peekTenantContext()?.organizationId;
+  const prefix = organizationId ? `organizations/${organizationId}/` : '';
+  return `${prefix}${folder}/${userId}__${ts}__${rand}${base ? "__" + base : ""}${ext}`;
 }
 
 // Upload buffer to GCS, return { objectName, signedUrl }
@@ -50,6 +52,10 @@ async function uploadToGCP(
 ) {
   if (!file) throw new Error("No file buffer provided");
   if (!userId) throw new Error("userId required for naming");
+  const context = require('../services/tenantContext').peekTenantContext();
+  if (context && context.userId !== userId) throw Object.assign(new Error('Uploads must belong to the authenticated member'), { status: 403 });
+  if (!context && process.env.TENANCY_ENFORCED === 'true') throw Object.assign(new Error('Organization context is required for uploads'), { status: 403 });
+  if (context) await require('../services/tenantContext').revalidateTenantContext(context);
 
   const objectName = buildObjectName(folderName, userId, file.originalname);
   const gcsFile = bucket.file(objectName);
@@ -70,12 +76,14 @@ async function uploadToGCP(
   });
 
   // With UBLA, do NOT call makePublic(). Use a signed URL:
+  await require('../services/fileAccess').registerFile(objectName, userId, folderName);
   const signedUrl = await getV4ReadSignedUrl(objectName, signedUrlTTLSeconds);
   return { objectName, signedUrl };
 }
 
 // Delete by objectName (path inside bucket)
 async function deleteFromGCP(objectName) {
+  await require('../services/fileAccess').assertFileOwnership(objectName, { write: true });
   await bucket.file(objectName).delete({ ignoreNotFound: false });
   return true;
 }

@@ -136,8 +136,8 @@ module.exports.clearHistory = handle(async (req, res) => {
     req.user.user_id,
   );
   const io = req.app.get("io");
-  io?.to(`user_${req.user.user_id}`).emit("history_cleared", result);
-  io?.to(`user_${req.user.user_id}`).emit("notifications_changed", result);
+  await require('../utils/events').emitToUser(io, req.user.user_id, "history_cleared", result);
+  await require('../utils/events').emitToUser(io, req.user.user_id, "notifications_changed", result);
   res.json({ success: true, data: result });
 });
 module.exports.deleteForUser = handle(async (req, res) => {
@@ -146,11 +146,11 @@ module.exports.deleteForUser = handle(async (req, res) => {
     req.user.user_id,
   );
   const io = req.app.get("io");
-  io?.to(`user_${req.user.user_id}`).emit("chat_deleted", result);
-  io?.to(`user_${req.user.user_id}`).emit("notifications_changed", result);
+  await require('../utils/events').emitToUser(io, req.user.user_id, "chat_deleted", result);
+  await require('../utils/events').emitToUser(io, req.user.user_id, "notifications_changed", result);
   if (result.purged)
     for (const userId of result.purged_for_user_ids)
-      io?.to(`user_${userId}`).emit("chat_purged", {
+      await require('../utils/events').emitToUser(io, userId, "chat_purged", {
         chat_id: result.chat_id,
       });
   res.json({ success: true, data: result });
@@ -161,9 +161,10 @@ module.exports.leaveGroup = handle(async (req, res) => {
     req.user.user_id,
   );
   const io = req.app.get("io");
-  io?.in(`user_${req.user.user_id}`).socketsLeave(`chat_${req.params.chat_id}`);
-  io?.to(`user_${req.user.user_id}`).emit("group_left", { chat: result });
-  io?.to(`user_${req.user.user_id}`).emit("notifications_changed", {
+  const { userRoom, chatRoom, emitToUser } = require('../utils/events');
+  io?.in(userRoom(req.user.user_id)).socketsLeave(chatRoom(req.params.chat_id));
+  await emitToUser(io, req.user.user_id, "group_left", { chat: result });
+  await emitToUser(io, req.user.user_id, "notifications_changed", {
     chat_id: req.params.chat_id,
   });
   await notify(req, req.params.chat_id, "group_updated", {});
@@ -191,14 +192,8 @@ module.exports.removeMember = handle(async (req, res) => {
     req.user.user_id,
     req.params.user_id,
   );
-  req.app
-    .get("io")
-    ?.to(`user_${req.params.user_id}`)
-    .emit("membership_revoked", { chat_id: req.params.chat_id });
-  req.app
-    .get("io")
-    ?.to(`user_${req.params.user_id}`)
-    .emit("notifications_changed", { chat_id: req.params.chat_id });
+  await require('../utils/events').emitToUser(req.app.get('io'), req.params.user_id, 'membership_revoked', { chat_id: req.params.chat_id });
+  await require('../utils/events').emitToUser(req.app.get('io'), req.params.user_id, 'notifications_changed', { chat_id: req.params.chat_id });
   await notify(req, req.params.chat_id, "group_updated", {});
   res.json({ success: true, data: result });
 });
@@ -250,7 +245,7 @@ module.exports.uploadGroupImage = handle(async (req, res) => {
   );
   const uploaded = await storage.uploadToGCP(
     file,
-    req.params.chat_id,
+    req.user.user_id,
     "chat-groups",
   );
   let result;

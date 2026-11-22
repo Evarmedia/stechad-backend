@@ -29,6 +29,7 @@ async function getV4ReadSignedUrl(
   objectName,
   expiresInSeconds = 7 * 24 * 3600,
 ) {
+  await require('../services/fileAccess').assertFileOwnership(objectName);
   const [url] = await bucket.file(objectName).getSignedUrl({
     version: "v4",
     action: "read",

@@ -24,7 +24,7 @@ const normalizeGrants = (values) => {
 
 async function effectivePermissions(user) {
   if (getRoleKey(user) === "super_admin") return ["*"];
-  const { RolePermission } = require("../models");
+  const { RolePermission } = require("../services/hrModels");
   const role = getRoleKey(user);
   const configured = await RolePermission.findAll();
   const roleKeys = catalog.filter((fallback) => {
@@ -34,7 +34,7 @@ async function effectivePermissions(user) {
   // Preserve the existing talent expense entitlement, while honoring individual grants.
   if (role === "talent") roleKeys.push("submit_expenses");
   if (require("./roleUtils").isCustomRole(user)) {
-    const currentRole = await require("../models/Role").findByPk(user.role_id || user.role.role_id);
+    const currentRole = await require("../services/hrModels").Role.findByPk(user.role_id || user.role.role_id);
     roleKeys.push(...(currentRole?.permission_keys || []).map(normalizePermission));
   }
   return [...new Set([...roleKeys, ...(user.workforce_permissions || []).map(normalizePermission)])]

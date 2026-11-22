@@ -140,7 +140,10 @@ if (!url) {
     const email = `${randomUUID()}@example.test`;
     const invited = await request("admin/workforce/invite", "POST", { email, first_name: "Custom", last_name: "Invite", role_id: role.role_id }); assert.equal(invited.status, 201);
     const invite = await Invite.findOne({ where: { email } });
-    assert.equal((await request(`auth/accept-invite/${invite.token}`, "POST", { new_password: "Custom-pass-123", confirm_password: "Custom-pass-123" })).status, 201);
+    // This legacy fixture has no migration checkpoint/ownership. Public
+    // acceptance fails closed; scoped invitation acceptance has its own suite.
+    assert.equal((await request(`auth/accept-invite/${invite.token}`, "POST", { new_password: "Custom-pass-123", confirm_password: "Custom-pass-123" })).status, 400);
+    await createUser(role.role_key, { email, password: 'Custom-pass-123' });
     const login = await request("auth/login", "POST", { email, password: "Custom-pass-123" }); assert.equal(login.status, 200); assert.equal(login.data.user.role, role.role_key); assert.equal(login.data.user.role_details.name, role.name);
     const member = await User.findOne({ where: { email } });
     for (const path of ["staff/dashboard", "staff/attendance", "staff/leave", "staff/kpis", "staff/holidays", "staff/profile"]) assert.equal((await request(path, "GET", undefined, member)).status, 200, path);
@@ -747,12 +750,12 @@ if (!url) {
     assert.equal(deliveries.length, 1); assert.equal(deliveries[0].user_id, admin.user_id);
     assert.equal(await Notification.count({ where: { user_id: talentUser.user_id } }), 0);
   });
-  test("successful login verifies every role; failed login and password changes enforce current credentials", async () => {
+  test("password login preserves email verification state for every role; failed login and password changes enforce current credentials", async () => {
     for (const role of ["admin", "staff", "project_manager", "talent"]) {
       const user = await createUser(role); assert.equal(user.is_verified, false);
       assert.equal((await request("auth/login", "POST", { email: user.email, password: "wrong" })).status, 401);
       assert.equal((await loadUser(user.user_id)).is_verified, false);
-      const login = await request("auth/login", "POST", { email: user.email, password: "valid-password" }); assert.equal(login.status, 200); assert.equal(login.data.user.is_verified, true);
+      const login = await request("auth/login", "POST", { email: user.email, password: "valid-password" }); assert.equal(login.status, 200); assert.equal(login.data.user.is_verified, false);
       assert.ok((await loadUser(user.user_id)).last_login);
     }
     const user = await createUser(); const prior = token(user);
@@ -833,7 +836,7 @@ if (!url) {
   });
   test("Google authentication verifies active accounts and rejects inactive or deleted identities", async () => {
     const strategy = require("passport")._strategy("google");
-    const verify = (email) => new Promise((resolve, reject) => strategy._verify("verified-provider-token", "", { _json: { email } }, (error, user) => error ? reject(error) : resolve(user)));
+    const verify = (email) => new Promise((resolve, reject) => strategy._verify("verified-provider-token", "", { _json: { email, email_verified: true } }, (error, user) => error ? reject(error) : resolve(user)));
     const user = await createUser("admin"); await verify(user.email); assert.equal((await loadUser(user.user_id)).is_verified, true);
     await user.update({ is_active: false }); await assert.rejects(verify(user.email), /unavailable/);
     const deleted = await createUser(); await request(`admin/users/${deleted.user_id}`, "DELETE"); await assert.rejects(verify(deleted.email), /unavailable/);

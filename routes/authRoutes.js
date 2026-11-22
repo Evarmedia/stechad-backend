@@ -17,14 +17,16 @@ const {
   acceptInvite,
   getMe
 } = require('../controllers/authController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authenticateIdentity } = require('../middleware/auth');
 const { validateRegistration, validateLogin, validateEmail } = require('../middleware/validation');
 
 const passport = require('passport');
-const { generateTokens } = require('../utils/generateTokens')
 
 const router = express.Router();
-const { refreshAccessToken } = require('../controllers/sessionController');
+const { refreshLogout, refreshAccessToken, listSessions, deleteSession, logoutAll } = require('../controllers/sessionController');
+router.get('/sessions', authenticateIdentity, listSessions);
+router.delete('/sessions/:sessionId', authenticateIdentity, deleteSession);
+router.post('/logout-all', refreshLogout(true), authenticateIdentity, logoutAll);
 
 /**
  * @swagger
@@ -85,12 +87,15 @@ router.put('/preferences', authenticate, asyncRoute(preferences.updatePreference
  *                   example: 'Failed to initiate Google OAuth.'
  */
 // Redirect to Google OAuth
-router.get('/google', passport.authenticate('google', {
-  scope: ['profile', 'email'],
-  session: false,
-  // Force Google to show the account chooser / consent screen
-  prompt: 'select_account',
-  accessType: 'online',
+const oauth = require('../services/authOAuth');
+router.get('/google', asyncRoute(async (req, res, next) => {
+  const state = await oauth.start(req, res);
+  return passport.authenticate('google', { scope: ['profile', 'email'], session: false, prompt: 'select_account', accessType: 'online', state })(req, res, next);
+}));
+router.post('/oauth/exchange', asyncRoute(async (req, res) => {
+  const data = await oauth.exchange(req.body.code, req.body.code_verifier, req);
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, data });
 }));
 
 /**
@@ -99,7 +104,7 @@ router.get('/google', passport.authenticate('google', {
  *   get:
  *     summary: Google OAuth callback after authentication
  *     tags: [Authentication]
- *     description: This route handles the Google OAuth callback, exchanges the authorization code for a token, and sends the user a JWT token.
+ *     description: Validates browser-bound state and redirects with a one-use PKCE-bound exchange code. Tokens are returned only by POST /auth/oauth/exchange.
  *     parameters:
  *       - in: query
  *         name: code
@@ -149,20 +154,18 @@ const frontendUrl =
     ? process.env.FRONTEND_URL
     : process.env.FRONTEND_PROD_URL;
 
-router.get('/google/callback', 
-  passport.authenticate('google', { failureRedirect: '/', session: false }),
-  (req, res) => {
-    // Send JWT token after successful login or signup
-    const { token } = generateTokens({
-      user_id: req.user.user_id,
-      role: req.user.role?.role_key,
-      session_version: req.user.session_version,
-    });
-    const role = req.user.role?.role_key;
-    const home = { admin: "/admin", super_admin: "/admin", staff: "/dashboard/staff", project_manager: "/dashboard/pm", talent: "/dashboard/talent" }[role] || "/dashboard/staff";
-    res.redirect(`${frontendUrl}${home}?token=${token}`);
-  }
-);
+router.get('/google/callback', asyncRoute(async (req, res, next) => {
+  req.oauthAttemptId = await oauth.bindCallback(req);
+  return passport.authenticate('google', { session: false }, (error, user) => {
+    if (error || !user) return res.status(400).json({ success: false, message: 'Google authentication failed' });
+    Promise.resolve().then(async () => {
+      const { code, returnTo } = await oauth.complete(req.oauthAttemptId, user);
+      res.clearCookie(oauth.cookieName, { ...oauth.cookieOptions(), maxAge: undefined });
+      res.set('Cache-Control', 'no-store');
+      return res.redirect(`${frontendUrl || ''}${returnTo}?code=${encodeURIComponent(code)}`);
+    }).catch(() => res.status(400).json({ success: false, message: 'Google authentication failed' }));
+  })(req, res, next);
+}));
 
 /**
  * @swagger
@@ -619,7 +622,7 @@ router.post('/edit-password', authenticate, editPassword);
  *                   type: string
  *                   example: Failed to accept invite
  */
-router.post('/accept-invite/:token', acceptInvite);
+router.post('/accept-invite/:token', (req, res, next) => req.get('Authorization') ? authenticateIdentity(req, res, next) : next(), acceptInvite);
 
 // Protected routes
 /**
@@ -655,7 +658,7 @@ router.post('/accept-invite/:token', acceptInvite);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/logout', authenticate, logout);
+router.post('/logout', refreshLogout(), authenticate, logout);
 
 /**
  * @swagger

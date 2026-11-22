@@ -47,6 +47,8 @@ Invite.init(
     //   type: DataTypes.TEXT,
     //   allowNull: true,
     // },
+    token_hash: { type: DataTypes.TEXT, allowNull: true },
+    membership_role: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "member", validate: { isIn: [["owner", "admin", "member"]] } },
     token: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -119,6 +121,7 @@ Invite.prototype.toJSON = function() {
   }
   delete user.temp_password;
   delete user.token;
+  delete user.token_hash;
   return user;
 };
 
